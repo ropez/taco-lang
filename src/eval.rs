@@ -28,7 +28,9 @@ fn eval_block(ast: &[AstNode], mut scope: Scope) {
                     .insert(Arc::clone(name), eval_expr(value, &scope));
             }
             AstNode::Function { name, fun } => {
-                scope.functions.insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
+                scope
+                    .functions
+                    .insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
             }
             AstNode::Expression(expr) => {
                 // HACK Evaluating expression for side-effects
@@ -59,7 +61,7 @@ fn eval_block(ast: &[AstNode], mut scope: Scope) {
 
 fn eval_expr(expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
     match expr {
-        Expression::String(s) => Arc::new(ScriptValue::String(Arc::clone(s))),
+        Expression::String(s) => Arc::new(eval_str(s.clone(), scope)),
         Expression::List(s) => Arc::new(ScriptValue::List(
             s.iter().map(|i| eval_expr(i, scope)).collect(),
         )),
@@ -100,7 +102,11 @@ fn eval_expr(expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
                         let mut inner_scope = captured_scope.clone();
 
                         if fun.params.len() != arguments.len() {
-                            panic!("Expected {} arguments, found {}", fun.params.len(), arguments.len());
+                            panic!(
+                                "Expected {} arguments, found {}",
+                                fun.params.len(),
+                                arguments.len()
+                            );
                         }
 
                         for (ident, arg) in fun.params.iter().zip(arguments) {
@@ -118,4 +124,21 @@ fn eval_expr(expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
         },
         // _ => unimplemented!("Expression: {expr:?}"),
     }
+}
+
+fn eval_str(src: Arc<str>, scope: &Scope) -> ScriptValue {
+    // We probably need the parser to play a role in this.
+    // This implementation silently ignores missing references.
+    let mut res = src.to_string();
+    for (ident, value) in &scope.locals {
+        let fmt = format!("${ident}");
+        while res.contains(&fmt) {
+            let val = match value.as_ref() {
+                ScriptValue::String(s) => s.clone(),
+                _ => panic!("Unexpected token in string interpolation!"),
+            };
+            res = res.replace(&fmt, &val);
+        }
+    }
+    ScriptValue::String(res.into())
 }

@@ -12,8 +12,8 @@ fn main() {
         println(msg)
 
         prefix = "--"
-        fun explain(a) {
-            println(prefix, a)
+        fun explain(fruit) {
+            println("$prefix $fruit is a fruit")
         }
         prefix = "not this"
 
