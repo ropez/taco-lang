@@ -17,6 +17,11 @@ fn main() {
             "banana"
         ]
 
+        fruits = push(
+            fruits
+            "pineapple"
+        )
+
         for fruit in fruits {
             println(fruit)
         }
@@ -28,6 +33,7 @@ fn main() {
 
         bye()
     "#;
+
     let tokens = lexer::tokenize(code);
     let ast = parser::parse(tokens);
 

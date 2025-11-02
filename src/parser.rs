@@ -7,10 +7,6 @@ pub enum AstNode {
         name: Arc<str>,
         value: Expression,
     },
-    Call {
-        subject: Arc<str>,
-        arguments: Vec<Expression>,
-    },
 
     // Are functions expressions?
     // Is this just an assignment?
@@ -24,6 +20,8 @@ pub enum AstNode {
         iterable: Expression,
         body: Vec<AstNode>,
     },
+
+    Expression(Expression),
 }
 
 // Expressions must have type
@@ -32,6 +30,10 @@ pub enum Expression {
     Ref(Arc<str>),
     String(Arc<str>),
     List(Vec<Expression>),
+    Call {
+        subject: Arc<str>,
+        arguments: Vec<Expression>,
+    },
 }
 
 pub struct Function {
@@ -86,10 +88,10 @@ impl Parser {
                         }
                         Token::LeftParen => {
                             let arguments = self.parse_argument_list();
-                            let node = AstNode::Call {
+                            let node = AstNode::Expression(Expression::Call {
                                 subject: name,
                                 arguments,
-                            };
+                            });
                             ast.push(node);
 
                             self.expect(Token::NewLine);
@@ -104,7 +106,11 @@ impl Parser {
                     self.expect(Token::LeftBrace);
                     let body = self.parse();
 
-                    ast.push(AstNode::Iteration { ident, iterable, body });
+                    ast.push(AstNode::Iteration {
+                        ident,
+                        iterable,
+                        body,
+                    });
                 }
                 _ => panic!("Unexpected token: {token:?}"),
             }
@@ -116,12 +122,33 @@ impl Parser {
     fn parse_expression(&mut self) -> Expression {
         let token = self.iter.next().expect("expression");
         match token {
-            Token::Identifier(s) => Expression::Ref(s),
+            Token::Identifier(s) => {
+                let next = self.iter.peek();
+                match next {
+                    // FIXME: Call should be a "continuation" of an expression.
+                    // The expression can be anything such as a fun returning a fun.
+                    Some(Token::LeftParen) => {
+                        self.expect(Token::LeftParen);
+                        let arguments = self.parse_argument_list();
+                        let node = Expression::Call {
+                            subject: s,
+                            arguments,
+                        };
+
+                        self.expect(Token::NewLine);
+                        node
+                    }
+                    _ => Expression::Ref(s),
+                }
+            }
             Token::String(s) => Expression::String(s),
             Token::LeftSquare => {
                 let mut list = Vec::new();
 
-                // FIXME: Infer type of list, and each item
+                // FIXME: Infer type of list, and validate each item's type
+                // Not sure if this is really a parser concern.
+                // Needs to take scope into consideration, so it's probably
+                // some analysis phase after parsing, but before evaluation.
                 loop {
                     match self.iter.next() {
                         None => panic!("Unexpected end of input"),
@@ -130,7 +157,7 @@ impl Parser {
                             Token::NewLine => {} // Ignore
                             Token::String(s) => list.push(Expression::String(s)),
                             _ => panic!("Unexpected token in list: {t:?}"),
-                        }
+                        },
                     }
                 }
 
