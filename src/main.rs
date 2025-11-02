@@ -11,6 +11,16 @@ fn main() {
         )
         println(msg)
 
+        fruits = [
+            "apple"
+            "orange"
+            "banana"
+        ]
+
+        for fruit in fruits {
+            println(fruit)
+        }
+
         fun bye() {
             msg = "Good bye"
             println(msg)

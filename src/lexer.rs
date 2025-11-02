@@ -7,10 +7,14 @@ pub enum Token {
     RightParen,
     LeftBrace,
     RightBrace,
+    LeftSquare,
+    RightSquare,
     Comma,
     Identifier(Arc<str>),
-    String(Box<str>),
+    String(Arc<str>),
     Fun,
+    For,
+    In,
     NewLine,
 }
 
@@ -55,6 +59,14 @@ impl<'a> Tokenizer<'a> {
                         tokens.push(Token::RightBrace);
                         self.code.next();
                     }
+                    '[' => {
+                        tokens.push(Token::LeftSquare);
+                        self.code.next();
+                    }
+                    ']' => {
+                        tokens.push(Token::RightSquare);
+                        self.code.next();
+                    }
                     ',' => {
                         tokens.push(Token::Comma);
                         self.code.next();
@@ -64,13 +76,15 @@ impl<'a> Tokenizer<'a> {
                         self.code.next();
                     }
                     '"' => {
-                        let s = self.get_str();
+                        let s = self.find_str();
                         tokens.push(Token::String(s));
                     }
                     'a'..='z' => {
-                        let s = self.get_ident();
+                        let s = self.find_ident();
                         match s.as_ref() {
                             "fun" => tokens.push(Token::Fun),
+                            "for" => tokens.push(Token::For),
+                            "in" => tokens.push(Token::In),
                             _ => tokens.push(Token::Identifier(s)),
                         };
                     }
@@ -82,9 +96,7 @@ impl<'a> Tokenizer<'a> {
         tokens
     }
 
-    fn get_str(&mut self) -> Box<str> {
-        // FIXME: Replace "get" with better verb
-
+    fn find_str(&mut self) -> Arc<str> {
         self.code.next(); // TODO Assert "
 
         // FIXME Inefficient
@@ -100,9 +112,7 @@ impl<'a> Tokenizer<'a> {
         s.into()
     }
 
-    fn get_ident(&mut self) -> Arc<str> {
-        // FIXME: Replace "get" with better verb
-
+    fn find_ident(&mut self) -> Arc<str> {
         // FIXME Inefficient
         let mut s = String::new();
         loop {
