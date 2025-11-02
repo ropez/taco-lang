@@ -87,7 +87,7 @@ impl Parser {
                             self.expect(Token::NewLine);
                         }
                         Token::LeftParen => {
-                            let arguments = self.parse_argument_list();
+                            let arguments = self.parse_list(Token::RightParen);
                             let node = AstNode::Expression(Expression::Call {
                                 subject: name,
                                 arguments,
@@ -123,13 +123,12 @@ impl Parser {
         let token = self.iter.next().expect("expression");
         match token {
             Token::Identifier(s) => {
-                let next = self.iter.peek();
-                match next {
+                match self.iter.peek() {
                     // FIXME: Call should be a "continuation" of an expression.
                     // The expression can be anything such as a fun returning a fun.
                     Some(Token::LeftParen) => {
-                        self.expect(Token::LeftParen);
-                        let arguments = self.parse_argument_list();
+                        self.iter.next();
+                        let arguments = self.parse_list(Token::RightParen);
                         let node = Expression::Call {
                             subject: s,
                             arguments,
@@ -143,23 +142,11 @@ impl Parser {
             }
             Token::String(s) => Expression::String(s),
             Token::LeftSquare => {
-                let mut list = Vec::new();
-
                 // FIXME: Infer type of list, and validate each item's type
                 // Not sure if this is really a parser concern.
                 // Needs to take scope into consideration, so it's probably
                 // some analysis phase after parsing, but before evaluation.
-                loop {
-                    match self.iter.next() {
-                        None => panic!("Unexpected end of input"),
-                        Some(t) => match t {
-                            Token::RightSquare => break,
-                            Token::NewLine => {} // Ignore
-                            Token::String(s) => list.push(Expression::String(s)),
-                            _ => panic!("Unexpected token in list: {t:?}"),
-                        },
-                    }
-                }
+                let list = self.parse_list(Token::RightSquare);
 
                 Expression::List(list)
             }
@@ -167,21 +154,44 @@ impl Parser {
         }
     }
 
-    fn parse_argument_list(&mut self) -> Vec<Expression> {
+    fn parse_list(&mut self, until: Token) -> Vec<Expression> {
         let mut arguments = Vec::new();
 
+        // Before: 0-n newline
+        // Between: Exactly 1 newline or comma, followed by 0-n newline
+        // After: 0-1 comma, followed by 0-n newline
+
         loop {
-            let token = self.iter.next().expect("function argument");
-            match token {
-                Token::NewLine => {} // Ignore
-                Token::Identifier(s) => arguments.push(Expression::Ref(s)),
-                Token::String(s) => arguments.push(Expression::String(s)),
-                Token::RightParen => break,
-                _ => panic!("unexpected token: {token:?}"),
+            self.consume_whitespace();
+            let next = self.iter.peek().expect("token");
+            if *next == until {
+                self.iter.next();
+                break;
+            }
+
+            arguments.push(self.parse_expression());
+
+            let token = self.iter.next().expect("token");
+            if token == until {
+                break;
+            } else if token != Token::Comma && token != Token::NewLine {
+                panic!("unexpected token: {token:?}")
             }
         }
 
         arguments
+    }
+
+    fn consume_whitespace(&mut self) {
+        loop {
+            match self.iter.peek() {
+                None => break,
+                Some(Token::NewLine) => {}
+                Some(_) => break,
+            }
+
+            self.iter.next();
+        }
     }
 
     fn expect(&mut self, token: Token) {

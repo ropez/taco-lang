@@ -11,10 +11,11 @@ fn main() {
         )
         println(msg)
 
+        banana = "banana"
         fruits = [
             "apple"
             "orange"
-            "banana"
+            banana
         ]
 
         fruits = push(
