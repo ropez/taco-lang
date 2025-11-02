@@ -11,9 +11,11 @@ fn main() {
         )
         println(msg)
 
-        fun explain(a, b) {
-            println(a, b)
+        prefix = "--"
+        fun explain(a) {
+            println(prefix, a)
         }
+        prefix = "not this"
 
         banana = "banana"
         fruits = [
@@ -28,7 +30,7 @@ fn main() {
         )
 
         for fruit in fruits {
-            explain("--", fruit)
+            explain(fruit)
         }
 
         fun bye() {

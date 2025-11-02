@@ -12,7 +12,7 @@ pub enum ScriptValue {
 #[derive(Default, Clone)]
 struct Scope {
     locals: HashMap<Arc<str>, Arc<ScriptValue>>,
-    functions: HashMap<Arc<str>, Arc<Function>>,
+    functions: HashMap<Arc<str>, (Arc<Function>, Scope)>,
 }
 
 pub fn eval(ast: &[AstNode]) {
@@ -28,7 +28,7 @@ fn eval_block(ast: &[AstNode], mut scope: Scope) {
                     .insert(Arc::clone(name), eval_expr(value, &scope));
             }
             AstNode::Function { name, fun } => {
-                scope.functions.insert(Arc::clone(name), Arc::clone(fun));
+                scope.functions.insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
             }
             AstNode::Expression(expr) => {
                 // HACK Evaluating expression for side-effects
@@ -96,9 +96,8 @@ fn eval_expr(expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
             _ => {
                 match scope.functions.get(subject) {
                     None => panic!("Undefined function: {subject:?}"),
-                    Some(fun) => {
-                        // FIXME: Capture scope
-                        let mut inner_scope = Scope::default();
+                    Some((fun, captured_scope)) => {
+                        let mut inner_scope = captured_scope.clone();
 
                         if fun.params.len() != arguments.len() {
                             panic!("Expected {} arguments, found {}", fun.params.len(), arguments.len());
