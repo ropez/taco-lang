@@ -39,6 +39,10 @@ impl<'a> Tokenizer<'a> {
                     ' ' => {
                         self.code.next();
                     }
+                    '#' => {
+                        // Consume until newline
+                        while self.code.next_if(|t| *t != '\n').is_some() {}
+                    }
                     '=' => {
                         tokens.push(Token::Assign);
                         self.code.next();

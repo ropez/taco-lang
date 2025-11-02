@@ -11,6 +11,10 @@ fn main() {
         )
         println(msg)
 
+        fun explain(a, b) {
+            println(a, b)
+        }
+
         banana = "banana"
         fruits = [
             "apple"
@@ -24,7 +28,7 @@ fn main() {
         )
 
         for fruit in fruits {
-            println(fruit)
+            explain("--", fruit)
         }
 
         fun bye() {

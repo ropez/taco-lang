@@ -40,6 +40,7 @@ pub struct Function {
     // return type
     // parameters
     // closure
+    pub(crate) params: Vec<Arc<str>>,
     pub(crate) body: Vec<AstNode>,
 }
 
@@ -66,14 +67,13 @@ impl Parser {
                 Token::Fun => {
                     let name = self.expect_ident();
                     self.expect(Token::LeftParen);
-                    // TODO parameters
-                    self.expect(Token::RightParen);
+                    let params = self.parse_params(Token::RightParen);
                     self.expect(Token::LeftBrace);
                     self.expect(Token::NewLine);
 
                     let body = self.parse();
 
-                    let fun = Arc::new(Function { body });
+                    let fun = Arc::new(Function { body, params });
                     ast.push(AstNode::Function { name, fun });
                 }
                 Token::Identifier(name) => {
@@ -154,12 +154,8 @@ impl Parser {
         }
     }
 
-    fn parse_list(&mut self, until: Token) -> Vec<Expression> {
-        let mut arguments = Vec::new();
-
-        // Before: 0-n newline
-        // Between: Exactly 1 newline or comma, followed by 0-n newline
-        // After: 0-1 comma, followed by 0-n newline
+    fn parse_params(&mut self, until: Token) -> Vec<Arc<str>> {
+        let mut items = Vec::new();
 
         loop {
             self.consume_whitespace();
@@ -169,7 +165,7 @@ impl Parser {
                 break;
             }
 
-            arguments.push(self.parse_expression());
+            items.push(self.expect_ident());
 
             let token = self.iter.next().expect("token");
             if token == until {
@@ -179,7 +175,31 @@ impl Parser {
             }
         }
 
-        arguments
+        items
+    }
+
+    fn parse_list(&mut self, until: Token) -> Vec<Expression> {
+        let mut items = Vec::new();
+
+        loop {
+            self.consume_whitespace();
+            let next = self.iter.peek().expect("token");
+            if *next == until {
+                self.iter.next();
+                break;
+            }
+
+            items.push(self.parse_expression());
+
+            let token = self.iter.next().expect("token");
+            if token == until {
+                break;
+            } else if token != Token::Comma && token != Token::NewLine {
+                panic!("unexpected token: {token:?}")
+            }
+        }
+
+        items
     }
 
     fn consume_whitespace(&mut self) {

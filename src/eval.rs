@@ -96,10 +96,20 @@ fn eval_expr(expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
             _ => {
                 match scope.functions.get(subject) {
                     None => panic!("Undefined function: {subject:?}"),
-                    Some(f) => {
+                    Some(fun) => {
                         // FIXME: Capture scope
-                        let scope = Scope::default();
-                        eval_block(&f.body, scope);
+                        let mut inner_scope = Scope::default();
+
+                        if fun.params.len() != arguments.len() {
+                            panic!("Expected {} arguments, found {}", fun.params.len(), arguments.len());
+                        }
+
+                        for (ident, arg) in fun.params.iter().zip(arguments) {
+                            let val = eval_expr(arg, scope);
+                            inner_scope.locals.insert(ident.clone(), val);
+                        }
+
+                        eval_block(&fun.body, inner_scope);
 
                         // FIXME Return value
                         Arc::new(ScriptValue::Void)
