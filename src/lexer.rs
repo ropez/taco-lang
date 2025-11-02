@@ -1,11 +1,16 @@
-use std::{iter::Peekable, str::Chars};
+use std::{iter::Peekable, str::Chars, sync::Arc};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Token {
+    Assign,
     LeftParen,
     RightParen,
-    Identifier(Box<str>),
+    LeftBrace,
+    RightBrace,
+    Comma,
+    Identifier(Arc<str>),
     String(Box<str>),
+    Fun,
     NewLine,
 }
 
@@ -30,12 +35,28 @@ impl<'a> Tokenizer<'a> {
                     ' ' => {
                         self.code.next();
                     }
+                    '=' => {
+                        tokens.push(Token::Assign);
+                        self.code.next();
+                    }
                     '(' => {
                         tokens.push(Token::LeftParen);
                         self.code.next();
                     }
                     ')' => {
                         tokens.push(Token::RightParen);
+                        self.code.next();
+                    }
+                    '{' => {
+                        tokens.push(Token::LeftBrace);
+                        self.code.next();
+                    }
+                    '}' => {
+                        tokens.push(Token::RightBrace);
+                        self.code.next();
+                    }
+                    ',' => {
+                        tokens.push(Token::Comma);
                         self.code.next();
                     }
                     '\n' => {
@@ -48,7 +69,10 @@ impl<'a> Tokenizer<'a> {
                     }
                     'a'..='z' => {
                         let s = self.get_ident();
-                        tokens.push(Token::Identifier(s));
+                        match s.as_ref() {
+                            "fun" => tokens.push(Token::Fun),
+                            _ => tokens.push(Token::Identifier(s)),
+                        };
                     }
                     _ => panic!("Unexpected token: {}", c),
                 },
@@ -76,7 +100,7 @@ impl<'a> Tokenizer<'a> {
         s.into()
     }
 
-    fn get_ident(&mut self) -> Box<str> {
+    fn get_ident(&mut self) -> Arc<str> {
         // FIXME: Replace "get" with better verb
 
         // FIXME Inefficient

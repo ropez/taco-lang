@@ -25,12 +25,18 @@ Single file (maybe "modules" later)
 Rust:
     - Structs & Enums
     - Result & Option
+    - Nullability and error handling
 Swift:
-    - Value semantics
+    - Value semantics (CoW)
 Bash:
-    - Simplicity
     - Program structure
-    - Resource management
+    - Simplicity (no resource management, no garbage collection)
+Dart:
+    - String interpolation (in all strings)
+Python:
+    - list & dict
+Python/GraphQL:
+    - Optional comma
 
 ## Mutability
 
@@ -40,7 +46,7 @@ See how much we can do without.
 Eventually, add something like this:
 
 ```
-getFruits, setFruits = useState(list<str>())
+getFruits, setFruits = state(list<str>())
 
 setFruits(getFruits().add("Apple"))
 setFruits(getFruits().add("Banana"))
@@ -71,6 +77,31 @@ for p in get_projects() {
 
 ```
 println("Hello, world")
+
+# Prints:
+# Hello, world
+```
+
+```
+println(
+    "Hello, world"
+    "What's up?"
+)
+
+# Prints:
+# Hello, world
+# What's up?
+```
+
+```
+print(
+    1
+    2
+    3
+)
+
+# Prints:
+# 123
 ```
 
 ```
