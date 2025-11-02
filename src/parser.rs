@@ -129,13 +129,10 @@ impl Parser {
                     Some(Token::LeftParen) => {
                         self.iter.next();
                         let arguments = self.parse_list(Token::RightParen);
-                        let node = Expression::Call {
+                        Expression::Call {
                             subject: s,
                             arguments,
-                        };
-
-                        self.expect(Token::NewLine);
-                        node
+                        }
                     }
                     _ => Expression::Ref(s),
                 }

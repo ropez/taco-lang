@@ -18,14 +18,13 @@ fn main() {
         prefix = "not this"
 
         banana = "banana"
-        fruits = [
+        fruits = push([
             "apple"
-            "orange"
             banana
-        ]
+        ], "orange")
 
         fruits = push(
-            fruits
+            push(fruits, "kiwi")
             "pineapple"
         )
 
