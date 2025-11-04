@@ -2,6 +2,7 @@ use std::{iter::Peekable, sync::Arc, vec::IntoIter};
 
 use crate::lexer::Token;
 
+#[derive(Debug)]
 pub enum AstNode {
     Assignment {
         name: Arc<str>,
@@ -21,6 +22,11 @@ pub enum AstNode {
         body: Vec<AstNode>,
     },
 
+    Condition {
+        cond: Expression,
+        body: Vec<AstNode>,
+    },
+
     Expression(Expression),
 }
 
@@ -30,12 +36,16 @@ pub enum Expression {
     Ref(Arc<str>),
     String(Arc<str>),
     List(Vec<Expression>),
+    Not(Arc<Expression>),
+    Equal(Arc<Expression>, Arc<Expression>),
+    NotEqual(Arc<Expression>, Arc<Expression>),
     Call {
         subject: Arc<str>,
         arguments: Vec<Expression>,
     },
 }
 
+#[derive(Debug)]
 pub struct Function {
     // return type
     // parameters
@@ -46,6 +56,16 @@ pub struct Function {
 
 struct Parser {
     iter: Peekable<IntoIter<Token>>,
+}
+
+mod constants {
+    pub(crate) const BP_EQUAL: u32 = 1;
+    // pub(crate) const BP_INEQUAL: u32 = 2;
+    // pub(crate) const BP_PLUS: u32 = 10;
+    // pub(crate) const BP_MINUS: u32 = 10;
+    // pub(crate) const BP_DIV: u32 = 20;
+    // pub(crate) const BP_MULT: u32 = 20;
+    // pub(crate) const BP_UNARY: u32 = 30;
 }
 
 impl Parser {
@@ -81,7 +101,7 @@ impl Parser {
 
                     match p {
                         Token::Assign => {
-                            let value = self.parse_expression();
+                            let value = self.parse_expression(0);
                             let node = AstNode::Assignment { name, value };
                             ast.push(node);
                             self.expect(Token::NewLine);
@@ -99,10 +119,20 @@ impl Parser {
                         _ => panic!("Expected assignment or call"),
                     }
                 }
+                Token::If => {
+                    let cond = self.parse_expression(0);
+                    self.expect(Token::LeftBrace);
+                    let body = self.parse();
+
+                    ast.push(AstNode::Condition {
+                        cond,
+                        body,
+                    });
+                }
                 Token::For => {
                     let ident = self.expect_ident();
                     self.expect(Token::In);
-                    let iterable = self.parse_expression();
+                    let iterable = self.parse_expression(0);
                     self.expect(Token::LeftBrace);
                     let body = self.parse();
 
@@ -119,7 +149,7 @@ impl Parser {
         ast
     }
 
-    fn parse_expression(&mut self) -> Expression {
+    fn parse_expression(&mut self, bp: u32) -> Expression {
         let token = self.iter.next().expect("expression");
         match token {
             Token::Identifier(s) => {
@@ -134,8 +164,12 @@ impl Parser {
                             arguments,
                         }
                     }
-                    _ => Expression::Ref(s),
+                    _ => self.parse_continuation(Expression::Ref(s), bp),
                 }
+            }
+            Token::Not => {
+                let expr = self.parse_expression(0);
+                Expression::Not(expr.into())
             }
             Token::String(s) => Expression::String(s),
             Token::LeftSquare => {
@@ -148,6 +182,37 @@ impl Parser {
                 Expression::List(list)
             }
             _ => panic!("unexpected token: {token:?}"),
+        }
+    }
+
+    fn parse_continuation(&mut self, lhs: Expression, bp: u32) -> Expression {
+        use constants::*;
+
+        match self.iter.peek() {
+            None => lhs,
+            Some(token) => match token {
+                Token::Equal => {
+                    if bp >= BP_EQUAL {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let rhs = self.parse_expression(BP_EQUAL);
+                        let expr = Expression::Equal(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)
+                    }
+                }
+                Token::NotEqual => {
+                    if bp >= BP_EQUAL {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let rhs = self.parse_expression(BP_EQUAL);
+                        let expr = Expression::NotEqual(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)
+                    }
+                }
+                _ => lhs
+            }
         }
     }
 
@@ -186,7 +251,7 @@ impl Parser {
                 break;
             }
 
-            items.push(self.parse_expression());
+            items.push(self.parse_expression(0));
 
             let token = self.iter.next().expect("token");
             if token == until {

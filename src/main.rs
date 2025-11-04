@@ -1,47 +1,38 @@
+use std::{
+    env::args,
+    fs,
+    io::{pipe, Read},
+};
+
+use eval::Engine;
+
+mod eval;
 mod lexer;
 mod parser;
-mod eval;
 
 fn main() {
-    let code = r#"
-        msg = "What's up?"
-        println(
-            "Hello, world!"
-            msg
-        )
-        println(msg)
+    let mut args = args();
+    let _ = args.next().expect("script name");
+    let script = args.next().expect("one argument");
 
-        prefix = "--"
-        fun explain(fruit) {
-            println("$prefix $fruit is a fruit")
-        }
-        prefix = "not this"
+    let src = fs::read_to_string(script).unwrap();
 
-        banana = "banana"
-        fruits = push([
-            "apple"
-            banana
-        ], "orange")
+    let tokens = lexer::tokenize(&src);
 
-        fruits = push(
-            push(fruits, "kiwi")
-            "pineapple"
-        )
+    // println!("{:?}", &tokens);
 
-        for fruit in fruits {
-            explain(fruit)
-        }
-
-        fun bye() {
-            msg = "Good bye"
-            println(msg)
-        }
-
-        bye()
-    "#;
-
-    let tokens = lexer::tokenize(code);
     let ast = parser::parse(tokens);
 
-    eval::eval(&ast);
+    // println!("{:?}", &ast);
+
+    let (mut reader, writer) = pipe().unwrap();
+
+    let engine = Engine::new(writer);
+    engine.eval(&ast);
+
+    drop(engine);
+
+    let mut output = String::new();
+    reader.read_to_string(&mut output).unwrap();
+    println!("{output}");
 }

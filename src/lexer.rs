@@ -9,10 +9,14 @@ pub enum Token {
     RightBrace,
     LeftSquare,
     RightSquare,
+    Not,
+    Equal,
+    NotEqual,
     Comma,
     Identifier(Arc<str>),
     String(Arc<str>),
     Fun,
+    If,
     For,
     In,
     NewLine,
@@ -23,9 +27,9 @@ struct Tokenizer<'a> {
 }
 
 impl<'a> Tokenizer<'a> {
-    fn new(code: &'a str) -> Self {
+    fn new(src: &'a str) -> Self {
         Self {
-            code: code.chars().peekable(),
+            code: src.chars().peekable(),
         }
     }
 
@@ -44,8 +48,20 @@ impl<'a> Tokenizer<'a> {
                         while self.code.next_if(|t| *t != '\n').is_some() {}
                     }
                     '=' => {
-                        tokens.push(Token::Assign);
                         self.code.next();
+                        if self.code.next_if_eq(&'=').is_some() {
+                            tokens.push(Token::Equal);
+                        } else {
+                            tokens.push(Token::Assign);
+                        }
+                    }
+                    '!' => {
+                        self.code.next();
+                        if self.code.next_if_eq(&'=').is_some() {
+                            tokens.push(Token::NotEqual);
+                        } else {
+                            tokens.push(Token::Not);
+                        }
                     }
                     '(' => {
                         tokens.push(Token::LeftParen);
@@ -87,6 +103,7 @@ impl<'a> Tokenizer<'a> {
                         let s = self.find_ident();
                         match s.as_ref() {
                             "fun" => tokens.push(Token::Fun),
+                            "if" => tokens.push(Token::If),
                             "for" => tokens.push(Token::For),
                             "in" => tokens.push(Token::In),
                             _ => tokens.push(Token::Identifier(s)),
@@ -136,6 +153,6 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-pub fn tokenize(code: &str) -> Vec<Token> {
-    Tokenizer::new(code).tokenize()
+pub fn tokenize(src: &str) -> Vec<Token> {
+    Tokenizer::new(src).tokenize()
 }

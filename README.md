@@ -32,6 +32,7 @@ Bash:
     - Program structure
     - Simplicity (no resource management, no garbage collection)
 Dart:
+    - Isolates
     - String interpolation (in all strings)
 Python:
     - list & dict
@@ -195,12 +196,12 @@ println(a) # 10
 To change outer state:
 
 ```
-get_a, set_a = state(10)
+a = state(10)
 
-if get_a() == 10 {
-    set_a(20)
+if a.get() == 10 {
+    a.set(20)
 }
-println(get_a()) # 20
+println(a.get()) # 20
 ```
 
 XXX Avoid = / == confusion?
