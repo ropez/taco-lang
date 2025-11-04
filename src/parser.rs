@@ -25,6 +25,7 @@ pub enum AstNode {
     Condition {
         cond: Expression,
         body: Vec<AstNode>,
+        else_body: Option<Vec<AstNode>>,
     },
 
     Expression(Expression),
@@ -124,9 +125,15 @@ impl Parser {
                     self.expect(Token::LeftBrace);
                     let body = self.parse();
 
+                    let else_body = self.iter.next_if_eq(&Token::Else).map(|_| {
+                        self.expect(Token::LeftBrace);
+                        self.parse()
+                    });
+
                     ast.push(AstNode::Condition {
                         cond,
                         body,
+                        else_body,
                     });
                 }
                 Token::For => {

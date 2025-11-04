@@ -86,13 +86,16 @@ where
                         _ => panic!("Expected list, found: {iterable:?}"),
                     }
                 }
-                AstNode::Condition { cond, body } => {
+                AstNode::Condition { cond, body, else_body } => {
                     let val = self.eval_expr(cond, &scope);
 
                     if let ScriptValue::Boolean(b) = *val {
                         if b {
                             let scope = scope.clone();
                             self.eval_block(body, scope);
+                        } else if let Some(else_body) = else_body {
+                            let scope = scope.clone();
+                            self.eval_block(else_body, scope);
                         }
                     } else {
                         panic!("Not a boolean");

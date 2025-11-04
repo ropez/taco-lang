@@ -17,6 +17,7 @@ pub enum Token {
     String(Arc<str>),
     Fun,
     If,
+    Else,
     For,
     In,
     NewLine,
@@ -104,6 +105,7 @@ impl<'a> Tokenizer<'a> {
                         match s.as_ref() {
                             "fun" => tokens.push(Token::Fun),
                             "if" => tokens.push(Token::If),
+                            "else" => tokens.push(Token::Else),
                             "for" => tokens.push(Token::For),
                             "in" => tokens.push(Token::In),
                             _ => tokens.push(Token::Identifier(s)),

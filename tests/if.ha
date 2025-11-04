@@ -1,6 +1,8 @@
 
 fun test(arg) {
-    if arg != "poop" {
+    if arg == "poop" {
+        println("*hidden*")
+    } else {
         println(arg)
     }
 }
