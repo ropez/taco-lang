@@ -4,7 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::parser::{AstNode, Expression, Function};
+use crate::parser::{AstNode, Expression, Function, Record};
 
 #[derive(Debug)]
 pub enum ScriptValue {
@@ -14,12 +14,18 @@ pub enum ScriptValue {
     Number(i64),
     Range(i64, i64),
     List(Vec<Arc<ScriptValue>>),
+
+    RecordInstance {
+        record: Arc<Record>,
+        values: Vec<Arc<ScriptValue>>,
+    },
 }
 
 impl PartialEq for ScriptValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             _ => todo!()
         }
     }
@@ -34,7 +40,10 @@ pub enum Completion {
 #[derive(Default, Clone)]
 struct Scope {
     locals: HashMap<Arc<str>, Arc<ScriptValue>>,
+
+    // XXX functions, records could all be script values in locals
     functions: HashMap<Arc<str>, (Arc<Function>, Scope)>,
+    records: HashMap<Arc<str>, Arc<Record>>,
 }
 
 pub struct Engine<O>
@@ -70,6 +79,11 @@ where
                     scope
                         .functions
                         .insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
+                }
+                AstNode::Record(rec) => {
+                    scope
+                        .records
+                        .insert(Arc::clone(&rec.name), Arc::clone(rec));
                 }
                 AstNode::Iteration {
                     ident,
@@ -137,6 +151,21 @@ where
                 None => panic!("Undefined reference: {ident}"),
                 Some(value) => Arc::clone(value),
             },
+            Expression::Access { subject, key } => {
+                let subject = self.eval_expr(subject, scope);
+                match subject.as_ref() {
+                    ScriptValue::RecordInstance { record, values } => {
+                        let index = record.params.iter().position(|p| *p == *key);
+                        match index {
+                            None => panic!("Property not found: {key:?}"),
+                            Some(index) => {
+                                Arc::clone(&values[index])
+                            }
+                        }
+                    }
+                    _ => panic!("Unexpected property access on {subject:?}"),
+                }
+            }
             Expression::Not(expr) => {
                 let val = self.eval_expr(expr, scope);
                 if let ScriptValue::Boolean(b) = *val {
@@ -176,6 +205,10 @@ where
                                 let mut out = self.stdout.lock().unwrap();
                                 writeln!(out, "{s}").unwrap()
                             }
+                            ScriptValue::Number(ref s) => {
+                                let mut out = self.stdout.lock().unwrap();
+                                writeln!(out, "{s}").unwrap()
+                            }
                             _ => panic!("Unexpected argument: {val:?}"),
                         }
                     }
@@ -199,32 +232,46 @@ where
                     Arc::new(res)
                 }
                 _ => {
-                    match scope.functions.get(subject) {
-                        None => panic!("Undefined function: {subject:?}"),
-                        Some((fun, captured_scope)) => {
-                            // FIXME This should already be checked during type checking phase
-                            if fun.params.len() != arguments.len() {
-                                panic!(
-                                    "Expected {} arguments, found {}",
-                                    fun.params.len(),
-                                    arguments.len()
-                                );
-                            }
-
-                            let mut inner_scope = captured_scope.clone();
-
-                            for (ident, arg) in fun.params.iter().zip(arguments) {
-                                let val = self.eval_expr(arg, scope);
-                                inner_scope.locals.insert(ident.clone(), val);
-                            }
-
-                            let c = self.eval_block(&fun.body, inner_scope);
-
-                            match c {
-                                Completion::EndOfBlock => Arc::new(ScriptValue::Void),
-                                Completion::Return(v) => v,
-                            }
+                    if let Some((fun, captured_scope)) = scope.functions.get(subject) {
+                        // FIXME This should already be checked during type checking phase
+                        if fun.params.len() != arguments.len() {
+                            panic!(
+                                "Expected {} arguments, found {}",
+                                fun.params.len(),
+                                arguments.len()
+                            );
                         }
+
+                        let mut inner_scope = captured_scope.clone();
+
+                        for (ident, arg) in fun.params.iter().zip(arguments) {
+                            let val = self.eval_expr(arg, scope);
+                            inner_scope.locals.insert(ident.clone(), val);
+                        }
+
+                        let c = self.eval_block(&fun.body, inner_scope);
+
+                        match c {
+                            Completion::EndOfBlock => Arc::new(ScriptValue::Void),
+                            Completion::Return(v) => v,
+                        }
+                    } else if let Some(rec) = scope.records.get(subject) {
+                        // FIXME This should already be checked during type checking phase
+                        if rec.params.len() != arguments.len() {
+                            panic!(
+                                "Expected {} arguments, found {}",
+                                rec.params.len(),
+                                arguments.len()
+                            );
+                        }
+
+                        let values: Vec<_> = arguments.iter().map(|a| self.eval_expr(a, scope)).collect();
+
+                        let instance = ScriptValue::RecordInstance { record: Arc::clone(rec), values };
+
+                        Arc::new(instance)
+                    } else {
+                        panic!("Undefined function: {subject:?}")
                     }
                 }
             },

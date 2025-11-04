@@ -28,6 +28,8 @@ pub enum AstNode {
         else_body: Option<Vec<AstNode>>,
     },
 
+    Record(Arc<Record>),
+
     Expression(Expression),
     Return(Expression),
 }
@@ -47,6 +49,10 @@ pub enum Expression {
         subject: Arc<str>,
         arguments: Vec<Expression>,
     },
+    Access {
+        subject: Box<Expression>,
+        key: Arc<str>,
+    },
 }
 
 #[derive(Debug)]
@@ -56,6 +62,12 @@ pub struct Function {
     // closure
     pub(crate) params: Vec<Arc<str>>,
     pub(crate) body: Vec<AstNode>,
+}
+
+#[derive(Debug)]
+pub struct Record {
+    pub(crate) name: Arc<str>,
+    pub(crate) params: Vec<Arc<str>>,
 }
 
 struct Parser {
@@ -71,6 +83,7 @@ mod constants {
     // pub(crate) const BP_DIV: u32 = 20;
     // pub(crate) const BP_MULT: u32 = 20;
     // pub(crate) const BP_UNARY: u32 = 30;
+    pub(crate) const BP_ACCESS: u32 = 100;
 }
 
 impl Parser {
@@ -158,6 +171,17 @@ impl Parser {
                         body,
                     });
                 }
+                Token::Record => {
+                    let ident = self.expect_ident();
+                    self.expect(Token::LeftParen);
+                    let params = self.parse_params(Token::RightParen);
+
+                    let rec = Arc::new(Record {
+                        name: ident,
+                        params,
+                    });
+                    ast.push(AstNode::Record(rec))
+                }
                 _ => panic!("Unexpected token: {token:?}"),
             }
         }
@@ -228,6 +252,19 @@ impl Parser {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_EQUAL);
                         let expr = Expression::NotEqual(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)
+                    }
+                }
+                Token::Dot => {
+                    if bp >= BP_ACCESS {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let key = self.expect_ident();
+                        let expr = Expression::Access {
+                            subject: lhs.into(),
+                            key,
+                        };
                         self.parse_continuation(expr, bp)
                     }
                 }

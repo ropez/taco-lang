@@ -119,7 +119,7 @@ impl<'a> Tokenizer<'a> {
                         let s = self.find_number();
                         tokens.push(Token::Number(s));
                     }
-                    'A'..'Z' | 'a'..='z' => {
+                    'A'..='Z' | 'a'..='z' => {
                         let s = self.find_ident();
                         match s.as_ref() {
                             "fun" => tokens.push(Token::Fun),
@@ -128,6 +128,7 @@ impl<'a> Tokenizer<'a> {
                             "else" => tokens.push(Token::Else),
                             "for" => tokens.push(Token::For),
                             "in" => tokens.push(Token::In),
+                            "record" => tokens.push(Token::Record),
                             _ => tokens.push(Token::Identifier(s)),
                         };
                     }
@@ -162,7 +163,7 @@ impl<'a> Tokenizer<'a> {
             match self.code.peek() {
                 None => panic!("Unexpected end of input"),
                 Some(c) => match c {
-                    'A'..'Z' | 'a'..='z' => {
+                    'A'..='Z' | 'a'..='z' => {
                         s.push(*c);
                         self.code.next();
                     }
