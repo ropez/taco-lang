@@ -13,14 +13,20 @@ pub enum Token {
     Equal,
     NotEqual,
     Comma,
+    Dot,
+    Spread,
     Identifier(Arc<str>),
     String(Arc<str>),
+    Number(i64),
+    NewLine,
+
+    // Keywords
     Fun,
     If,
     Else,
     For,
     In,
-    NewLine,
+    Record,
 }
 
 struct Tokenizer<'a> {
@@ -54,6 +60,14 @@ impl<'a> Tokenizer<'a> {
                             tokens.push(Token::Equal);
                         } else {
                             tokens.push(Token::Assign);
+                        }
+                    }
+                    '.' => {
+                        self.code.next();
+                        if self.code.next_if_eq(&'.').is_some() {
+                            tokens.push(Token::Spread);
+                        } else {
+                            tokens.push(Token::Dot);
                         }
                     }
                     '!' => {
@@ -100,7 +114,11 @@ impl<'a> Tokenizer<'a> {
                         let s = self.find_str();
                         tokens.push(Token::String(s));
                     }
-                    'a'..='z' => {
+                    '0'..='9' => {
+                        let s = self.find_number();
+                        tokens.push(Token::Number(s));
+                    }
+                    'A'..'Z' | 'a'..='z' => {
                         let s = self.find_ident();
                         match s.as_ref() {
                             "fun" => tokens.push(Token::Fun),
@@ -142,7 +160,7 @@ impl<'a> Tokenizer<'a> {
             match self.code.peek() {
                 None => panic!("Unexpected end of input"),
                 Some(c) => match c {
-                    'a'..='z' => {
+                    'A'..'Z' | 'a'..='z' => {
                         s.push(*c);
                         self.code.next();
                     }
@@ -152,6 +170,25 @@ impl<'a> Tokenizer<'a> {
         }
 
         s.into()
+    }
+
+    fn find_number(&mut self) -> i64 {
+        // FIXME Inefficient
+        let mut s = String::new();
+        loop {
+            match self.code.peek() {
+                None => break,
+                Some(c) => match c {
+                    '0'..='9' => {
+                        s.push(*c);
+                        self.code.next();
+                    }
+                    _ => break,
+                }
+            }
+        }
+
+        s.parse().expect("parse number")
     }
 }
 

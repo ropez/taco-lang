@@ -29,6 +29,7 @@ pub enum AstNode {
     },
 
     Expression(Expression),
+    Return(Expression),
 }
 
 // Expressions must have type
@@ -36,10 +37,12 @@ pub enum AstNode {
 pub enum Expression {
     Ref(Arc<str>),
     String(Arc<str>),
+    Number(i64),
     List(Vec<Expression>),
     Not(Arc<Expression>),
     Equal(Arc<Expression>, Arc<Expression>),
     NotEqual(Arc<Expression>, Arc<Expression>),
+    Range(Arc<Expression>, Arc<Expression>),
     Call {
         subject: Arc<str>,
         arguments: Vec<Expression>,
@@ -62,6 +65,7 @@ struct Parser {
 mod constants {
     pub(crate) const BP_EQUAL: u32 = 1;
     // pub(crate) const BP_INEQUAL: u32 = 2;
+    pub(crate) const BP_SPREAD: u32 = 6;
     // pub(crate) const BP_PLUS: u32 = 10;
     // pub(crate) const BP_MINUS: u32 = 10;
     // pub(crate) const BP_DIV: u32 = 20;
@@ -179,6 +183,10 @@ impl Parser {
                 Expression::Not(expr.into())
             }
             Token::String(s) => Expression::String(s),
+            Token::Number(n) => {
+                let e = Expression::Number(n);
+                self.parse_continuation(e, bp)
+            }
             Token::LeftSquare => {
                 // FIXME: Infer type of list, and validate each item's type
                 // Not sure if this is really a parser concern.
@@ -218,8 +226,18 @@ impl Parser {
                         self.parse_continuation(expr, bp)
                     }
                 }
-                _ => lhs
-            }
+                Token::Spread => {
+                    if bp >= BP_SPREAD {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let rhs = self.parse_expression(BP_SPREAD);
+                        let expr = Expression::Range(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)
+                    }
+                }
+                _ => lhs,
+            },
         }
     }
 

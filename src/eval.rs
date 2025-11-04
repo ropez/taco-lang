@@ -11,6 +11,8 @@ pub enum ScriptValue {
     Void,
     Boolean(bool),
     String(Arc<str>),
+    Number(i64),
+    Range(i64, i64),
     List(Vec<Arc<ScriptValue>>),
 }
 
@@ -83,7 +85,14 @@ where
                                 self.eval_block(body, scope);
                             }
                         }
-                        _ => panic!("Expected list, found: {iterable:?}"),
+                        ScriptValue::Range(lhs, rhs) => {
+                            for v in lhs..=rhs {
+                                let mut scope = scope.clone();
+                                scope.locals.insert(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
+                                self.eval_block(body, scope);
+                            }
+                        }
+                        _ => panic!("Expected iterable, found: {iterable:?}"),
                     }
                 }
                 AstNode::Condition { cond, body, else_body } => {
@@ -107,6 +116,15 @@ where
 
     fn eval_expr(&self, expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
         match expr {
+            Expression::String(s) => Arc::new(eval_str(s.clone(), scope)),
+            Expression::Number(n) => Arc::new(ScriptValue::Number(*n)),
+            Expression::List(s) => Arc::new(ScriptValue::List(
+                s.iter().map(|i| self.eval_expr(i, scope)).collect(),
+            )),
+            Expression::Ref(ident) => match scope.locals.get(ident) {
+                None => panic!("Undefined reference: {ident}"),
+                Some(value) => Arc::clone(value),
+            },
             Expression::Not(expr) => {
                 let val = self.eval_expr(expr, scope);
                 if let ScriptValue::Boolean(b) = *val {
@@ -127,14 +145,16 @@ where
 
                 Arc::new(ScriptValue::Boolean(!lhs.eq(&rhs)))
             }
-            Expression::String(s) => Arc::new(eval_str(s.clone(), scope)),
-            Expression::List(s) => Arc::new(ScriptValue::List(
-                s.iter().map(|i| self.eval_expr(i, scope)).collect(),
-            )),
-            Expression::Ref(ident) => match scope.locals.get(ident) {
-                None => panic!("Undefined reference: {ident}"),
-                Some(value) => Arc::clone(value),
-            },
+            Expression::Range(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope);
+                let rhs = self.eval_expr(rhs, scope);
+
+                match (lhs.as_ref(), rhs.as_ref()) {
+                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) =>
+                        Arc::new(ScriptValue::Range(*lhs, *rhs)),
+                    _ => panic!("Expected numbers in range"),
+                }
+            }
             Expression::Call { subject, arguments } => match subject.as_ref() {
                 "println" => {
                     for arg in arguments {
@@ -144,7 +164,7 @@ where
                                 let mut out = self.stdout.lock().unwrap();
                                 writeln!(out, "{s}").unwrap()
                             }
-                            _ => panic!("Unexpected argument: {arg:?}"),
+                            _ => panic!("Unexpected argument: {val:?}"),
                         }
                     }
                     Arc::new(ScriptValue::Void)
@@ -166,22 +186,11 @@ where
                     };
                     Arc::new(res)
                 }
-                // FIXME Replace with == operator
-                "eq" => {
-                    let lhs = arguments.get(0).expect("push list");
-                    let rhs = arguments.get(1).expect("push item");
-
-                    let lhs = self.eval_expr(lhs, scope);
-                    let rhs = self.eval_expr(rhs, scope);
-
-                    Arc::new(ScriptValue::Boolean(lhs.eq(&rhs)))
-                }
                 _ => {
                     match scope.functions.get(subject) {
                         None => panic!("Undefined function: {subject:?}"),
                         Some((fun, captured_scope)) => {
-                            let mut inner_scope = captured_scope.clone();
-
+                            // FIXME This should already be checked during type checking phase
                             if fun.params.len() != arguments.len() {
                                 panic!(
                                     "Expected {} arguments, found {}",
@@ -189,6 +198,8 @@ where
                                     arguments.len()
                                 );
                             }
+
+                            let mut inner_scope = captured_scope.clone();
 
                             for (ident, arg) in fun.params.iter().zip(arguments) {
                                 let val = self.eval_expr(arg, scope);
@@ -210,13 +221,14 @@ where
 
 fn eval_str(src: Arc<str>, scope: &Scope) -> ScriptValue {
     // We probably need the parser to play a role in this.
-    // This implementation silently ignores missing references.
+    // This naive implementation silently ignores missing references.
     let mut res = src.to_string();
     for (ident, value) in &scope.locals {
         let fmt = format!("${ident}");
         while res.contains(&fmt) {
             let val = match value.as_ref() {
                 ScriptValue::String(s) => s.clone(),
+                ScriptValue::Number(n) => n.to_string().into(),
                 _ => panic!("Unexpected token in string interpolation!"),
             };
             res = res.replace(&fmt, &val);
