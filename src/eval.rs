@@ -25,6 +25,12 @@ impl PartialEq for ScriptValue {
     }
 }
 
+#[derive(Debug)]
+pub enum Completion {
+    EndOfBlock,
+    Return(Arc<ScriptValue>),
+}
+
 #[derive(Default, Clone)]
 struct Scope {
     locals: HashMap<Arc<str>, Arc<ScriptValue>>,
@@ -52,7 +58,7 @@ where
         self.eval_block(ast, Scope::default());
     }
 
-    fn eval_block(&self, ast: &[AstNode], mut scope: Scope) {
+    fn eval_block(&self, ast: &[AstNode], mut scope: Scope) -> Completion {
         for node in ast {
             match node {
                 AstNode::Assignment { name, value } => {
@@ -64,12 +70,6 @@ where
                     scope
                         .functions
                         .insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
-                }
-                AstNode::Expression(expr) => {
-                    // HACK Evaluating expression for side-effects
-                    // Should it be some restrictions on this?
-                    // Only allowed for Void expressions?
-                    self.eval_expr(expr, &scope);
                 }
                 AstNode::Iteration {
                     ident,
@@ -110,8 +110,20 @@ where
                         panic!("Not a boolean");
                     }
                 }
+                AstNode::Expression(expr) => {
+                    // HACK Evaluating expression for side-effects
+                    // Should it be some restrictions on this?
+                    // Only allowed for Void expressions?
+                    self.eval_expr(expr, &scope);
+                }
+                AstNode::Return(expr) => {
+                    let val = self.eval_expr(expr, &scope);
+                    return Completion::Return(val);
+                }
             }
         }
+
+        Completion::EndOfBlock
     }
 
     fn eval_expr(&self, expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
@@ -206,10 +218,12 @@ where
                                 inner_scope.locals.insert(ident.clone(), val);
                             }
 
-                            self.eval_block(&fun.body, inner_scope);
+                            let c = self.eval_block(&fun.body, inner_scope);
 
-                            // FIXME Return value
-                            Arc::new(ScriptValue::Void)
+                            match c {
+                                Completion::EndOfBlock => Arc::new(ScriptValue::Void),
+                                Completion::Return(v) => v,
+                            }
                         }
                     }
                 }

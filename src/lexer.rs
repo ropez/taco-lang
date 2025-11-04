@@ -22,6 +22,7 @@ pub enum Token {
 
     // Keywords
     Fun,
+    Return,
     If,
     Else,
     For,
@@ -122,6 +123,7 @@ impl<'a> Tokenizer<'a> {
                         let s = self.find_ident();
                         match s.as_ref() {
                             "fun" => tokens.push(Token::Fun),
+                            "return" => tokens.push(Token::Return),
                             "if" => tokens.push(Token::If),
                             "else" => tokens.push(Token::Else),
                             "for" => tokens.push(Token::For),

@@ -101,6 +101,11 @@ impl Parser {
                     let fun = Arc::new(Function { body, params });
                     ast.push(AstNode::Function { name, fun });
                 }
+                // FIXME Not allowed at global scope
+                Token::Return => {
+                    let expr = self.parse_expression(0);
+                    ast.push(AstNode::Return(expr));
+                }
                 Token::Identifier(name) => {
                     let p = self.iter.next().expect("token after ident");
 
