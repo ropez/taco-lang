@@ -26,7 +26,7 @@ impl PartialEq for ScriptValue {
         match (self, other) {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
-            _ => todo!()
+            _ => todo!(),
         }
     }
 }
@@ -81,9 +81,7 @@ where
                         .insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
                 }
                 AstNode::Record(rec) => {
-                    scope
-                        .records
-                        .insert(Arc::clone(&rec.name), Arc::clone(rec));
+                    scope.records.insert(Arc::clone(&rec.name), Arc::clone(rec));
                 }
                 AstNode::Iteration {
                     ident,
@@ -102,14 +100,20 @@ where
                         ScriptValue::Range(lhs, rhs) => {
                             for v in lhs..=rhs {
                                 let mut scope = scope.clone();
-                                scope.locals.insert(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
+                                scope
+                                    .locals
+                                    .insert(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
                                 self.eval_block(body, scope);
                             }
                         }
                         _ => panic!("Expected iterable, found: {iterable:?}"),
                     }
                 }
-                AstNode::Condition { cond, body, else_body } => {
+                AstNode::Condition {
+                    cond,
+                    body,
+                    else_body,
+                } => {
                     let val = self.eval_expr(cond, &scope);
 
                     if let ScriptValue::Boolean(b) = *val {
@@ -158,9 +162,7 @@ where
                         let index = record.params.iter().position(|p| *p == *key);
                         match index {
                             None => panic!("Property not found: {key:?}"),
-                            Some(index) => {
-                                Arc::clone(&values[index])
-                            }
+                            Some(index) => Arc::clone(&values[index]),
                         }
                     }
                     _ => panic!("Unexpected property access on {subject:?}"),
@@ -191,8 +193,9 @@ where
                 let rhs = self.eval_expr(rhs, scope);
 
                 match (lhs.as_ref(), rhs.as_ref()) {
-                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) =>
-                        Arc::new(ScriptValue::Range(*lhs, *rhs)),
+                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
+                        Arc::new(ScriptValue::Range(*lhs, *rhs))
+                    }
                     _ => panic!("Expected numbers in range"),
                 }
             }
@@ -265,9 +268,13 @@ where
                             );
                         }
 
-                        let values: Vec<_> = arguments.iter().map(|a| self.eval_expr(a, scope)).collect();
+                        let values: Vec<_> =
+                            arguments.iter().map(|a| self.eval_expr(a, scope)).collect();
 
-                        let instance = ScriptValue::RecordInstance { record: Arc::clone(rec), values };
+                        let instance = ScriptValue::RecordInstance {
+                            record: Arc::clone(rec),
+                            values,
+                        };
 
                         Arc::new(instance)
                     } else {
@@ -285,15 +292,28 @@ fn eval_str(src: Arc<str>, scope: &Scope) -> ScriptValue {
     // This naive implementation silently ignores missing references.
     let mut res = src.to_string();
     for (ident, value) in &scope.locals {
+        if let ScriptValue::RecordInstance { record, values } = value.as_ref() {
+            for (key, value) in record.params.iter().zip(values) {
+                let fmt = format!("${{{ident}.{key}}}");
+                while res.contains(&fmt) {
+                    res = replace(res, &fmt, value);
+                }
+            }
+        }
+
         let fmt = format!("${ident}");
         while res.contains(&fmt) {
-            let val = match value.as_ref() {
-                ScriptValue::String(s) => s.clone(),
-                ScriptValue::Number(n) => n.to_string().into(),
-                _ => panic!("Unexpected token in string interpolation!"),
-            };
-            res = res.replace(&fmt, &val);
+            res = replace(res, &fmt, value);
         }
     }
     ScriptValue::String(res.into())
+}
+
+fn replace(s: String, fmt: &str, value: &ScriptValue) -> String {
+    let val = match value {
+        ScriptValue::String(s) => s.clone(),
+        ScriptValue::Number(n) => n.to_string().into(),
+        _ => panic!("Unexpected token in string interpolation!"),
+    };
+    s.replace(fmt, &val)
 }

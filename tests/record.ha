@@ -4,10 +4,7 @@ p = Point(100, 200)
 
 println(p.x, p.y)
 
-# TODO Interpolate "${p.x}"
-x = p.x
-y = p.y
-println("Point($x, $y)")
+println("Point(${p.x}, ${p.y})")
 
 if p.x == 100 {
     println("x is 100")
