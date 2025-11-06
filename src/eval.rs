@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    fmt::{self, Display, Formatter, Write as _},
     io::Write,
     sync::{Arc, Mutex},
 };
@@ -27,6 +28,20 @@ impl PartialEq for ScriptValue {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             _ => todo!(),
+        }
+    }
+}
+
+impl Display for ScriptValue {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            ScriptValue::String(s) => write!(f, "{s}"),
+            ScriptValue::Number(n) => write!(f, "{n}"),
+            ScriptValue::Boolean(b) => match b {
+                true => write!(f, "true"),
+                false => write!(f, "false"),
+            },
+            _ => panic!("Unexpected token in string interpolation!"),
         }
     }
 }
@@ -146,7 +161,15 @@ where
 
     fn eval_expr(&self, expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
         match expr {
-            Expression::String(s) => Arc::new(eval_str(s.clone(), scope)),
+            Expression::String(s) => Arc::new(ScriptValue::String(Arc::clone(s))),
+            Expression::StringInterpolate(parts) => {
+                let mut builder = String::new();
+                for expr in parts {
+                    let val = self.eval_expr(expr, scope);
+                    write!(builder, "{val}").unwrap();
+                }
+                Arc::new(ScriptValue::String(builder.into()))
+            }
             Expression::Number(n) => Arc::new(ScriptValue::Number(*n)),
             Expression::List(s) => Arc::new(ScriptValue::List(
                 s.iter().map(|i| self.eval_expr(i, scope)).collect(),
@@ -285,35 +308,4 @@ where
             // _ => unimplemented!("Expression: {expr:?}"),
         }
     }
-}
-
-fn eval_str(src: Arc<str>, scope: &Scope) -> ScriptValue {
-    // We probably need the parser to play a role in this.
-    // This naive implementation silently ignores missing references.
-    let mut res = src.to_string();
-    for (ident, value) in &scope.locals {
-        if let ScriptValue::RecordInstance { record, values } = value.as_ref() {
-            for (key, value) in record.params.iter().zip(values) {
-                let fmt = format!("${{{ident}.{key}}}");
-                while res.contains(&fmt) {
-                    res = replace(res, &fmt, value);
-                }
-            }
-        }
-
-        let fmt = format!("${ident}");
-        while res.contains(&fmt) {
-            res = replace(res, &fmt, value);
-        }
-    }
-    ScriptValue::String(res.into())
-}
-
-fn replace(s: String, fmt: &str, value: &ScriptValue) -> String {
-    let val = match value {
-        ScriptValue::String(s) => s.clone(),
-        ScriptValue::Number(n) => n.to_string().into(),
-        _ => panic!("Unexpected token in string interpolation!"),
-    };
-    s.replace(fmt, &val)
 }

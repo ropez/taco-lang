@@ -9,6 +9,7 @@ use eval::Engine;
 mod eval;
 mod lexer;
 mod parser;
+mod interp;
 
 fn main() {
     let mut args = args();

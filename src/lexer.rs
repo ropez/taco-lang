@@ -161,7 +161,7 @@ impl<'a> Tokenizer<'a> {
         let mut s = String::new();
         loop {
             match self.code.peek() {
-                None => panic!("Unexpected end of input"),
+                None => break,
                 Some(c) => match c {
                     'A'..='Z' | 'a'..='z' => {
                         s.push(*c);

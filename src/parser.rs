@@ -1,6 +1,6 @@
 use std::{iter::Peekable, sync::Arc, vec::IntoIter};
 
-use crate::lexer::Token;
+use crate::{interp::{self, StringToken}, lexer::{self, Token}};
 
 #[derive(Debug)]
 pub enum AstNode {
@@ -39,6 +39,7 @@ pub enum AstNode {
 pub enum Expression {
     Ref(Arc<str>),
     String(Arc<str>),
+    StringInterpolate(Vec<Box<Expression>>),
     Number(i64),
     List(Vec<Expression>),
     Not(Arc<Expression>),
@@ -211,7 +212,10 @@ impl Parser {
                 let expr = self.parse_expression(0);
                 Expression::Not(expr.into())
             }
-            Token::String(s) => Expression::String(s),
+            Token::String(s) => {
+                let expr = parse_string(s);
+                self.parse_continuation(expr, bp)
+            }
             Token::Number(n) => {
                 let e = Expression::Number(n);
                 self.parse_continuation(e, bp)
@@ -359,4 +363,24 @@ impl Parser {
 
 pub fn parse(tokens: Vec<Token>) -> Vec<AstNode> {
     Parser::new(tokens).parse()
+}
+
+fn parse_string(src: Arc<str>) -> Expression {
+    let parts = interp::tokenise_string(src.as_ref());
+
+    if parts.is_empty() {
+        return Expression::String("".into()); // Use constant?
+    }
+
+    let res = parts.iter().map(|p| match *p {
+        StringToken::Str(s) => Box::new(Expression::String(s.into())),
+        StringToken::Expr(s) => {
+            let tokens = lexer::tokenize(s);
+            let expr = Parser::new(tokens).parse_expression(0);
+
+            Box::new(expr)
+        },
+    }).collect();
+
+    Expression::StringInterpolate(res)
 }
