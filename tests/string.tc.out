@@ -4,4 +4,3 @@
 expression: false
 call: 'foo: banana'
 $foo$bar$
-
