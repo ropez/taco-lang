@@ -1,5 +1,7 @@
+
 -- banana is a fruit
 --banana--
 expression: false
 call: 'foo: banana'
+$foo$bar$
 

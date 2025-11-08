@@ -222,7 +222,11 @@ where
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            Expression::Call { subject, arguments } => match subject.as_ref() {
+            Expression::Call {
+                subject,
+                arguments,
+                kwargs,
+            } => match subject.as_ref() {
                 "println" => {
                     for arg in arguments {
                         let val = self.eval_expr(arg, scope);
@@ -259,19 +263,11 @@ where
                 }
                 _ => {
                     if let Some((fun, captured_scope)) = scope.functions.get(subject) {
-                        // FIXME This should already be checked during type checking phase
-                        if fun.params.len() != arguments.len() {
-                            panic!(
-                                "Expected {} arguments, found {}",
-                                fun.params.len(),
-                                arguments.len()
-                            );
-                        }
+                        let values = self.eval_args(&fun.params, arguments, kwargs, scope);
 
                         let mut inner_scope = captured_scope.clone();
 
-                        for (ident, arg) in fun.params.iter().zip(arguments) {
-                            let val = self.eval_expr(arg, scope);
+                        for (ident, val) in fun.params.iter().zip(values) {
                             inner_scope.locals.insert(ident.clone(), val);
                         }
 
@@ -282,17 +278,7 @@ where
                             Completion::Return(v) => v,
                         }
                     } else if let Some(rec) = scope.records.get(subject) {
-                        // FIXME This should already be checked during type checking phase
-                        if rec.params.len() != arguments.len() {
-                            panic!(
-                                "Expected {} arguments, found {}",
-                                rec.params.len(),
-                                arguments.len()
-                            );
-                        }
-
-                        let values: Vec<_> =
-                            arguments.iter().map(|a| self.eval_expr(a, scope)).collect();
+                        let values = self.eval_args(&rec.params, arguments, kwargs, scope);
 
                         let instance = ScriptValue::RecordInstance {
                             record: Arc::clone(rec),
@@ -307,5 +293,34 @@ where
             },
             // _ => unimplemented!("Expression: {expr:?}"),
         }
+    }
+
+    fn eval_args(
+        &self,
+        params: &Vec<Arc<str>>,
+        arguments: &Vec<Expression>,
+        kwargs: &Vec<(Arc<str>, Expression)>,
+        scope: &Scope,
+    ) -> Vec<Arc<ScriptValue>> {
+        // FIXME This should already be checked during type checking phase
+        if params.len() != arguments.len() + kwargs.len() {
+            panic!(
+                "Expected {} arguments, found {}",
+                params.len(),
+                arguments.len()
+            );
+        }
+
+        let mut values: Vec<_> = arguments.iter().map(|a| self.eval_expr(a, scope)).collect();
+
+        for param in &params[arguments.len()..] {
+            if let Some((_, value)) = kwargs.iter().find(|(name, _)| *name == *param) {
+                values.push(self.eval_expr(value, scope));
+            } else {
+                panic!("Missing initial value for {}", param);
+            }
+        }
+
+        values
     }
 }

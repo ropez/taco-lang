@@ -1,3 +1,5 @@
+println("")
+
 prefix = "--"
 fruit = "banana"
 println("$prefix $fruit is a fruit")
@@ -11,4 +13,6 @@ println("$prefix$fruit$prefix")
 println("expression: ${fruit == prefix}")
 
 println("call: '${foo()}'")
+
+println("$$foo$$bar$$")
 

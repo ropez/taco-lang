@@ -49,6 +49,7 @@ pub enum Expression {
     Call {
         subject: Arc<str>,
         arguments: Vec<Expression>,
+        kwargs: Vec<(Arc<str>, Expression)>,
     },
     Access {
         subject: Box<Expression>,
@@ -131,10 +132,11 @@ impl Parser {
                             self.expect(Token::NewLine);
                         }
                         Token::LeftParen => {
-                            let arguments = self.parse_list(Token::RightParen);
+                            let (arguments, kwargs) = self.parse_args();
                             let node = AstNode::Expression(Expression::Call {
                                 subject: name,
                                 arguments,
+                                kwargs,
                             });
                             ast.push(node);
 
@@ -199,10 +201,11 @@ impl Parser {
                     // The expression can be anything such as a fun returning a fun.
                     Some(Token::LeftParen) => {
                         self.iter.next();
-                        let arguments = self.parse_list(Token::RightParen);
+                        let (args, kwargs) = self.parse_args();
                         Expression::Call {
                             subject: s,
-                            arguments,
+                            arguments: args,
+                            kwargs,
                         }
                     }
                     _ => self.parse_continuation(Expression::Ref(s), bp),
@@ -333,6 +336,53 @@ impl Parser {
         }
 
         items
+    }
+
+    fn parse_args(&mut self) -> (Vec<Expression>, Vec<(Arc<str>, Expression)>) {
+        let mut args = Vec::new();
+        let mut items = Vec::new();
+
+        loop {
+            self.consume_whitespace();
+            if self.iter.next_if_eq(&Token::RightParen).is_some() {
+                break;
+            }
+
+            // XXX Kind of misusing parse_expression to parse kwargs name as Expression::Ref
+            // We can peek for an identifier, if we see one then consume it, and peek again for assignment,
+            // if no assignment is found, then parse continuation for Expression::Ref
+            let value = self.parse_expression(0);
+
+            // TODO Checks needed here:
+            // positional args must come before kwargs
+            //
+            // Can check here or later:
+            // `name` is only assigned once
+            //
+            // Must check later:
+            // no kwargs for argument assigned positionally
+
+            if self.iter.next_if_eq(&Token::Assign).is_some() {
+                let Expression::Ref(name) = value else {
+                    panic!("Syntax error in argument list");
+                };
+
+                let value = self.parse_expression(0);
+                items.push((name, value));
+            } else {
+                args.push(value);
+            }
+
+            let token = self.iter.next().expect("token");
+
+            if token == Token::RightParen {
+                break;
+            } else if token != Token::Comma && token != Token::NewLine {
+                panic!("unexpected token after arg: {token:?}")
+            }
+        }
+
+        (args, items)
     }
 
     fn consume_whitespace(&mut self) {
