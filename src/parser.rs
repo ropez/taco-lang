@@ -2,7 +2,7 @@ use std::{iter::Peekable, sync::Arc, vec::IntoIter};
 
 use crate::{
     interp::{self, StringToken},
-    lexer::{self, Token},
+    lexer::{self, Token, TokenKind},
 };
 
 #[derive(Debug)]
@@ -104,15 +104,15 @@ impl Parser {
         loop {
             let Some(token) = self.iter.next() else { break };
 
-            match token {
-                Token::NewLine => {}        // Ignore
-                Token::RightBrace => break, // FIXME Not allowed at global scope
-                Token::Fun => {
+            match token.kind {
+                TokenKind::NewLine => {}        // Ignore
+                TokenKind::RightBrace => break, // FIXME Not allowed at global scope
+                TokenKind::Fun => {
                     let name = self.expect_ident();
-                    self.expect(Token::LeftParen);
-                    let params = self.parse_params(Token::RightParen);
-                    self.expect(Token::LeftBrace);
-                    self.expect(Token::NewLine);
+                    self.expect(TokenKind::LeftParen);
+                    let params = self.parse_params(TokenKind::RightParen);
+                    self.expect(TokenKind::LeftBrace);
+                    self.expect(TokenKind::NewLine);
 
                     let body = self.parse();
 
@@ -120,21 +120,21 @@ impl Parser {
                     ast.push(AstNode::Function { name, fun });
                 }
                 // FIXME Not allowed at global scope
-                Token::Return => {
+                TokenKind::Return => {
                     let expr = self.parse_expression(0);
                     ast.push(AstNode::Return(expr));
                 }
-                Token::Identifier(name) => {
+                TokenKind::Identifier(name) => {
                     let p = self.iter.next().expect("token after ident");
 
-                    match p {
-                        Token::Assign => {
+                    match p.kind {
+                        TokenKind::Assign => {
                             let value = self.parse_expression(0);
                             let node = AstNode::Assignment { name, value };
                             ast.push(node);
-                            self.expect(Token::NewLine);
+                            self.expect(TokenKind::NewLine);
                         }
-                        Token::LeftParen => {
+                        TokenKind::LeftParen => {
                             let (args, kwargs) = self.parse_args();
                             let node = AstNode::Expression(Expression::Call {
                                 subject: name,
@@ -143,18 +143,18 @@ impl Parser {
                             });
                             ast.push(node);
 
-                            self.expect(Token::NewLine);
+                            self.expect(TokenKind::NewLine);
                         }
                         _ => panic!("Expected assignment or call"),
                     }
                 }
-                Token::If => {
+                TokenKind::If => {
                     let cond = self.parse_expression(0);
-                    self.expect(Token::LeftBrace);
+                    self.expect(TokenKind::LeftBrace);
                     let body = self.parse();
 
-                    let else_body = self.iter.next_if_eq(&Token::Else).map(|_| {
-                        self.expect(Token::LeftBrace);
+                    let else_body = self.next_if_kind(&TokenKind::Else).map(|_| {
+                        self.expect(TokenKind::LeftBrace);
                         self.parse()
                     });
 
@@ -164,11 +164,11 @@ impl Parser {
                         else_body,
                     });
                 }
-                Token::For => {
+                TokenKind::For => {
                     let ident = self.expect_ident();
-                    self.expect(Token::In);
+                    self.expect(TokenKind::In);
                     let iterable = self.parse_expression(0);
-                    self.expect(Token::LeftBrace);
+                    self.expect(TokenKind::LeftBrace);
                     let body = self.parse();
 
                     ast.push(AstNode::Iteration {
@@ -177,10 +177,10 @@ impl Parser {
                         body,
                     });
                 }
-                Token::Record => {
+                TokenKind::Record => {
                     let ident = self.expect_ident();
-                    self.expect(Token::LeftParen);
-                    let params = self.parse_params(Token::RightParen);
+                    self.expect(TokenKind::LeftParen);
+                    let params = self.parse_params(TokenKind::RightParen);
 
                     let rec = Arc::new(Record {
                         name: ident,
@@ -197,28 +197,28 @@ impl Parser {
 
     fn parse_expression(&mut self, bp: u32) -> Expression {
         let token = self.iter.next().expect("expression");
-        match token {
-            Token::Identifier(s) => {
+        match token.kind {
+            TokenKind::Identifier(s) => {
                 self.parse_continuation(Expression::Ref(s), bp)
             }
-            Token::Not => {
+            TokenKind::Not => {
                 let expr = self.parse_expression(bp);
                 Expression::Not(expr.into())
             }
-            Token::String(s) => {
+            TokenKind::String(s) => {
                 let expr = parse_string(s);
                 self.parse_continuation(expr, bp)
             }
-            Token::Number(n) => {
+            TokenKind::Number(n) => {
                 let e = Expression::Number(n);
                 self.parse_continuation(e, bp)
             }
-            Token::LeftSquare => {
+            TokenKind::LeftSquare => {
                 // FIXME: Infer type of list, and validate each item's type
                 // Not sure if this is really a parser concern.
                 // Needs to take scope into consideration, so it's probably
                 // some analysis phase after parsing, but before evaluation.
-                let list = self.parse_list(Token::RightSquare);
+                let list = self.parse_list(TokenKind::RightSquare);
 
                 Expression::List(list)
             }
@@ -229,10 +229,10 @@ impl Parser {
     fn parse_continuation(&mut self, lhs: Expression, bp: u32) -> Expression {
         use constants::*;
 
-        match self.iter.peek() {
+        match self.peek_kind() {
             None => lhs,
             Some(token) => match token {
-                Token::Equal => {
+                TokenKind::Equal => {
                     if bp >= BP_EQUAL {
                         lhs
                     } else {
@@ -242,7 +242,7 @@ impl Parser {
                         self.parse_continuation(expr, bp)
                     }
                 }
-                Token::NotEqual => {
+                TokenKind::NotEqual => {
                     if bp >= BP_EQUAL {
                         lhs
                     } else {
@@ -252,7 +252,7 @@ impl Parser {
                         self.parse_continuation(expr, bp)
                     }
                 }
-                Token::Dot => {
+                TokenKind::Dot => {
                     if bp >= BP_ACCESS {
                         lhs
                     } else {
@@ -265,7 +265,7 @@ impl Parser {
                         self.parse_continuation(expr, bp)
                     }
                 }
-                Token::Spread => {
+                TokenKind::Spread => {
                     if bp >= BP_SPREAD {
                         lhs
                     } else {
@@ -275,7 +275,7 @@ impl Parser {
                         self.parse_continuation(expr, bp)
                     }
                 }
-                Token::LeftParen => {
+                TokenKind::LeftParen => {
                     if bp >= BP_CALL {
                         lhs
                     } else {
@@ -300,13 +300,13 @@ impl Parser {
         }
     }
 
-    fn parse_params(&mut self, until: Token) -> Vec<Arc<str>> {
+    fn parse_params(&mut self, until: TokenKind) -> Vec<Arc<str>> {
         let mut items = Vec::new();
 
         loop {
             self.consume_whitespace();
             let next = self.iter.peek().expect("token");
-            if *next == until {
+            if next.kind == until {
                 self.iter.next();
                 break;
             }
@@ -314,9 +314,9 @@ impl Parser {
             items.push(self.expect_ident());
 
             let token = self.iter.next().expect("token");
-            if token == until {
+            if token.kind == until {
                 break;
-            } else if token != Token::Comma && token != Token::NewLine {
+            } else if token.kind != TokenKind::Comma && token.kind != TokenKind::NewLine {
                 panic!("unexpected token: {token:?}")
             }
         }
@@ -324,13 +324,13 @@ impl Parser {
         items
     }
 
-    fn parse_list(&mut self, until: Token) -> Vec<Expression> {
+    fn parse_list(&mut self, until: TokenKind) -> Vec<Expression> {
         let mut items = Vec::new();
 
         loop {
             self.consume_whitespace();
             let next = self.iter.peek().expect("token");
-            if *next == until {
+            if next.kind == until {
                 self.iter.next();
                 break;
             }
@@ -338,9 +338,9 @@ impl Parser {
             items.push(self.parse_expression(0));
 
             let token = self.iter.next().expect("token");
-            if token == until {
+            if token.kind == until {
                 break;
-            } else if token != Token::Comma && token != Token::NewLine {
+            } else if token.kind != TokenKind::Comma && token.kind != TokenKind::NewLine {
                 panic!("unexpected token: {token:?}")
             }
         }
@@ -354,7 +354,7 @@ impl Parser {
 
         loop {
             self.consume_whitespace();
-            if self.iter.next_if_eq(&Token::RightParen).is_some() {
+            if self.next_if_kind(&TokenKind::RightParen).is_some() {
                 break;
             }
 
@@ -367,11 +367,11 @@ impl Parser {
             // Must check later:
             // no kwargs for argument assigned positionally
 
-            if let Some(Token::Identifier(name)) = self.iter.peek() {
+            if let Some(TokenKind::Identifier(name)) = self.peek_kind() {
                 let name = Arc::clone(name);
                 self.iter.next();
 
-                if self.iter.next_if_eq(&Token::Colon).is_some() {
+                if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let value = self.parse_expression(0);
                     kwargs.push((name, value));
                 } else {
@@ -385,9 +385,9 @@ impl Parser {
 
             let token = self.iter.next().expect("token");
 
-            if token == Token::RightParen {
+            if token.kind == TokenKind::RightParen {
                 break;
-            } else if token != Token::Comma && token != Token::NewLine {
+            } else if token.kind != TokenKind::Comma && token.kind != TokenKind::NewLine {
                 panic!("unexpected token after arg: {token:?}")
             }
         }
@@ -397,9 +397,9 @@ impl Parser {
 
     fn consume_whitespace(&mut self) {
         loop {
-            match self.iter.peek() {
+            match self.peek_kind() {
                 None => break,
-                Some(Token::NewLine) => {}
+                Some(TokenKind::NewLine) => {}
                 Some(_) => break,
             }
 
@@ -407,17 +407,25 @@ impl Parser {
         }
     }
 
-    fn expect(&mut self, token: Token) {
+    fn expect(&mut self, token: TokenKind) {
         let p = self.iter.next().expect("token");
-        assert_eq!(p, token, "Expected {token:?}, found {p:?}");
+        assert_eq!(p.kind, token, "Expected {token:?}, found {p:?}");
     }
 
     fn expect_ident(&mut self) -> Arc<str> {
         let p = self.iter.next().expect("token");
-        let Token::Identifier(name) = p else {
+        let TokenKind::Identifier(name) = p.kind else {
             panic!("Expected identifier");
         };
         name
+    }
+
+    fn next_if_kind(&mut self, kind: &TokenKind) -> Option<Token> {
+        self.iter.next_if(|t| t.kind == *kind)
+    }
+
+    fn peek_kind(&mut self) -> Option<&TokenKind> {
+        self.iter.peek().map(|t| &t.kind)
     }
 }
 

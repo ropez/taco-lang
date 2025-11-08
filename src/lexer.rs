@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum Token {
+pub enum TokenKind {
     Assign,
     LeftParen,
     RightParen,
@@ -31,6 +31,12 @@ pub enum Token {
     For,
     In,
     Record,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Token {
+    pub(crate) kind: TokenKind,
+    // pub(crate) src: &'a str,
 }
 
 struct Tokenizer<'a> {
@@ -64,71 +70,71 @@ impl<'a> Tokenizer<'a> {
                     }
                     '=' => {
                         if self.take_if_eq('=') {
-                            tokens.push(self.produce(Token::Equal));
+                            tokens.push(self.produce(TokenKind::Equal));
                         } else {
-                            tokens.push(self.produce(Token::Assign));
+                            tokens.push(self.produce(TokenKind::Assign));
                         }
                     }
                     '.' => {
                         if self.take_if_eq('.') {
-                            tokens.push(self.produce(Token::Spread));
+                            tokens.push(self.produce(TokenKind::Spread));
                         } else {
-                            tokens.push(self.produce(Token::Dot));
+                            tokens.push(self.produce(TokenKind::Dot));
                         }
                     }
                     '!' => {
                         if self.take_if_eq('=') {
-                            tokens.push(self.produce(Token::NotEqual));
+                            tokens.push(self.produce(TokenKind::NotEqual));
                         } else {
-                            tokens.push(self.produce(Token::Not));
+                            tokens.push(self.produce(TokenKind::Not));
                         }
                     }
                     '(' => {
-                        tokens.push(self.produce(Token::LeftParen));
+                        tokens.push(self.produce(TokenKind::LeftParen));
                     }
                     ')' => {
-                        tokens.push(self.produce(Token::RightParen));
+                        tokens.push(self.produce(TokenKind::RightParen));
                     }
                     '{' => {
-                        tokens.push(self.produce(Token::LeftBrace));
+                        tokens.push(self.produce(TokenKind::LeftBrace));
                     }
                     '}' => {
-                        tokens.push(self.produce(Token::RightBrace));
+                        tokens.push(self.produce(TokenKind::RightBrace));
                     }
                     '[' => {
-                        tokens.push(self.produce(Token::LeftSquare));
+                        tokens.push(self.produce(TokenKind::LeftSquare));
                     }
                     ']' => {
-                        tokens.push(self.produce(Token::RightSquare));
+                        tokens.push(self.produce(TokenKind::RightSquare));
                     }
                     ',' => {
-                        tokens.push(self.produce(Token::Comma));
+                        tokens.push(self.produce(TokenKind::Comma));
                     }
                     ':' => {
-                        tokens.push(self.produce(Token::Colon));
+                        tokens.push(self.produce(TokenKind::Colon));
                     }
                     '\n' => {
-                        tokens.push(self.produce(Token::NewLine));
+                        tokens.push(self.produce(TokenKind::NewLine));
                     }
                     '"' => {
                         let s = self.find_str()?;
-                        tokens.push(self.produce(Token::String(s)));
+                        tokens.push(self.produce(TokenKind::String(s)));
                     }
                     '0'..='9' => {
                         let s = self.find_number()?;
-                        tokens.push(self.produce(Token::Number(s)));
+                        tokens.push(self.produce(TokenKind::Number(s)));
                     }
                     'A'..='Z' | 'a'..='z' => {
                         let s = self.find_ident();
                         match s.as_ref() {
-                            "fun" => tokens.push(self.produce(Token::Fun)),
-                            "return" => tokens.push(self.produce(Token::Return)),
-                            "if" => tokens.push(self.produce(Token::If)),
-                            "else" => tokens.push(self.produce(Token::Else)),
-                            "for" => tokens.push(self.produce(Token::For)),
-                            "in" => tokens.push(self.produce(Token::In)),
-                            "record" => tokens.push(self.produce(Token::Record)),
-                            _ => tokens.push(self.produce(Token::Identifier(s))),
+                            "fun" => tokens.push(self.produce(TokenKind::Fun)),
+                            "return" => tokens.push(self.produce(TokenKind::Return)),
+                            "if" => tokens.push(self.produce(TokenKind::If)),
+                            "else" => tokens.push(self.produce(TokenKind::Else)),
+                            "for" => tokens.push(self.produce(TokenKind::For)),
+                            "in" => tokens.push(self.produce(TokenKind::In)),
+                            "record" => tokens.push(self.produce(TokenKind::Record)),
+                            _ => tokens.push(self.produce(TokenKind::Identifier(s))),
                         };
                     }
                     _ => {
@@ -175,14 +181,14 @@ impl<'a> Tokenizer<'a> {
         self.lcur = self.cur;
     }
 
-    fn produce(&mut self, token: Token) -> Token {
+    fn produce(&mut self, kind: TokenKind) -> Token {
+        // let s = extract_str(self.lcur, self.cur);
         self.lcur = self.cur;
-        token
+        Token { kind }
     }
 
     fn fail(&self, msg: &str) -> Error {
-        let off = (self.cur.as_ptr() as usize) - (self.lcur.as_ptr() as usize);
-        Error::new(msg.into(), self.src, &self.lcur[..off])
+        Error::new(msg.into(), self.src, extract_str(self.cur, self.lcur))
     }
 
     fn find_str(&mut self) -> Result<Arc<str>> {
@@ -246,4 +252,12 @@ impl<'a> Tokenizer<'a> {
 
 pub fn tokenize(src: &str) -> Result<Vec<Token>> {
     Tokenizer::new(src).tokenize()
+}
+
+fn extract_str<'a>(src: &'a str, cur: &'a str) -> &'a str {
+    let start = src.as_ptr() as usize;
+    let end = cur.as_ptr() as usize;
+    assert!(end >= start);
+    let off = end - start;
+    &src[..off]
 }
