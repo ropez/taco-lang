@@ -48,7 +48,7 @@ pub enum Expression {
     Range(Arc<Expression>, Arc<Expression>),
     Call {
         subject: Arc<str>,
-        arguments: Vec<Expression>,
+        args: Vec<Expression>,
         kwargs: Vec<(Arc<str>, Expression)>,
     },
     Access {
@@ -132,10 +132,10 @@ impl Parser {
                             self.expect(Token::NewLine);
                         }
                         Token::LeftParen => {
-                            let (arguments, kwargs) = self.parse_args();
+                            let (args, kwargs) = self.parse_args();
                             let node = AstNode::Expression(Expression::Call {
                                 subject: name,
-                                arguments,
+                                args,
                                 kwargs,
                             });
                             ast.push(node);
@@ -204,7 +204,7 @@ impl Parser {
                         let (args, kwargs) = self.parse_args();
                         Expression::Call {
                             subject: s,
-                            arguments: args,
+                            args,
                             kwargs,
                         }
                     }
@@ -340,7 +340,7 @@ impl Parser {
 
     fn parse_args(&mut self) -> (Vec<Expression>, Vec<(Arc<str>, Expression)>) {
         let mut args = Vec::new();
-        let mut items = Vec::new();
+        let mut kwargs = Vec::new();
 
         loop {
             self.consume_whitespace();
@@ -368,7 +368,7 @@ impl Parser {
                 };
 
                 let value = self.parse_expression(0);
-                items.push((name, value));
+                kwargs.push((name, value));
             } else {
                 args.push(value);
             }
@@ -382,7 +382,7 @@ impl Parser {
             }
         }
 
-        (args, items)
+        (args, kwargs)
     }
 
     fn consume_whitespace(&mut self) {

@@ -224,11 +224,11 @@ where
             }
             Expression::Call {
                 subject,
-                arguments,
+                args,
                 kwargs,
             } => match subject.as_ref() {
                 "println" => {
-                    for arg in arguments {
+                    for arg in args {
                         let val = self.eval_expr(arg, scope);
                         match *val {
                             ScriptValue::String(ref s) => {
@@ -246,8 +246,8 @@ where
                 }
                 // FIXME: Replace `push(l, i)` with `l.push(i)`
                 "push" => {
-                    let list = arguments.get(0).expect("push list");
-                    let item = arguments.get(1).expect("push item");
+                    let list = args.get(0).expect("push list");
+                    let item = args.get(1).expect("push item");
                     let res = match *self.eval_expr(list, scope) {
                         ScriptValue::List(ref l) => {
                             let value = self.eval_expr(item, scope);
@@ -263,7 +263,7 @@ where
                 }
                 _ => {
                     if let Some((fun, captured_scope)) = scope.functions.get(subject) {
-                        let values = self.eval_args(&fun.params, arguments, kwargs, scope);
+                        let values = self.eval_args(&fun.params, args, kwargs, scope);
 
                         let mut inner_scope = captured_scope.clone();
 
@@ -278,7 +278,7 @@ where
                             Completion::Return(v) => v,
                         }
                     } else if let Some(rec) = scope.records.get(subject) {
-                        let values = self.eval_args(&rec.params, arguments, kwargs, scope);
+                        let values = self.eval_args(&rec.params, args, kwargs, scope);
 
                         let instance = ScriptValue::RecordInstance {
                             record: Arc::clone(rec),
