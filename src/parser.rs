@@ -42,7 +42,7 @@ pub enum AstNode {
 pub enum Expression {
     Ref(Arc<str>),
     String(Arc<str>),
-    StringInterpolate(Vec<Box<Expression>>),
+    StringInterpolate(Vec<Expression>),
     Number(i64),
     List(Vec<Expression>),
     Not(Arc<Expression>),
@@ -436,12 +436,10 @@ fn parse_string(src: Arc<str>) -> Expression {
     let res = parts
         .iter()
         .map(|p| match *p {
-            StringToken::Str(s) => Box::new(Expression::String(s.into())),
+            StringToken::Str(s) => Expression::String(s.into()),
             StringToken::Expr(s) => {
                 let tokens = lexer::tokenize(s);
-                let expr = Parser::new(tokens).parse_expression(0);
-
-                Box::new(expr)
+                Parser::new(tokens).parse_expression(0)
             }
         })
         .collect();
