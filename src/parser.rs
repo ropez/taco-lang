@@ -64,7 +64,6 @@ pub enum Expression {
 pub struct Function {
     // return type
     // parameters
-    // closure
     pub(crate) params: Vec<Arc<str>>,
     pub(crate) body: Vec<AstNode>,
 }
@@ -438,7 +437,7 @@ fn parse_string(src: Arc<str>) -> Expression {
         .map(|p| match *p {
             StringToken::Str(s) => Expression::String(s.into()),
             StringToken::Expr(s) => {
-                let tokens = lexer::tokenize(s);
+                let tokens = lexer::tokenize(s).expect("TODO");
                 Parser::new(tokens).parse_expression(0)
             }
         })

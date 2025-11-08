@@ -1,15 +1,12 @@
-use std::{
-    env::args,
-    fs,
-    io::{pipe, Read},
-};
+use std::{env::args, fs, io::stdout};
 
 use eval::Engine;
 
+mod error;
 mod eval;
+mod interp;
 mod lexer;
 mod parser;
-mod interp;
 
 fn main() {
     let mut args = args();
@@ -18,7 +15,13 @@ fn main() {
 
     let src = fs::read_to_string(script).unwrap();
 
-    let tokens = lexer::tokenize(&src);
+    if let Err(err) = run(&src) {
+        eprintln!("ERROR: {err}");
+    }
+}
+
+fn run(src: &str) -> error::Result<()> {
+    let tokens = lexer::tokenize(src)?;
 
     // println!("{:?}", &tokens);
 
@@ -26,14 +29,8 @@ fn main() {
 
     // println!("{:?}", &ast);
 
-    let (mut reader, writer) = pipe().unwrap();
-
-    let engine = Engine::new(writer);
+    let engine = Engine::new(stdout());
     engine.eval(&ast);
 
-    drop(engine);
-
-    let mut output = String::new();
-    reader.read_to_string(&mut output).unwrap();
-    println!("{output}");
+    Ok(())
 }

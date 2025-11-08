@@ -1,4 +1,6 @@
-use std::{iter::Peekable, str::Chars, sync::Arc};
+use std::sync::Arc;
+
+use crate::error::{Error, Result};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Token {
@@ -32,174 +34,216 @@ pub enum Token {
 }
 
 struct Tokenizer<'a> {
-    code: Peekable<Chars<'a>>,
+    src: &'a str,
+    lcur: &'a str,
+    cur: &'a str,
 }
 
 impl<'a> Tokenizer<'a> {
     fn new(src: &'a str) -> Self {
-        Self {
-            code: src.chars().peekable(),
-        }
+        Self { src, lcur: src, cur: src }
     }
 
-    fn tokenize(&mut self) -> Vec<Token> {
+    fn tokenize(&mut self) -> Result<Vec<Token>> {
         let mut tokens = Vec::new();
 
         loop {
-            match self.code.peek() {
+            match self.take() {
                 None => break,
                 Some(c) => match c {
                     ' ' => {
-                        self.code.next();
+                        self.skip();
                     }
                     '#' => {
                         // Consume until newline
-                        while self.code.next_if(|t| *t != '\n').is_some() {}
+                        // XXX Combine these lines:
+                        let p = self.cur.find('\n').expect("end of line");
+                        let (_, c) = self.cur.split_at(p);
+                        self.cur = c;
+                        self.skip();
                     }
                     '=' => {
-                        self.code.next();
-                        if self.code.next_if_eq(&'=').is_some() {
-                            tokens.push(Token::Equal);
+                        if self.take_if_eq('=') {
+                            tokens.push(self.produce(Token::Equal));
                         } else {
-                            tokens.push(Token::Assign);
+                            tokens.push(self.produce(Token::Assign));
                         }
                     }
                     '.' => {
-                        self.code.next();
-                        if self.code.next_if_eq(&'.').is_some() {
-                            tokens.push(Token::Spread);
+                        if self.take_if_eq('.') {
+                            tokens.push(self.produce(Token::Spread));
                         } else {
-                            tokens.push(Token::Dot);
+                            tokens.push(self.produce(Token::Dot));
                         }
                     }
                     '!' => {
-                        self.code.next();
-                        if self.code.next_if_eq(&'=').is_some() {
-                            tokens.push(Token::NotEqual);
+                        if self.take_if_eq('=') {
+                            tokens.push(self.produce(Token::NotEqual));
                         } else {
-                            tokens.push(Token::Not);
+                            tokens.push(self.produce(Token::Not));
                         }
                     }
                     '(' => {
-                        tokens.push(Token::LeftParen);
-                        self.code.next();
+                        tokens.push(self.produce(Token::LeftParen));
                     }
                     ')' => {
-                        tokens.push(Token::RightParen);
-                        self.code.next();
+                        tokens.push(self.produce(Token::RightParen));
                     }
                     '{' => {
-                        tokens.push(Token::LeftBrace);
-                        self.code.next();
+                        tokens.push(self.produce(Token::LeftBrace));
                     }
                     '}' => {
-                        tokens.push(Token::RightBrace);
-                        self.code.next();
+                        tokens.push(self.produce(Token::RightBrace));
                     }
                     '[' => {
-                        tokens.push(Token::LeftSquare);
-                        self.code.next();
+                        tokens.push(self.produce(Token::LeftSquare));
                     }
                     ']' => {
-                        tokens.push(Token::RightSquare);
-                        self.code.next();
+                        tokens.push(self.produce(Token::RightSquare));
                     }
                     ',' => {
-                        tokens.push(Token::Comma);
-                        self.code.next();
+                        tokens.push(self.produce(Token::Comma));
                     }
                     ':' => {
-                        tokens.push(Token::Colon);
-                        self.code.next();
+                        tokens.push(self.produce(Token::Colon));
                     }
                     '\n' => {
-                        tokens.push(Token::NewLine);
-                        self.code.next();
+                        tokens.push(self.produce(Token::NewLine));
                     }
                     '"' => {
-                        let s = self.find_str();
-                        tokens.push(Token::String(s));
+                        let s = self.find_str()?;
+                        tokens.push(self.produce(Token::String(s)));
                     }
                     '0'..='9' => {
-                        let s = self.find_number();
-                        tokens.push(Token::Number(s));
+                        let s = self.find_number()?;
+                        tokens.push(self.produce(Token::Number(s)));
                     }
                     'A'..='Z' | 'a'..='z' => {
                         let s = self.find_ident();
                         match s.as_ref() {
-                            "fun" => tokens.push(Token::Fun),
-                            "return" => tokens.push(Token::Return),
-                            "if" => tokens.push(Token::If),
-                            "else" => tokens.push(Token::Else),
-                            "for" => tokens.push(Token::For),
-                            "in" => tokens.push(Token::In),
-                            "record" => tokens.push(Token::Record),
-                            _ => tokens.push(Token::Identifier(s)),
+                            "fun" => tokens.push(self.produce(Token::Fun)),
+                            "return" => tokens.push(self.produce(Token::Return)),
+                            "if" => tokens.push(self.produce(Token::If)),
+                            "else" => tokens.push(self.produce(Token::Else)),
+                            "for" => tokens.push(self.produce(Token::For)),
+                            "in" => tokens.push(self.produce(Token::In)),
+                            "record" => tokens.push(self.produce(Token::Record)),
+                            _ => tokens.push(self.produce(Token::Identifier(s))),
                         };
                     }
-                    _ => panic!("Unexpected token: {}", c),
+                    _ => {
+                        return Err(self.fail("Unexpected token"));
+                    }
                 },
             }
         }
 
-        tokens
+        Ok(tokens)
     }
 
-    fn find_str(&mut self) -> Arc<str> {
-        self.code.next(); // TODO Assert "
+    fn peek(&mut self) -> Option<char> {
+        self.cur.chars().next()
+    }
+
+    fn take(&mut self) -> Option<char> {
+        match self.peek() {
+            Some(ch) => {
+                let l = ch.len_utf8();
+                self.cur = &self.cur[l..];
+                Some(ch)
+            }
+            None => None,
+        }
+    }
+
+    fn take_if_eq(&mut self, ch: char) -> bool {
+        match self.peek() {
+            Some(c) => {
+                if c == ch {
+                    let l = ch.len_utf8();
+                    self.cur = &self.cur[l..];
+                    true
+                } else {
+                    false
+                }
+            }
+            None => false,
+        }
+    }
+
+    fn skip(&mut self) {
+        self.lcur = self.cur;
+    }
+
+    fn produce(&mut self, token: Token) -> Token {
+        self.lcur = self.cur;
+        token
+    }
+
+    fn fail(&self, msg: &str) -> Error {
+        let off = (self.cur.as_ptr() as usize) - (self.lcur.as_ptr() as usize);
+        Error::new(msg.into(), self.src, &self.lcur[..off])
+    }
+
+    fn find_str(&mut self) -> Result<Arc<str>> {
+        // self.take(); // TODO Assert "
 
         // FIXME Inefficient
         let mut s = String::new();
         loop {
-            match self.code.next() {
-                None => panic!("Unexpected end of input"),
+            match self.take() {
+                None => {
+                    return Err(self.fail("Unexpected end of input"));
+                }
                 Some('"') => break,
                 Some(c) => s.push(c),
             }
         }
 
-        s.into()
+        Ok(s.into())
     }
 
     fn find_ident(&mut self) -> Arc<str> {
         // FIXME Inefficient
+        self.cur = self.lcur;
         let mut s = String::new();
         loop {
-            match self.code.peek() {
+            match self.peek() {
                 None => break,
                 Some(c) => match c {
                     'A'..='Z' | 'a'..='z' => {
-                        s.push(*c);
-                        self.code.next();
+                        s.push(c);
+                        self.take();
                     }
                     _ => break,
-                }
+                },
             }
         }
 
         s.into()
     }
 
-    fn find_number(&mut self) -> i64 {
+    fn find_number(&mut self) -> Result<i64> {
         // FIXME Inefficient
+        self.cur = self.lcur;
         let mut s = String::new();
         loop {
-            match self.code.peek() {
+            match self.peek() {
                 None => break,
                 Some(c) => match c {
                     '0'..='9' => {
-                        s.push(*c);
-                        self.code.next();
+                        s.push(c);
+                        self.take();
                     }
                     _ => break,
-                }
+                },
             }
         }
 
-        s.parse().expect("parse number")
+        s.parse().map_err(|_| self.fail("Invalid number"))
     }
 }
 
-pub fn tokenize(src: &str) -> Vec<Token> {
+pub fn tokenize(src: &str) -> Result<Vec<Token>> {
     Tokenizer::new(src).tokenize()
 }
