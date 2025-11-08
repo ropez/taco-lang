@@ -1,8 +1,8 @@
 record Person(name, email)
 
 per = Person(
-    email = "foo@bar.com"
-    name = "per"
+    email: "foo@bar.com"
+    name: "per"
 )
 
 println(per.name)

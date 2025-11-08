@@ -13,6 +13,7 @@ pub enum Token {
     Equal,
     NotEqual,
     Comma,
+    Colon,
     Dot,
     Spread,
     Identifier(Arc<str>),
@@ -105,6 +106,10 @@ impl<'a> Tokenizer<'a> {
                     }
                     ',' => {
                         tokens.push(Token::Comma);
+                        self.code.next();
+                    }
+                    ':' => {
+                        tokens.push(Token::Colon);
                         self.code.next();
                     }
                     '\n' => {

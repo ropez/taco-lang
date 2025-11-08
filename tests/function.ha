@@ -7,7 +7,7 @@ fun args(first, second, third) {
 }
 
 args(1, 2, 3)
-args("a", third = "c", second = "b")
+args("a", third: "c", second: "b")
 
 fun bye(arg) {
     msg = "Good bye"

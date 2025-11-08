@@ -362,7 +362,7 @@ impl Parser {
             // Must check later:
             // no kwargs for argument assigned positionally
 
-            if self.iter.next_if_eq(&Token::Assign).is_some() {
+            if self.iter.next_if_eq(&Token::Colon).is_some() {
                 let Expression::Ref(name) = value else {
                     panic!("Syntax error in argument list");
                 };
