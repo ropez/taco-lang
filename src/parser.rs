@@ -1,6 +1,9 @@
 use std::{iter::Peekable, sync::Arc, vec::IntoIter};
 
-use crate::{interp::{self, StringToken}, lexer::{self, Token}};
+use crate::{
+    interp::{self, StringToken},
+    lexer::{self, Token},
+};
 
 #[derive(Debug)]
 pub enum AstNode {
@@ -85,6 +88,7 @@ mod constants {
     // pub(crate) const BP_DIV: u32 = 20;
     // pub(crate) const BP_MULT: u32 = 20;
     // pub(crate) const BP_UNARY: u32 = 30;
+    pub(crate) const BP_CALL: u32 = 90;
     pub(crate) const BP_ACCESS: u32 = 100;
 }
 
@@ -196,23 +200,10 @@ impl Parser {
         let token = self.iter.next().expect("expression");
         match token {
             Token::Identifier(s) => {
-                match self.iter.peek() {
-                    // FIXME: Call should be a "continuation" of an expression.
-                    // The expression can be anything such as a fun returning a fun.
-                    Some(Token::LeftParen) => {
-                        self.iter.next();
-                        let (args, kwargs) = self.parse_args();
-                        Expression::Call {
-                            subject: s,
-                            args,
-                            kwargs,
-                        }
-                    }
-                    _ => self.parse_continuation(Expression::Ref(s), bp),
-                }
+                self.parse_continuation(Expression::Ref(s), bp)
             }
             Token::Not => {
-                let expr = self.parse_expression(0);
+                let expr = self.parse_expression(bp);
                 Expression::Not(expr.into())
             }
             Token::String(s) => {
@@ -285,6 +276,26 @@ impl Parser {
                         self.parse_continuation(expr, bp)
                     }
                 }
+                Token::LeftParen => {
+                    if bp >= BP_CALL {
+                        lhs
+                    } else {
+                        self.iter.next();
+
+                        // XXX Change Call subject to Expression
+                        let Expression::Ref(subject) = lhs else {
+                            panic!("Unespected call on {lhs:?}");
+                        };
+
+                        let (args, kwargs) = self.parse_args();
+
+                        Expression::Call {
+                            subject,
+                            args,
+                            kwargs,
+                        }
+                    }
+                }
                 _ => lhs,
             },
         }
@@ -348,11 +359,6 @@ impl Parser {
                 break;
             }
 
-            // XXX Kind of misusing parse_expression to parse kwargs name as Expression::Ref
-            // We can peek for an identifier, if we see one then consume it, and peek again for assignment,
-            // if no assignment is found, then parse continuation for Expression::Ref
-            let value = self.parse_expression(0);
-
             // TODO Checks needed here:
             // positional args must come before kwargs
             //
@@ -362,14 +368,19 @@ impl Parser {
             // Must check later:
             // no kwargs for argument assigned positionally
 
-            if self.iter.next_if_eq(&Token::Colon).is_some() {
-                let Expression::Ref(name) = value else {
-                    panic!("Syntax error in argument list");
-                };
+            if let Some(Token::Identifier(name)) = self.iter.peek() {
+                let name = Arc::clone(name);
+                self.iter.next();
 
-                let value = self.parse_expression(0);
-                kwargs.push((name, value));
+                if self.iter.next_if_eq(&Token::Colon).is_some() {
+                    let value = self.parse_expression(0);
+                    kwargs.push((name, value));
+                } else {
+                    let value = self.parse_continuation(Expression::Ref(name), 0);
+                    args.push(value);
+                }
             } else {
+                let value = self.parse_expression(0);
                 args.push(value);
             }
 
@@ -422,15 +433,18 @@ fn parse_string(src: Arc<str>) -> Expression {
         return Expression::String("".into()); // Use constant?
     }
 
-    let res = parts.iter().map(|p| match *p {
-        StringToken::Str(s) => Box::new(Expression::String(s.into())),
-        StringToken::Expr(s) => {
-            let tokens = lexer::tokenize(s);
-            let expr = Parser::new(tokens).parse_expression(0);
+    let res = parts
+        .iter()
+        .map(|p| match *p {
+            StringToken::Str(s) => Box::new(Expression::String(s.into())),
+            StringToken::Expr(s) => {
+                let tokens = lexer::tokenize(s);
+                let expr = Parser::new(tokens).parse_expression(0);
 
-            Box::new(expr)
-        },
-    }).collect();
+                Box::new(expr)
+            }
+        })
+        .collect();
 
     Expression::StringInterpolate(res)
 }
