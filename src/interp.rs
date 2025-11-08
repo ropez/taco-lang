@@ -43,7 +43,13 @@ pub fn tokenise_string<'a>(src: &'a str) -> Vec<StringToken<'a>> {
                     }
                 }
                 Some('$') => {
-                    todo!();
+                    if let Some(p) = cur[1..].find('$') {
+                        tokens.push(StringToken::Str(&cur[..p + 1]));
+                        cur = &cur[p + 1..];
+                    } else {
+                        tokens.push(StringToken::Str(cur));
+                        break;
+                    }
                 }
                 Some(_) => panic!("Unespected character after $"),
             }
@@ -72,6 +78,17 @@ mod tests {
         let res = tokenise_string("foobar");
 
         assert_eq!(res, vec![StringToken::Str("foobar")]);
+    }
+
+    #[test]
+    fn test_returns_string_with_dollar_signs() {
+        let res = tokenise_string("$$foo$$bar$$");
+
+        assert_eq!(res, vec![
+            StringToken::Str("$foo"),
+            StringToken::Str("$bar"),
+            StringToken::Str("$"),
+        ]);
     }
 
     #[test]
