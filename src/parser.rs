@@ -1,6 +1,7 @@
-use std::{iter::Peekable, sync::Arc, vec::IntoIter};
+use std::{iter::Peekable, ops::Range, sync::Arc, vec::IntoIter};
 
 use crate::{
+    error::{Error, Result},
     interp::{self, StringToken},
     lexer::{self, Token, TokenKind},
 };
@@ -50,6 +51,11 @@ pub enum Expression {
     NotEqual(Box<Expression>, Box<Expression>),
     Range(Box<Expression>, Box<Expression>),
     Call {
+        // TODO Replace 'str' with expression.
+        // This implies 'functions as values':
+        // - ScriptValue variant for function
+        // - Functions in 'locals' scope, instead of special 'functions'
+        // - Records will also be values, or even just functions
         subject: Arc<str>,
         args: Vec<Expression>,
         kwargs: Vec<(Arc<str>, Expression)>,
@@ -74,7 +80,8 @@ pub struct Record {
     pub(crate) params: Vec<Arc<str>>,
 }
 
-struct Parser {
+pub struct Parser<'a> {
+    src: &'a str,
     iter: Peekable<IntoIter<Token>>,
 }
 
@@ -91,14 +98,15 @@ mod constants {
     pub(crate) const BP_ACCESS: u32 = 100;
 }
 
-impl Parser {
-    fn new(tokens: Vec<Token>) -> Self {
+impl<'a> Parser<'a> {
+    pub fn new(src: &'a str, tokens: Vec<Token>) -> Self {
         Self {
+            src,
             iter: tokens.into_iter().peekable(),
         }
     }
 
-    fn parse(&mut self) -> Vec<AstNode> {
+    pub fn parse(&mut self) -> Result<Vec<AstNode>> {
         let mut ast = Vec::new();
 
         loop {
@@ -108,34 +116,34 @@ impl Parser {
                 TokenKind::NewLine => {}        // Ignore
                 TokenKind::RightBrace => break, // FIXME Not allowed at global scope
                 TokenKind::Fun => {
-                    let name = self.expect_ident();
-                    self.expect(TokenKind::LeftParen);
-                    let params = self.parse_params(TokenKind::RightParen);
-                    self.expect(TokenKind::LeftBrace);
-                    self.expect(TokenKind::NewLine);
+                    let name = self.expect_ident()?;
+                    self.expect_kind(TokenKind::LeftParen);
+                    let params = self.parse_params(TokenKind::RightParen)?;
+                    self.expect_kind(TokenKind::LeftBrace);
+                    self.expect_kind(TokenKind::NewLine);
 
-                    let body = self.parse();
+                    let body = self.parse()?;
 
                     let fun = Arc::new(Function { body, params });
                     ast.push(AstNode::Function { name, fun });
                 }
                 // FIXME Not allowed at global scope
                 TokenKind::Return => {
-                    let expr = self.parse_expression(0);
+                    let expr = self.parse_expression(0)?;
                     ast.push(AstNode::Return(expr));
                 }
                 TokenKind::Identifier(name) => {
-                    let p = self.iter.next().expect("token after ident");
+                    let p = self.expect_token()?;
 
                     match p.kind {
                         TokenKind::Assign => {
-                            let value = self.parse_expression(0);
+                            let value = self.parse_expression(0)?;
                             let node = AstNode::Assignment { name, value };
                             ast.push(node);
-                            self.expect(TokenKind::NewLine);
+                            self.expect_kind(TokenKind::NewLine);
                         }
                         TokenKind::LeftParen => {
-                            let (args, kwargs) = self.parse_args();
+                            let (args, kwargs) = self.parse_args()?;
                             let node = AstNode::Expression(Expression::Call {
                                 subject: name,
                                 args,
@@ -143,20 +151,23 @@ impl Parser {
                             });
                             ast.push(node);
 
-                            self.expect(TokenKind::NewLine);
+                            self.expect_kind(TokenKind::NewLine);
                         }
-                        _ => panic!("Expected assignment or call"),
+                        _ => return Err(self.fail_at("Expected assignment or call", &p)),
                     }
                 }
                 TokenKind::If => {
-                    let cond = self.parse_expression(0);
-                    self.expect(TokenKind::LeftBrace);
-                    let body = self.parse();
+                    let cond = self.parse_expression(0)?;
+                    self.expect_kind(TokenKind::LeftBrace);
+                    let body = self.parse()?;
 
-                    let else_body = self.next_if_kind(&TokenKind::Else).map(|_| {
-                        self.expect(TokenKind::LeftBrace);
-                        self.parse()
-                    });
+                    let else_body = self
+                        .next_if_kind(&TokenKind::Else)
+                        .map(|_| {
+                            self.expect_kind(TokenKind::LeftBrace);
+                            self.parse()
+                        })
+                        .transpose()?;
 
                     ast.push(AstNode::Condition {
                         cond,
@@ -165,11 +176,11 @@ impl Parser {
                     });
                 }
                 TokenKind::For => {
-                    let ident = self.expect_ident();
-                    self.expect(TokenKind::In);
-                    let iterable = self.parse_expression(0);
-                    self.expect(TokenKind::LeftBrace);
-                    let body = self.parse();
+                    let ident = self.expect_ident()?;
+                    self.expect_kind(TokenKind::In);
+                    let iterable = self.parse_expression(0)?;
+                    self.expect_kind(TokenKind::LeftBrace);
+                    let body = self.parse()?;
 
                     ast.push(AstNode::Iteration {
                         ident,
@@ -178,9 +189,9 @@ impl Parser {
                     });
                 }
                 TokenKind::Record => {
-                    let ident = self.expect_ident();
-                    self.expect(TokenKind::LeftParen);
-                    let params = self.parse_params(TokenKind::RightParen);
+                    let ident = self.expect_ident()?;
+                    self.expect_kind(TokenKind::LeftParen);
+                    let params = self.parse_params(TokenKind::RightParen)?;
 
                     let rec = Arc::new(Record {
                         name: ident,
@@ -188,48 +199,51 @@ impl Parser {
                     });
                     ast.push(AstNode::Record(rec))
                 }
-                _ => panic!("Unexpected token: {token:?}"),
+                _ => {
+                    return Err(self.fail_at("Unexpected token", &token));
+                }
             }
         }
 
-        ast
+        Ok(ast)
     }
 
-    fn parse_expression(&mut self, bp: u32) -> Expression {
-        let token = self.iter.next().expect("expression");
-        match token.kind {
-            TokenKind::Identifier(s) => {
-                self.parse_continuation(Expression::Ref(s), bp)
-            }
+    fn parse_expression(&mut self, bp: u32) -> Result<Expression> {
+        let token = self.expect_token()?;
+
+        let expr = match token.kind {
+            TokenKind::Identifier(s) => self.parse_continuation(Expression::Ref(s), bp)?,
             TokenKind::Not => {
-                let expr = self.parse_expression(bp);
+                let expr = self.parse_expression(bp)?;
                 Expression::Not(expr.into())
             }
             TokenKind::String(s) => {
-                let expr = parse_string(s);
-                self.parse_continuation(expr, bp)
+                let expr = parse_string(s)?;
+                self.parse_continuation(expr, bp)?
             }
             TokenKind::Number(n) => {
                 let e = Expression::Number(n);
-                self.parse_continuation(e, bp)
+                self.parse_continuation(e, bp)?
             }
             TokenKind::LeftSquare => {
                 // FIXME: Infer type of list, and validate each item's type
                 // Not sure if this is really a parser concern.
                 // Needs to take scope into consideration, so it's probably
                 // some analysis phase after parsing, but before evaluation.
-                let list = self.parse_list(TokenKind::RightSquare);
+                let list = self.parse_list(TokenKind::RightSquare)?;
 
                 Expression::List(list)
             }
-            _ => panic!("unexpected token: {token:?}"),
-        }
+            _ => return Err(self.fail_at("unexpected token", &token)),
+        };
+
+        Ok(expr)
     }
 
-    fn parse_continuation(&mut self, lhs: Expression, bp: u32) -> Expression {
+    fn parse_continuation(&mut self, lhs: Expression, bp: u32) -> Result<Expression> {
         use constants::*;
 
-        match self.peek_kind() {
+        let expr = match self.peek_kind() {
             None => lhs,
             Some(token) => match token {
                 TokenKind::Equal => {
@@ -237,9 +251,9 @@ impl Parser {
                         lhs
                     } else {
                         self.iter.next();
-                        let rhs = self.parse_expression(BP_EQUAL);
+                        let rhs = self.parse_expression(BP_EQUAL)?;
                         let expr = Expression::Equal(lhs.into(), rhs.into());
-                        self.parse_continuation(expr, bp)
+                        self.parse_continuation(expr, bp)?
                     }
                 }
                 TokenKind::NotEqual => {
@@ -247,9 +261,9 @@ impl Parser {
                         lhs
                     } else {
                         self.iter.next();
-                        let rhs = self.parse_expression(BP_EQUAL);
+                        let rhs = self.parse_expression(BP_EQUAL)?;
                         let expr = Expression::NotEqual(lhs.into(), rhs.into());
-                        self.parse_continuation(expr, bp)
+                        self.parse_continuation(expr, bp)?
                     }
                 }
                 TokenKind::Dot => {
@@ -257,12 +271,12 @@ impl Parser {
                         lhs
                     } else {
                         self.iter.next();
-                        let key = self.expect_ident();
+                        let key = self.expect_ident()?;
                         let expr = Expression::Access {
                             subject: lhs.into(),
                             key,
                         };
-                        self.parse_continuation(expr, bp)
+                        self.parse_continuation(expr, bp)?
                     }
                 }
                 TokenKind::Spread => {
@@ -270,23 +284,23 @@ impl Parser {
                         lhs
                     } else {
                         self.iter.next();
-                        let rhs = self.parse_expression(BP_SPREAD);
+                        let rhs = self.parse_expression(BP_SPREAD)?;
                         let expr = Expression::Range(lhs.into(), rhs.into());
-                        self.parse_continuation(expr, bp)
+                        self.parse_continuation(expr, bp)?
                     }
                 }
                 TokenKind::LeftParen => {
                     if bp >= BP_CALL {
                         lhs
                     } else {
-                        self.iter.next();
+                        let t = self.iter.next().expect("already checked");
 
                         // XXX Change Call subject to Expression
                         let Expression::Ref(subject) = lhs else {
-                            panic!("Unespected call on {lhs:?}");
+                            return Err(self.fail_at("Unespected call", &t));
                         };
 
-                        let (args, kwargs) = self.parse_args();
+                        let (args, kwargs) = self.parse_args()?;
 
                         Expression::Call {
                             subject,
@@ -297,58 +311,64 @@ impl Parser {
                 }
                 _ => lhs,
             },
-        }
+        };
+
+        Ok(expr)
     }
 
-    fn parse_params(&mut self, until: TokenKind) -> Vec<Arc<str>> {
+    fn parse_params(&mut self, until: TokenKind) -> Result<Vec<Arc<str>>> {
         let mut items = Vec::new();
 
         loop {
             self.consume_whitespace();
-            let next = self.iter.peek().expect("token");
+            let Some(next) = self.iter.peek() else {
+                return Err(self.fail_at_end("Unexpected end of input"));
+            };
             if next.kind == until {
                 self.iter.next();
                 break;
             }
 
-            items.push(self.expect_ident());
+            items.push(self.expect_ident()?);
 
-            let token = self.iter.next().expect("token");
+            let token = self.expect_token()?;
             if token.kind == until {
                 break;
             } else if token.kind != TokenKind::Comma && token.kind != TokenKind::NewLine {
-                panic!("unexpected token: {token:?}")
+                return Err(self.fail_at("Unexpected token", &token));
             }
         }
 
-        items
+        Ok(items)
     }
 
-    fn parse_list(&mut self, until: TokenKind) -> Vec<Expression> {
+    fn parse_list(&mut self, until: TokenKind) -> Result<Vec<Expression>> {
         let mut items = Vec::new();
 
         loop {
             self.consume_whitespace();
-            let next = self.iter.peek().expect("token");
+            let Some(next) = self.iter.peek() else {
+                return Err(self.fail_at_end("Unexpected end of input"));
+            };
             if next.kind == until {
                 self.iter.next();
                 break;
             }
 
-            items.push(self.parse_expression(0));
+            items.push(self.parse_expression(0)?);
 
-            let token = self.iter.next().expect("token");
+            let token = self.expect_token()?;
             if token.kind == until {
                 break;
             } else if token.kind != TokenKind::Comma && token.kind != TokenKind::NewLine {
-                panic!("unexpected token: {token:?}")
+                return Err(self.fail_at("Unexpected token", &token));
             }
         }
 
-        items
+        Ok(items)
     }
 
-    fn parse_args(&mut self) -> (Vec<Expression>, Vec<(Arc<str>, Expression)>) {
+    fn parse_args(&mut self) -> Result<(Vec<Expression>, Vec<(Arc<str>, Expression)>)> {
         let mut args = Vec::new();
         let mut kwargs = Vec::new();
 
@@ -372,27 +392,26 @@ impl Parser {
                 self.iter.next();
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
-                    let value = self.parse_expression(0);
+                    let value = self.parse_expression(0)?;
                     kwargs.push((name, value));
                 } else {
-                    let value = self.parse_continuation(Expression::Ref(name), 0);
+                    let value = self.parse_continuation(Expression::Ref(name), 0)?;
                     args.push(value);
                 }
             } else {
-                let value = self.parse_expression(0);
+                let value = self.parse_expression(0)?;
                 args.push(value);
             }
 
-            let token = self.iter.next().expect("token");
-
+            let token = self.expect_token()?;
             if token.kind == TokenKind::RightParen {
                 break;
             } else if token.kind != TokenKind::Comma && token.kind != TokenKind::NewLine {
-                panic!("unexpected token after arg: {token:?}")
+                return Err(self.fail_at("Unexpected token", &token));
             }
         }
 
-        (args, kwargs)
+        Ok((args, kwargs))
     }
 
     fn consume_whitespace(&mut self) {
@@ -407,17 +426,23 @@ impl Parser {
         }
     }
 
-    fn expect(&mut self, token: TokenKind) {
+    fn expect_token(&mut self) -> Result<Token> {
+        self.iter
+            .next()
+            .ok_or_else(|| self.fail_at_end("Unexpected end of input"))
+    }
+
+    fn expect_kind(&mut self, token: TokenKind) {
         let p = self.iter.next().expect("token");
         assert_eq!(p.kind, token, "Expected {token:?}, found {p:?}");
     }
 
-    fn expect_ident(&mut self) -> Arc<str> {
-        let p = self.iter.next().expect("token");
-        let TokenKind::Identifier(name) = p.kind else {
-            panic!("Expected identifier");
-        };
-        name
+    fn expect_ident(&mut self) -> Result<Arc<str>> {
+        let token = self.expect_token()?;
+        match token.kind {
+            TokenKind::Identifier(name) => Ok(name),
+            _ => Err(self.fail_at("Expected identifier", &token)),
+        }
     }
 
     fn next_if_kind(&mut self, kind: &TokenKind) -> Option<Token> {
@@ -427,29 +452,43 @@ impl Parser {
     fn peek_kind(&mut self) -> Option<&TokenKind> {
         self.iter.peek().map(|t| &t.kind)
     }
+
+    fn fail_at(&self, msg: &str, token: &Token) -> Error {
+        self.fail(msg, &token.loc)
+    }
+
+    fn fail_at_end(&self, msg: &str) -> Error {
+        let len = self.src.len();
+        self.fail(msg, &(len - 1..len))
+    }
+
+    fn fail(&self, msg: &str, loc: &Range<usize>) -> Error {
+        use std::backtrace::Backtrace;
+        println!("Custom backtrace: {}", Backtrace::force_capture());
+        Error::new(msg.into(), self.src, loc)
+    }
 }
 
-pub fn parse(tokens: Vec<Token>) -> Vec<AstNode> {
-    Parser::new(tokens).parse()
-}
-
-fn parse_string(src: Arc<str>) -> Expression {
+fn parse_string(src: Arc<str>) -> Result<Expression> {
     let parts = interp::tokenise_string(src.as_ref());
 
     if parts.is_empty() {
-        return Expression::String("".into()); // Use constant?
+        return Ok(Expression::String("".into())); // Use constant?
     }
 
-    let res = parts
-        .iter()
-        .map(|p| match *p {
+    let mut res = Vec::new();
+
+    for part in parts {
+        let expr = match part {
             StringToken::Str(s) => Expression::String(s.into()),
             StringToken::Expr(s) => {
-                let tokens = lexer::tokenize(s).expect("TODO");
-                Parser::new(tokens).parse_expression(0)
+                let tokens = lexer::tokenize(s)?;
+                Parser::new(s, tokens).parse_expression(0)?
             }
-        })
-        .collect();
+        };
 
-    Expression::StringInterpolate(res)
+        res.push(expr)
+    }
+
+    Ok(Expression::StringInterpolate(res))
 }

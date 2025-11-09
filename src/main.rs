@@ -2,6 +2,8 @@ use std::{env::args, fs, io::stdout};
 
 use eval::Engine;
 
+use crate::parser::Parser;
+
 mod error;
 mod eval;
 mod interp;
@@ -25,7 +27,7 @@ fn run(src: &str) -> error::Result<()> {
 
     // println!("{:?}", &tokens);
 
-    let ast = parser::parse(tokens);
+    let ast = Parser::new(src, tokens).parse()?;
 
     // println!("{:?}", &ast);
 

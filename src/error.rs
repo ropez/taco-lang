@@ -39,7 +39,7 @@ fn format_error_details(source: &str, loc: &Range<usize>) -> result::Result<Stri
         write!(buf, "{:-5} | ", n + 1)?;
         write!(buf, "\x1b[0m")?;
         writeln!(buf, "{line}")?;
-        if pos < line.len() {
+        if pos <= line.len() {
             write!(buf, "      | ")?;
             write!(buf, "\x1b[33m")?;
             writeln!(buf, "{}{} here", " ".repeat(pos), "^".repeat(len))?;
