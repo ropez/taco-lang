@@ -1,7 +1,5 @@
 use std::{
-    error,
-    fmt::{self, Write},
-    result,
+    error, fmt::{self, Write}, ops::Range, result
 };
 
 #[derive(Debug, Clone)]
@@ -11,8 +9,8 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn new(message: String, source: &str, section: &str) -> Self {
-        let details = format_error_details(source, section).unwrap_or_default();
+    pub fn new(message: String, source: &str, loc: &Range<usize>) -> Self {
+        let details = format_error_details(source, loc).unwrap_or_default();
         Self { message, details }
     }
 }
@@ -30,31 +28,25 @@ impl error::Error for Error {}
 
 pub type Result<T> = result::Result<T, Error>;
 
-fn format_error_details(source: &str, section: &str) -> result::Result<String, fmt::Error> {
+fn format_error_details(source: &str, loc: &Range<usize>) -> result::Result<String, fmt::Error> {
     let mut buf = String::new();
+
+    let mut pos = loc.start;
+    let len = loc.end - loc.start;
 
     for (n, line) in source.lines().enumerate() {
         write!(buf, "\x1b[36m")?;
         write!(buf, "{:-5} | ", n + 1)?;
         write!(buf, "\x1b[0m")?;
         writeln!(buf, "{line}")?;
-        if let Some(offset) = substring_offset(line, section) {
+        if pos < line.len() {
             write!(buf, "      | ")?;
             write!(buf, "\x1b[33m")?;
-            writeln!(buf, "{}{} here", " ".repeat(offset), "^".repeat(section.len()))?;
+            writeln!(buf, "{}{} here", " ".repeat(pos), "^".repeat(len))?;
             write!(buf, "\x1b[0m")?;
         }
+        pos = pos.wrapping_sub(line.len() + 1);
     }
 
     Ok(buf)
-}
-
-fn substring_offset(outer: &str, inner: &str) -> Option<usize> {
-    let self_beg = outer.as_ptr() as usize;
-    let inner = inner.as_ptr() as usize;
-    if inner < self_beg || inner > self_beg.wrapping_add(outer.len()) {
-        None
-    } else {
-        Some(inner.wrapping_sub(self_beg))
-    }
 }

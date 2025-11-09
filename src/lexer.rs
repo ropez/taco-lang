@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{ops::Range, sync::Arc};
 
 use crate::error::{Error, Result};
 
@@ -36,130 +36,124 @@ pub enum TokenKind {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Token {
     pub(crate) kind: TokenKind,
-    // pub(crate) src: &'a str,
+    pub(crate) loc: Range<usize>,
 }
 
 struct Tokenizer<'a> {
     src: &'a str,
-    lcur: &'a str,
-    cur: &'a str,
+    loc: Range<usize>,
 }
 
 impl<'a> Tokenizer<'a> {
     fn new(src: &'a str) -> Self {
-        Self { src, lcur: src, cur: src }
+        Self { src, loc: 0..0 }
     }
 
-    fn tokenize(&mut self) -> Result<Vec<Token>> {
-        let mut tokens = Vec::new();
+    fn next_token(&mut self) -> Result<Option<Token>> {
+        self.skip_blanks();
 
-        loop {
-            match self.take() {
-                None => break,
-                Some(c) => match c {
-                    ' ' => {
-                        self.skip();
-                    }
-                    '#' => {
-                        // Consume until newline
-                        // XXX Combine these lines:
-                        let p = self.cur.find('\n').expect("end of line");
-                        let (_, c) = self.cur.split_at(p);
-                        self.cur = c;
-                        self.skip();
-                    }
-                    '=' => {
-                        if self.take_if_eq('=') {
-                            tokens.push(self.produce(TokenKind::Equal));
-                        } else {
-                            tokens.push(self.produce(TokenKind::Assign));
-                        }
-                    }
-                    '.' => {
-                        if self.take_if_eq('.') {
-                            tokens.push(self.produce(TokenKind::Spread));
-                        } else {
-                            tokens.push(self.produce(TokenKind::Dot));
-                        }
-                    }
-                    '!' => {
-                        if self.take_if_eq('=') {
-                            tokens.push(self.produce(TokenKind::NotEqual));
-                        } else {
-                            tokens.push(self.produce(TokenKind::Not));
-                        }
-                    }
-                    '(' => {
-                        tokens.push(self.produce(TokenKind::LeftParen));
-                    }
-                    ')' => {
-                        tokens.push(self.produce(TokenKind::RightParen));
-                    }
-                    '{' => {
-                        tokens.push(self.produce(TokenKind::LeftBrace));
-                    }
-                    '}' => {
-                        tokens.push(self.produce(TokenKind::RightBrace));
-                    }
-                    '[' => {
-                        tokens.push(self.produce(TokenKind::LeftSquare));
-                    }
-                    ']' => {
-                        tokens.push(self.produce(TokenKind::RightSquare));
-                    }
-                    ',' => {
-                        tokens.push(self.produce(TokenKind::Comma));
-                    }
-                    ':' => {
-                        tokens.push(self.produce(TokenKind::Colon));
-                    }
-                    '\n' => {
-                        tokens.push(self.produce(TokenKind::NewLine));
-                    }
-                    '"' => {
-                        let s = self.find_str()?;
-                        tokens.push(self.produce(TokenKind::String(s)));
-                    }
-                    '0'..='9' => {
-                        let s = self.find_number()?;
-                        tokens.push(self.produce(TokenKind::Number(s)));
-                    }
-                    'A'..='Z' | 'a'..='z' => {
-                        let s = self.find_ident();
-                        match s.as_ref() {
-                            "fun" => tokens.push(self.produce(TokenKind::Fun)),
-                            "return" => tokens.push(self.produce(TokenKind::Return)),
-                            "if" => tokens.push(self.produce(TokenKind::If)),
-                            "else" => tokens.push(self.produce(TokenKind::Else)),
-                            "for" => tokens.push(self.produce(TokenKind::For)),
-                            "in" => tokens.push(self.produce(TokenKind::In)),
-                            "record" => tokens.push(self.produce(TokenKind::Record)),
-                            _ => tokens.push(self.produce(TokenKind::Identifier(s))),
-                        };
-                    }
-                    _ => {
-                        return Err(self.fail("Unexpected token"));
-                    }
-                },
-            }
-        }
+        let token = match self.read_char() {
+            None => None,
+            Some(c) => match c {
+                '#' => {
+                    // Consume until newline
+                    let p = self.remaining().find('\n').expect("end of line");
+                    self.skip(p);
 
-        Ok(tokens)
+                    // FIXME Commenting out thousands of lines results in stack overflow
+                    self.next_token()?
+                }
+                '=' => {
+                    if self.take_if_eq('=') {
+                        Some(self.produce(TokenKind::Equal))
+                    } else {
+                        Some(self.produce(TokenKind::Assign))
+                    }
+                }
+                '.' => {
+                    if self.take_if_eq('.') {
+                        Some(self.produce(TokenKind::Spread))
+                    } else {
+                        Some(self.produce(TokenKind::Dot))
+                    }
+                }
+                '!' => {
+                    if self.take_if_eq('=') {
+                        Some(self.produce(TokenKind::NotEqual))
+                    } else {
+                        Some(self.produce(TokenKind::Not))
+                    }
+                }
+                '(' => Some(self.produce(TokenKind::LeftParen)),
+                ')' => Some(self.produce(TokenKind::RightParen)),
+                '{' => Some(self.produce(TokenKind::LeftBrace)),
+                '}' => Some(self.produce(TokenKind::RightBrace)),
+                '[' => Some(self.produce(TokenKind::LeftSquare)),
+                ']' => Some(self.produce(TokenKind::RightSquare)),
+                ',' => Some(self.produce(TokenKind::Comma)),
+                ':' => Some(self.produce(TokenKind::Colon)),
+                '\n' => Some(self.produce(TokenKind::NewLine)),
+                '"' => {
+                    let s = self.find_str()?;
+                    Some(self.produce(TokenKind::String(s)))
+                }
+                '0'..='9' => {
+                    self.untake();
+                    let s = self.find_number()?;
+                    Some(self.produce(TokenKind::Number(s)))
+                }
+                'A'..='Z' | 'a'..='z' => {
+                    self.untake();
+                    let s = self.find_ident();
+                    match s.as_ref() {
+                        "fun" => Some(self.produce(TokenKind::Fun)),
+                        "return" => Some(self.produce(TokenKind::Return)),
+                        "if" => Some(self.produce(TokenKind::If)),
+                        "else" => Some(self.produce(TokenKind::Else)),
+                        "for" => Some(self.produce(TokenKind::For)),
+                        "in" => Some(self.produce(TokenKind::In)),
+                        "record" => Some(self.produce(TokenKind::Record)),
+                        _ => Some(self.produce(TokenKind::Identifier(s))),
+                    }
+                }
+                _ => {
+                    return Err(self.fail("Unexpected token"));
+                }
+            },
+        };
+
+        Ok(token)
+    }
+
+    fn skip_blanks(&mut self) {
+        let p = self
+            .remaining()
+            .find(|c| c != ' ')
+            .unwrap_or_else(|| self.remaining().len());
+        self.skip(p);
+    }
+
+    fn remaining(&self) -> &'a str {
+        &self.src[self.loc.end..]
     }
 
     fn peek(&mut self) -> Option<char> {
-        self.cur.chars().next()
+        self.remaining().chars().next()
     }
 
-    fn take(&mut self) -> Option<char> {
+    fn read_char(&mut self) -> Option<char> {
         match self.peek() {
             Some(ch) => {
                 let l = ch.len_utf8();
-                self.cur = &self.cur[l..];
+                self.loc = self.loc.start..self.loc.end + l;
                 Some(ch)
             }
             None => None,
         }
+    }
+
+    fn untake(&mut self) {
+        self.loc = self.loc.start..self.loc.start;
     }
 
     fn take_if_eq(&mut self, ch: char) -> bool {
@@ -167,7 +161,7 @@ impl<'a> Tokenizer<'a> {
             Some(c) => {
                 if c == ch {
                     let l = ch.len_utf8();
-                    self.cur = &self.cur[l..];
+                    self.loc = self.loc.start..self.loc.end + l;
                     true
                 } else {
                     false
@@ -177,27 +171,30 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn skip(&mut self) {
-        self.lcur = self.cur;
+    fn skip(&mut self, amount: usize) {
+        let end = self.loc.end + amount;
+        self.loc = end..end;
     }
 
     fn produce(&mut self, kind: TokenKind) -> Token {
-        // let s = extract_str(self.lcur, self.cur);
-        self.lcur = self.cur;
-        Token { kind }
+        let loc = self.loc.clone();
+        self.loc = self.loc.end..self.loc.end;
+        Token {
+            kind,
+            // src,
+            loc,
+        }
     }
 
     fn fail(&self, msg: &str) -> Error {
-        Error::new(msg.into(), self.src, extract_str(self.cur, self.lcur))
+        Error::new(msg.into(), self.src, &self.loc)
     }
 
     fn find_str(&mut self) -> Result<Arc<str>> {
-        // self.take(); // TODO Assert "
-
         // FIXME Inefficient
         let mut s = String::new();
         loop {
-            match self.take() {
+            match self.read_char() {
                 None => {
                     return Err(self.fail("Unexpected end of input"));
                 }
@@ -211,7 +208,6 @@ impl<'a> Tokenizer<'a> {
 
     fn find_ident(&mut self) -> Arc<str> {
         // FIXME Inefficient
-        self.cur = self.lcur;
         let mut s = String::new();
         loop {
             match self.peek() {
@@ -219,7 +215,7 @@ impl<'a> Tokenizer<'a> {
                 Some(c) => match c {
                     'A'..='Z' | 'a'..='z' => {
                         s.push(c);
-                        self.take();
+                        self.read_char();
                     }
                     _ => break,
                 },
@@ -231,7 +227,6 @@ impl<'a> Tokenizer<'a> {
 
     fn find_number(&mut self) -> Result<i64> {
         // FIXME Inefficient
-        self.cur = self.lcur;
         let mut s = String::new();
         loop {
             match self.peek() {
@@ -239,7 +234,7 @@ impl<'a> Tokenizer<'a> {
                 Some(c) => match c {
                     '0'..='9' => {
                         s.push(c);
-                        self.take();
+                        self.read_char();
                     }
                     _ => break,
                 },
@@ -250,14 +245,19 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-pub fn tokenize(src: &str) -> Result<Vec<Token>> {
-    Tokenizer::new(src).tokenize()
+impl<'a> Iterator for Tokenizer<'a> {
+    type Item = Result<Token>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        self.next_token().transpose()
+    }
 }
 
-fn extract_str<'a>(src: &'a str, cur: &'a str) -> &'a str {
-    let start = src.as_ptr() as usize;
-    let end = cur.as_ptr() as usize;
-    assert!(end >= start);
-    let off = end - start;
-    &src[..off]
+pub fn tokenize(src: &str) -> Result<Vec<Token>> {
+    let mut r = Vec::new();
+    for token in Tokenizer::new(src) {
+        r.push(token?);
+    }
+
+    Ok(r)
 }
