@@ -1,80 +1,122 @@
-# Sea-lang
+# Taco programming language
 
-The simplest way to program
+This is an experimental programming language, under development as a
+recreational hobby project.
+
+The main goal of the language: Be the simplest possible way to program.
+
+It is a statically typed _interpreted_ language, meant to be used for
+relatively simple _scripts_. Typical use cases could be something like
+automating chores, making requests to a remote HTTP API, or accessing a
+database.
 
 ## Simplicity
 
-Type inference
-No memory management
-No garbage collection
-Value semantics (CoW)
-No reference types
-Rust-like enum/struct
-Immutable
+The language design aims to achieve programs to be as _simple_ as possible, and
+prevent many types of programming mistakes, by eliminating many complex
+concepts found in many other programming languages.
 
-Single file (maybe "modules" later)
+This comes with some performance penalties and limited control over low-level
+processes. The language is not expected to score high on any micro-benchmark.
+However, it can still be effective for the specific tasks it's meant to solve.
 
-## Features
+I'm not sure if it should be possible to split a program into multiple files,
+or create any kind of "project" or "package" structure beyond single script files.
+(AFAIK, Bash scripts don't support anything like that). However, I am imagining
+that the language could be _embeddable_, and support native extensions specific
+to the embedded context. For instance, a text editor could inject a global
+`document` object available inside an embedded script.
 
-- "native" subcommands
-- "native" HTTP requests
-- Pipes?
+### No memory management
+
+The language by design doesn't offer any ways to manually allocate or manage
+memory. Nor does it use a garbage collector. There are no references or
+pointers, and no way to directly share state between parts of a program.
+
+All data is _value based_. Passing an argument to a function always creates a
+copy of the data (copy on write). There is no way for two "variables" to refer
+to the same data, such that doing something with one of them affects the other.
+
+This eliminates errors common in many other languages, such as:
+
+- Memory leaks
+- Access to unavailable memory
+- Use after free
+
+### Mutations don't exist
+
+Any change to a data structure, such as appending an item to the end of a list,
+always creates a new list. There is no way to _mutate_ an existing data
+structure, such that the change is visible outside the current scope.
+
+Assigning a new value to an existing "variable", _replaces_ that variable in the
+current scope. There's no way to _change_ the value of an existing variable, so
+that the change is visible outside the current scope. Technically, it doesn't
+really make sense to use the name "variable", because they aren't allowed to "vary".
+Taco variables are more like parameters in a math expression. You give 'x' a value,
+and that's it. However, I'm using the name "variable" because it's so
+established, there's no real alternative.
+
+I believe that in many of the cases that the language is meant for, mutable
+data is simply not needed. The "state" of a script simply progresses as the
+script executes from top to bottom, from function to function and so on.
+However, for advanced cases where state is needed, the language will provide a
+construct specific for that. It will be possible to create a kind of stateful
+primitive, that can be read/written by value similar to reading/writing a file.
+
+### No shared state between concurrent processes
+
+The language by design doesn't offer any means of creating "threads" or "async"
+tasks with access to shared state.
+
+At some point in the future, some way to run tasks concurrently might be
+implemented, by allowing one script to spawn some kind of sub-processes or
+"isolates". However, it will not be allowed to directly share state between
+them. Synchronization must use some kind of messaging passing or signalling.
+Probably closely related to state primitives.
+
+### Statically typed
+
+Untypical for scripting languages, Taco scripts will be statically typed, and
+the interpreter will provide informational error messages for programming
+mistakes such as trying to call a function with wrong arguments.
+
+### Expressiveness
+
+String interpolation, native structures like list, set and dict. Record types,
+ranges, enums (like in Rust) and pattern matching.
+
+### Batteries included
+
+The plan is that the language will _natively_, or through some kind of _native
+extensions_, support commonly needed functionality, such as:
+
+- Read command line arguments
+- Writing to standard output
+- Reading from stardard input
+- Reading/writing to files
+- Running sub-processes
+- Making HTTP requests, and serialize/deserialize JSON data
 
 ## Inspiration
 
-Rust:
-    - Structs & Enums
-    - Result & Option
-    - Nullability and error handling
-Swift:
-    - Value semantics (CoW)
-Bash:
-    - Program structure
-    - Simplicity (no resource management, no garbage collection)
-Dart:
-    - Isolates
-    - String interpolation (in all strings)
-Python:
-    - list & dict
-Python/GraphQL:
-    - Optional comma
+Although at the time of writing many of the language features are not yet
+implemented, the conceptual ideas and prototypes draw inspiration from a
+variety of existing programming languages and frameworks:
 
-## Mutability
+- The spirit and main purpose of the language is similar to that of scripting
+  languages such as *Bash*.
+- There are syntactical elements with similarities to several languages such as
+  *Rust*, *Typescript* and *Python*
+- String interpolation syntax similar to *Dart*
+- Passing standard data structures by value, and copy on write is something I
+  have seen in the *Swift* language and the *Qt* framework in C++
+- State primitives are similar to "reactivity" found in *React*, *Vue* and *Svelte*
+- Isolates and message passing in *Dart*
+- Restrictions on mutation is central in functional programming languages
+- Enum types including Option and Result (error handling) similar to *Rust*
 
-Mutable variables don't exist.
-See how much we can do without.
-
-Eventually, add something like this:
-
-```
-getFruits, setFruits = state(list<str>())
-
-setFruits(getFruits().add("Apple"))
-setFruits(getFruits().add("Banana"))
-```
-
-## Good for
-
-API "integrations":
-
-```
-record Project {
-    id: str
-    name: str
-    number: str
-}
-
-fun get_projects() -> list<Project> {
-    res = http.get(cfg.api_url)
-    return res.json()
-}
-
-for p in get_projects() {
-    println("Found project: ", project.name)
-}
-```
-
-# Samples
+## Code drafts
 
 ```
 println("Hello, world")
@@ -118,6 +160,23 @@ fun print_names(names: list<str>) {
     for name in names {
         println("Name: ", name)
     }
+}
+```
+
+```
+record Project {
+    id: str
+    name: str
+    number: str
+}
+
+fun get_projects() -> list<Project> {
+    res = http.get(cfg.api_url)
+    return res.json()
+}
+
+for p in get_projects() {
+    println("Found project: ${project.name}")
 }
 ```
 
@@ -167,10 +226,19 @@ fun parse(json: str): Point? ~ Error {
 }
 ```
 
+Eventually, add something like this:
+
+```
+fruits = state(list<str>())
+
+fruits.set(fruits.get().add("Apple"))
+fruits.set(fruits.get().add("Banana"))
+```
+
+
 ## Assignment always shadows
 
 "Variables" aren't _variable_, they are immutable.
-Need a different name than "variable".
 Assigning a new value doesn't change a variable, it replaces it with a new binding.
 
 Changes type:
@@ -185,7 +253,7 @@ Scoped:
 
 ```
 a = 10
-if a == 10 {
+if true {
     println(a) # 10
     a: str = "hello"
     println(a) # hello
@@ -198,7 +266,7 @@ To change outer state:
 ```
 a = state(10)
 
-if a.get() == 10 {
+if true {
     a.set(20)
 }
 println(a.get()) # 20
