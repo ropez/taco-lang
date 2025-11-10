@@ -2,7 +2,8 @@ use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
     io::Write,
-    sync::{Arc, Mutex},
+    ops::Deref,
+    sync::{Arc, Mutex, RwLock},
 };
 
 use crate::parser::{AstNode, Expression, Function, Record};
@@ -20,6 +21,8 @@ pub enum ScriptValue {
         record: Arc<Record>,
         values: Vec<Arc<ScriptValue>>,
     },
+
+    State(RwLock<Arc<ScriptValue>>),
 }
 
 impl PartialEq for ScriptValue {
@@ -260,6 +263,32 @@ where
                         ref e => panic!("Expected list, found: {e:?}"),
                     };
                     Arc::new(res)
+                }
+                "state" => {
+                    let arg = args.get(0).expect("state arg");
+                    let value = self.eval_expr(arg, scope);
+                    Arc::new(ScriptValue::State(RwLock::new(value)))
+                }
+                "get" => {
+                    let arg = args.get(0).expect("get arg");
+                    let arg = self.eval_expr(arg, scope);
+                    let ScriptValue::State(ref state) = *arg else {
+                        panic!("Not a state value");
+                    };
+                    let v = state.read().unwrap();
+                    Arc::clone(v.deref())
+                }
+                "set" => {
+                    let arg = args.get(0).expect("get arg");
+                    let val = args.get(1).expect("get arg");
+                    let arg = self.eval_expr(arg, scope);
+                    let val = self.eval_expr(val, scope);
+                    let ScriptValue::State(ref state) = *arg else {
+                        panic!("Not a state value");
+                    };
+                    let mut v = state.write().unwrap();
+                    *v = val;
+                    Arc::new(ScriptValue::Void)
                 }
                 _ => {
                     if let Some((fun, captured_scope)) = scope.functions.get(subject) {
