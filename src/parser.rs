@@ -57,12 +57,7 @@ pub enum Expression {
     NotEqual(Box<Expression>, Box<Expression>),
     Range(Box<Expression>, Box<Expression>),
     Call {
-        // TODO Replace 'str' with expression.
-        // This implies 'functions as values':
-        // - ScriptValue variant for function
-        // - Functions in 'locals' scope, instead of special 'functions'
-        // - Records will also be values, or even just functions
-        subject: Arc<str>,
+        subject: Box<Expression>,
         args: Vec<Expression>,
         kwargs: Vec<(Arc<str>, Expression)>,
     },
@@ -139,27 +134,14 @@ impl<'a> Parser<'a> {
                     ast.push(AstNode::Return(expr));
                 }
                 TokenKind::Identifier(name) => {
-                    let p = self.expect_token()?;
-
-                    match p.kind {
-                        TokenKind::Assign => {
-                            let value = self.parse_expression(0)?;
-                            let node = AstNode::Assignment { name, value };
-                            ast.push(node);
-                            self.expect_kind(TokenKind::NewLine)?;
-                        }
-                        TokenKind::LeftParen => {
-                            let (args, kwargs) = self.parse_args()?;
-                            let node = AstNode::Expression(Expression::Call {
-                                subject: name,
-                                args,
-                                kwargs,
-                            });
-                            ast.push(node);
-
-                            self.expect_kind(TokenKind::NewLine)?;
-                        }
-                        _ => return Err(self.fail_at("Expected assignment or call", &p)),
+                    if self.next_if_kind(&TokenKind::Assign).is_some() {
+                        let value = self.parse_expression(0)?;
+                        ast.push(AstNode::Assignment { name, value });
+                        self.expect_kind(TokenKind::NewLine)?;
+                    } else {
+                        let expr = Expression::Ref(name);
+                        let expr = self.parse_continuation(expr, 0)?;
+                        ast.push(AstNode::Expression(expr));
                     }
                 }
                 TokenKind::If => {
@@ -203,7 +185,7 @@ impl<'a> Parser<'a> {
                         name: ident,
                         params,
                     });
-                    ast.push(AstNode::Record(rec))
+                    ast.push(AstNode::Record(rec));
                 }
                 _ => {
                     return Err(self.fail_at("Unexpected token", &token));
@@ -299,17 +281,12 @@ impl<'a> Parser<'a> {
                     if bp >= BP_CALL {
                         lhs
                     } else {
-                        let t = self.iter.next().expect("already checked");
-
-                        // XXX Change Call subject to Expression
-                        let Expression::Ref(subject) = lhs else {
-                            return Err(self.fail_at("Unexpected call", &t));
-                        };
+                        self.iter.next();
 
                         let (args, kwargs) = self.parse_args()?;
 
                         let expr = Expression::Call {
-                            subject,
+                            subject: lhs.into(),
                             args,
                             kwargs,
                         };

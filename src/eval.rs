@@ -230,95 +230,97 @@ where
                 args,
                 kwargs,
             } => match subject.as_ref() {
-                "println" => {
-                    for arg in args {
-                        let val = self.eval_expr(arg, scope);
-                        match *val {
-                            ScriptValue::String(ref s) => {
-                                let mut out = self.stdout.lock().unwrap();
-                                writeln!(out, "{s}").unwrap()
+                Expression::Ref(name) => match name.as_ref() {
+                    "println" => {
+                        for arg in args {
+                            let val = self.eval_expr(arg, scope);
+                            match *val {
+                                ScriptValue::String(ref s) => {
+                                    let mut out = self.stdout.lock().unwrap();
+                                    writeln!(out, "{s}").unwrap()
+                                }
+                                ScriptValue::Number(ref s) => {
+                                    let mut out = self.stdout.lock().unwrap();
+                                    writeln!(out, "{s}").unwrap()
+                                }
+                                _ => panic!("Unexpected argument: {val:?}"),
                             }
-                            ScriptValue::Number(ref s) => {
-                                let mut out = self.stdout.lock().unwrap();
-                                writeln!(out, "{s}").unwrap()
-                            }
-                            _ => panic!("Unexpected argument: {val:?}"),
                         }
+                        Arc::new(ScriptValue::Void)
                     }
-                    Arc::new(ScriptValue::Void)
-                }
-                // FIXME: Replace `push(l, i)` with `l.push(i)`
-                "push" => {
-                    let list = args.get(0).expect("push list");
-                    let item = args.get(1).expect("push item");
-                    let res = match *self.eval_expr(list, scope) {
-                        ScriptValue::List(ref l) => {
-                            let value = self.eval_expr(item, scope);
-                            // This is the Copy on write
-                            // Can we avoid copy, if we see that the original will not be used again?
-                            let mut res = l.clone();
-                            res.push(value);
-                            ScriptValue::List(res)
-                        }
-                        ref e => panic!("Expected list, found: {e:?}"),
-                    };
-                    Arc::new(res)
-                }
-                "state" => {
-                    let arg = args.get(0).expect("state arg");
-                    let value = self.eval_expr(arg, scope);
-                    Arc::new(ScriptValue::State(RwLock::new(value)))
-                }
-                "get" => {
-                    let arg = args.get(0).expect("get arg");
-                    let arg = self.eval_expr(arg, scope);
-                    let ScriptValue::State(ref state) = *arg else {
-                        panic!("Not a state value");
-                    };
-                    let v = state.read().unwrap();
-                    Arc::clone(v.deref())
-                }
-                "set" => {
-                    let arg = args.get(0).expect("get arg");
-                    let val = args.get(1).expect("get arg");
-                    let arg = self.eval_expr(arg, scope);
-                    let val = self.eval_expr(val, scope);
-                    let ScriptValue::State(ref state) = *arg else {
-                        panic!("Not a state value");
-                    };
-                    let mut v = state.write().unwrap();
-                    *v = val;
-                    Arc::new(ScriptValue::Void)
-                }
-                _ => {
-                    if let Some((fun, captured_scope)) = scope.functions.get(subject) {
-                        let values = self.eval_args(&fun.params, args, kwargs, scope);
-
-                        let mut inner_scope = captured_scope.clone();
-
-                        for (ident, val) in fun.params.iter().zip(values) {
-                            inner_scope.locals.insert(ident.clone(), val);
-                        }
-
-                        let c = self.eval_block(&fun.body, inner_scope);
-
-                        match c {
-                            Completion::EndOfBlock => Arc::new(ScriptValue::Void),
-                            Completion::Return(v) => v,
-                        }
-                    } else if let Some(rec) = scope.records.get(subject) {
-                        let values = self.eval_args(&rec.params, args, kwargs, scope);
-
-                        let instance = ScriptValue::RecordInstance {
-                            record: Arc::clone(rec),
-                            values,
+                    // FIXME: Replace `push(l, i)` with `l.push(i)`
+                    "push" => {
+                        let list = args.get(0).expect("push list");
+                        let item = args.get(1).expect("push item");
+                        let res = match *self.eval_expr(list, scope) {
+                            ScriptValue::List(ref l) => {
+                                let value = self.eval_expr(item, scope);
+                                // This is the Copy on write
+                                // Can we avoid copy, if we see that the original will not be used again?
+                                let mut res = l.clone();
+                                res.push(value);
+                                ScriptValue::List(res)
+                            }
+                            ref e => panic!("Expected list, found: {e:?}"),
                         };
+                        Arc::new(res)
+                    }
+                    "state" => {
+                        let arg = args.get(0).expect("state arg");
+                        let value = self.eval_expr(arg, scope);
+                        Arc::new(ScriptValue::State(RwLock::new(value)))
+                    }
+                    _ => {
+                        if let Some((fun, captured_scope)) = scope.functions.get(name) {
+                            let values = self.eval_args(&fun.params, args, kwargs, scope);
 
-                        Arc::new(instance)
-                    } else {
-                        panic!("Undefined function: {subject:?}")
+                            let mut inner_scope = captured_scope.clone();
+
+                            for (ident, val) in fun.params.iter().zip(values) {
+                                inner_scope.locals.insert(ident.clone(), val);
+                            }
+
+                            let c = self.eval_block(&fun.body, inner_scope);
+
+                            match c {
+                                Completion::EndOfBlock => Arc::new(ScriptValue::Void),
+                                Completion::Return(v) => v,
+                            }
+                        } else if let Some(rec) = scope.records.get(name) {
+                            let values = self.eval_args(&rec.params, args, kwargs, scope);
+
+                            let instance = ScriptValue::RecordInstance {
+                                record: Arc::clone(rec),
+                                values,
+                            };
+
+                            Arc::new(instance)
+                        } else {
+                            panic!("Undefined function: {subject:?}")
+                        }
+                    }
+                },
+                Expression::Access { subject, key } => {
+                    let subject = self.eval_expr(subject, scope);
+                    match subject.as_ref() {
+                        ScriptValue::State(state) => match key.as_ref() {
+                            "get" => {
+                                let v = state.read().unwrap();
+                                Arc::clone(v.deref())
+                            }
+                            "set" => {
+                                let val = args.first().expect("get arg");
+                                let val = self.eval_expr(val, scope);
+                                let mut v = state.write().unwrap();
+                                *v = val;
+                                Arc::new(ScriptValue::Void)
+                            }
+                            _ => panic!("Unknown method: {key}"),
+                        },
+                        _ => panic!("Call on access"),
                     }
                 }
+                _ => panic!("Call on something that's not a ref"),
             },
             // _ => unimplemented!("Expression: {expr:?}"),
         }
