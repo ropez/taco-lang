@@ -303,16 +303,18 @@ impl<'a> Parser<'a> {
 
                         // XXX Change Call subject to Expression
                         let Expression::Ref(subject) = lhs else {
-                            return Err(self.fail_at("Unespected call", &t));
+                            return Err(self.fail_at("Unexpected call", &t));
                         };
 
                         let (args, kwargs) = self.parse_args()?;
 
-                        Expression::Call {
+                        let expr = Expression::Call {
                             subject,
                             args,
                             kwargs,
-                        }
+                        };
+
+                        self.parse_continuation(expr, bp)?
                     }
                 }
                 _ => lhs,
