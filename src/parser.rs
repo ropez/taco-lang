@@ -6,6 +6,12 @@ use crate::{
     lexer::{self, Token, TokenKind},
 };
 
+// TODO Informational errors in static analysis/evaluation:
+// - AST must include location info in every node
+// - Parent nodes locations wrap child node locations
+// - Need to refactor, using structs around enums
+// - Using a single node type everywhere makes invalid state representable
+
 #[derive(Debug)]
 pub enum AstNode {
     Assignment {
@@ -117,10 +123,10 @@ impl<'a> Parser<'a> {
                 TokenKind::RightBrace => break, // FIXME Not allowed at global scope
                 TokenKind::Fun => {
                     let name = self.expect_ident()?;
-                    self.expect_kind(TokenKind::LeftParen);
+                    self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
-                    self.expect_kind(TokenKind::LeftBrace);
-                    self.expect_kind(TokenKind::NewLine);
+                    self.expect_kind(TokenKind::LeftBrace)?;
+                    self.expect_kind(TokenKind::NewLine)?;
 
                     let body = self.parse()?;
 
@@ -140,7 +146,7 @@ impl<'a> Parser<'a> {
                             let value = self.parse_expression(0)?;
                             let node = AstNode::Assignment { name, value };
                             ast.push(node);
-                            self.expect_kind(TokenKind::NewLine);
+                            self.expect_kind(TokenKind::NewLine)?;
                         }
                         TokenKind::LeftParen => {
                             let (args, kwargs) = self.parse_args()?;
@@ -151,20 +157,20 @@ impl<'a> Parser<'a> {
                             });
                             ast.push(node);
 
-                            self.expect_kind(TokenKind::NewLine);
+                            self.expect_kind(TokenKind::NewLine)?;
                         }
                         _ => return Err(self.fail_at("Expected assignment or call", &p)),
                     }
                 }
                 TokenKind::If => {
                     let cond = self.parse_expression(0)?;
-                    self.expect_kind(TokenKind::LeftBrace);
+                    self.expect_kind(TokenKind::LeftBrace)?;
                     let body = self.parse()?;
 
                     let else_body = self
                         .next_if_kind(&TokenKind::Else)
                         .map(|_| {
-                            self.expect_kind(TokenKind::LeftBrace);
+                            self.expect_kind(TokenKind::LeftBrace)?;
                             self.parse()
                         })
                         .transpose()?;
@@ -177,9 +183,9 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::For => {
                     let ident = self.expect_ident()?;
-                    self.expect_kind(TokenKind::In);
+                    self.expect_kind(TokenKind::In)?;
                     let iterable = self.parse_expression(0)?;
-                    self.expect_kind(TokenKind::LeftBrace);
+                    self.expect_kind(TokenKind::LeftBrace)?;
                     let body = self.parse()?;
 
                     ast.push(AstNode::Iteration {
@@ -190,7 +196,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Record => {
                     let ident = self.expect_ident()?;
-                    self.expect_kind(TokenKind::LeftParen);
+                    self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
 
                     let rec = Arc::new(Record {
@@ -432,9 +438,13 @@ impl<'a> Parser<'a> {
             .ok_or_else(|| self.fail_at_end("Unexpected end of input"))
     }
 
-    fn expect_kind(&mut self, token: TokenKind) {
-        let p = self.iter.next().expect("token");
-        assert_eq!(p.kind, token, "Expected {token:?}, found {p:?}");
+    fn expect_kind(&mut self, kind: TokenKind) -> Result<Token> {
+        let token = self.expect_token()?;
+        if token.kind == kind {
+            Ok(token)
+        } else {
+            Err(self.fail_at(&format!("Expected to find {kind:?} here"), &token))
+        }
     }
 
     fn expect_ident(&mut self) -> Result<Arc<str>> {
