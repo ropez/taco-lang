@@ -6,10 +6,14 @@ fn test_get_and_set_primitive() {
         a = state(10)
 
         if a.get() == 10 {
-            a.set(20)
+            a.set(a.get() + 5)
         }
 
-        println("${a.get()}")
+        if 15 == a.get() {
+            a.set(5 + a.get())
+        }
+
+        print("${a.get()}")
     "#;
 
     let out = match check_output(src) {
@@ -17,6 +21,6 @@ fn test_get_and_set_primitive() {
         Err(err) => panic!("{err}"),
     };
 
-    assert_eq!("20\n", out);
+    assert_eq!("20", out);
 }
 

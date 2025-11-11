@@ -1,7 +1,0 @@
-a = state(10)
-
-if get(a) == 10 {
-    set(a, 20)
-}
-
-println("${get(a)}")
