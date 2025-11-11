@@ -56,6 +56,10 @@ pub enum Expression {
     Equal(Box<Expression>, Box<Expression>),
     NotEqual(Box<Expression>, Box<Expression>),
     Range(Box<Expression>, Box<Expression>),
+    Addition(Box<Expression>, Box<Expression>),
+    Subtraction(Box<Expression>, Box<Expression>),
+    Multiplication(Box<Expression>, Box<Expression>),
+    Division(Box<Expression>, Box<Expression>),
     Call {
         subject: Box<Expression>,
         args: Vec<Expression>,
@@ -88,12 +92,11 @@ pub struct Parser<'a> {
 
 mod constants {
     pub(crate) const BP_EQUAL: u32 = 1;
-    // pub(crate) const BP_INEQUAL: u32 = 2;
     pub(crate) const BP_SPREAD: u32 = 6;
-    // pub(crate) const BP_PLUS: u32 = 10;
-    // pub(crate) const BP_MINUS: u32 = 10;
-    // pub(crate) const BP_DIV: u32 = 20;
-    // pub(crate) const BP_MULT: u32 = 20;
+    pub(crate) const BP_PLUS: u32 = 10;
+    pub(crate) const BP_MINUS: u32 = 10;
+    pub(crate) const BP_DIV: u32 = 20;
+    pub(crate) const BP_MULT: u32 = 20;
     // pub(crate) const BP_UNARY: u32 = 30;
     pub(crate) const BP_CALL: u32 = 90;
     pub(crate) const BP_ACCESS: u32 = 100;
@@ -274,6 +277,46 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_SPREAD)?;
                         let expr = Expression::Range(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)?
+                    }
+                }
+                TokenKind::Plus => {
+                    if bp >= BP_PLUS {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let rhs = self.parse_expression(BP_PLUS)?;
+                        let expr = Expression::Addition(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)?
+                    }
+                }
+                TokenKind::Minus => {
+                    if bp >= BP_MINUS {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let rhs = self.parse_expression(BP_MINUS)?;
+                        let expr = Expression::Subtraction(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)?
+                    }
+                }
+                TokenKind::Multiply => {
+                    if bp >= BP_MULT {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let rhs = self.parse_expression(BP_MULT)?;
+                        let expr = Expression::Multiplication(lhs.into(), rhs.into());
+                        self.parse_continuation(expr, bp)?
+                    }
+                }
+                TokenKind::Divide => {
+                    if bp >= BP_DIV {
+                        lhs
+                    } else {
+                        self.iter.next();
+                        let rhs = self.parse_expression(BP_DIV)?;
+                        let expr = Expression::Division(lhs.into(), rhs.into());
                         self.parse_continuation(expr, bp)?
                     }
                 }

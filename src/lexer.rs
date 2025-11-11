@@ -18,6 +18,10 @@ pub enum TokenKind {
     Colon,
     Dot,
     Spread,
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
     Identifier(Arc<str>),
     String(Arc<str>),
     Number(i64),
@@ -77,6 +81,10 @@ impl<'a> Tokenizer<'a> {
                         Some(self.produce(TokenKind::Dot))
                     }
                 }
+                '+' => Some(self.produce(TokenKind::Plus)),
+                '-' => Some(self.produce(TokenKind::Minus)),
+                '*' => Some(self.produce(TokenKind::Multiply)),
+                '/' => Some(self.produce(TokenKind::Divide)),
                 '!' => {
                     if self.take_if_eq('=') {
                         Some(self.produce(TokenKind::NotEqual))

@@ -225,6 +225,50 @@ where
                     _ => panic!("Expected numbers in range"),
                 }
             }
+            Expression::Addition(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope);
+                let rhs = self.eval_expr(rhs, scope);
+
+                match (lhs.as_ref(), rhs.as_ref()) {
+                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
+                        Arc::new(ScriptValue::Number(*lhs + *rhs))
+                    }
+                    _ => panic!("Expected numbers in range"),
+                }
+            }
+            Expression::Subtraction(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope);
+                let rhs = self.eval_expr(rhs, scope);
+
+                match (lhs.as_ref(), rhs.as_ref()) {
+                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
+                        Arc::new(ScriptValue::Number(*lhs - *rhs))
+                    }
+                    _ => panic!("Expected numbers in range"),
+                }
+            }
+            Expression::Multiplication(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope);
+                let rhs = self.eval_expr(rhs, scope);
+
+                match (lhs.as_ref(), rhs.as_ref()) {
+                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
+                        Arc::new(ScriptValue::Number(*lhs * *rhs))
+                    }
+                    _ => panic!("Expected numbers in range"),
+                }
+            }
+            Expression::Division(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope);
+                let rhs = self.eval_expr(rhs, scope);
+
+                match (lhs.as_ref(), rhs.as_ref()) {
+                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
+                        Arc::new(ScriptValue::Number(*lhs / *rhs))
+                    }
+                    _ => panic!("Expected numbers in range"),
+                }
+            }
             Expression::Call {
                 subject,
                 args,
