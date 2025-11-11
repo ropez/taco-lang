@@ -275,39 +275,21 @@ where
                 kwargs,
             } => match subject.as_ref() {
                 Expression::Ref(name) => match name.as_ref() {
-                    "println" => {
+                    "print" => {
                         for arg in args {
                             let val = self.eval_expr(arg, scope);
-                            match *val {
-                                ScriptValue::String(ref s) => {
-                                    let mut out = self.stdout.lock().unwrap();
-                                    writeln!(out, "{s}").unwrap()
-                                }
-                                ScriptValue::Number(ref s) => {
-                                    let mut out = self.stdout.lock().unwrap();
-                                    writeln!(out, "{s}").unwrap()
-                                }
-                                _ => panic!("Unexpected argument: {val:?}"),
-                            }
+                            let mut out = self.stdout.lock().unwrap();
+                            write!(out, "{val}").unwrap();
                         }
                         Arc::new(ScriptValue::Void)
                     }
-                    // FIXME: Replace `push(l, i)` with `l.push(i)`
-                    "push" => {
-                        let list = args.get(0).expect("push list");
-                        let item = args.get(1).expect("push item");
-                        let res = match *self.eval_expr(list, scope) {
-                            ScriptValue::List(ref l) => {
-                                let value = self.eval_expr(item, scope);
-                                // This is the Copy on write
-                                // Can we avoid copy, if we see that the original will not be used again?
-                                let mut res = l.clone();
-                                res.push(value);
-                                ScriptValue::List(res)
-                            }
-                            ref e => panic!("Expected list, found: {e:?}"),
-                        };
-                        Arc::new(res)
+                    "println" => {
+                        for arg in args {
+                            let val = self.eval_expr(arg, scope);
+                            let mut out = self.stdout.lock().unwrap();
+                            writeln!(out, "{val}").unwrap();
+                        }
+                        Arc::new(ScriptValue::Void)
                     }
                     "state" => {
                         let arg = args.get(0).expect("state arg");
@@ -358,6 +340,18 @@ where
                                 let mut v = state.write().unwrap();
                                 *v = val;
                                 Arc::new(ScriptValue::Void)
+                            }
+                            _ => panic!("Unknown method: {key}"),
+                        },
+                        ScriptValue::List(list) => match key.as_ref() {
+                            "push" => {
+                                let item = args.first().expect("push item");
+                                let value = self.eval_expr(item, scope);
+                                // This is the Copy on Write feature of the language in play.
+                                // Can we avoid copy, if we see that the original will not be used again?
+                                let mut res = list.clone();
+                                res.push(value);
+                                Arc::new(ScriptValue::List(res))
                             }
                             _ => panic!("Unknown method: {key}"),
                         },

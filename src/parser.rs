@@ -223,7 +223,8 @@ impl<'a> Parser<'a> {
                 // some analysis phase after parsing, but before evaluation.
                 let list = self.parse_list(TokenKind::RightSquare)?;
 
-                Expression::List(list)
+                let expr = Expression::List(list);
+                self.parse_continuation(expr, 0)?
             }
             _ => return Err(self.fail_at("unexpected token", &token)),
         };
