@@ -2,7 +2,7 @@ use std::{collections::HashMap, ops::Range, sync::Arc};
 
 use crate::{
     error::{Error, Result},
-    parser::{AstNode, Expression, ExpressionKind, Parameter},
+    parser::{AstNode, Expression, ExpressionKind, Parameter, TypeExpression},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -18,15 +18,18 @@ enum ScriptType {
         params: Vec<(Arc<str>, ScriptType)>,
         ret: Box<ScriptType>,
     },
+    // Maybe this shouldn't be a 'ScriptType'
+    RecordDef {
+        name: Arc<str>,
+        params: Vec<(Arc<str>, ScriptType)>,
+    },
     Record {
         name: Arc<str>,
         params: Vec<(Arc<str>, ScriptType)>,
     },
-    RecordInstance {
-        name: Arc<str>,
-        params: Vec<(Arc<str>, ScriptType)>,
-    },
 }
+
+// TODO impl Display for ScriptType, and use in all error messages instead of Debug
 
 #[derive(Default, Clone)]
 struct Scope {
@@ -56,14 +59,10 @@ impl<'a> Validator<'a> {
                     }
                     scope.locals.insert(Arc::clone(name), typ);
                 }
-                AstNode::Function {
-                    name,
-                    fun,
-                    type_expr,
-                } => {
+                AstNode::Function { name, fun } => {
                     let params = self.eval_params(&fun.params, &scope)?;
-                    let ret = match type_expr {
-                        Some(expr) => self.eval_type_expr(expr.as_ref(), &scope)?,
+                    let ret = match &fun.type_expr {
+                        Some(expr) => self.eval_type_expr(expr, &scope)?,
                         None => ScriptType::Void,
                     };
 
@@ -87,7 +86,7 @@ impl<'a> Validator<'a> {
 
                     scope.locals.insert(
                         Arc::clone(&rec.name),
-                        ScriptType::Record {
+                        ScriptType::RecordDef {
                             params,
                             name: Arc::clone(&rec.name),
                         },
@@ -113,7 +112,10 @@ impl<'a> Validator<'a> {
                                 .insert(Arc::clone(ident), ScriptType::Int);
                             self.validate_block(body, inner_scope)?;
                         }
-                        _ => todo!("Unexpected list type"),
+                        _ => {
+                            let msg = format!("Expected iterable, found {iterable_typ:?}");
+                            return Err(self.fail(msg, &iterable.loc));
+                        }
                     }
                 }
                 AstNode::Condition {
@@ -164,7 +166,7 @@ impl<'a> Validator<'a> {
         params
             .iter()
             .map(|p| {
-                let typ = self.eval_type_expr(p.type_expr.as_ref(), scope)?;
+                let typ = self.eval_type_expr(&p.type_expr, scope)?;
                 Ok((Arc::clone(&p.name), typ))
             })
             .collect()
@@ -192,6 +194,8 @@ impl<'a> Validator<'a> {
                     .map(|i| self.validate_expr(i, scope))
                     .collect::<Result<Vec<ScriptType>>>()?;
 
+                // XXX How to define type for empty list?
+
                 let inner_type = types.first().cloned().unwrap_or(ScriptType::Void);
                 for (typ, expr) in types.iter().zip(expressions) {
                     if *typ != inner_type {
@@ -204,22 +208,25 @@ impl<'a> Validator<'a> {
                 Ok(ScriptType::List(inner_type.into()))
             }
             ExpressionKind::Ref(ident) => match scope.locals.get(ident) {
-                None => panic!("Undefined reference: {ident}"),
+                None => Err(self.fail(format!("Undefined reference: {ident}"), &expr.loc)),
                 Some(value) => Ok(value.clone()),
             },
             ExpressionKind::Access { subject, key } => {
                 let subject_typ = self.validate_expr(subject, scope)?;
-                match subject_typ {
-                    ScriptType::RecordInstance { name, params } => {
+                match &subject_typ {
+                    ScriptType::Record { params, .. } => {
                         match params.iter().find(|(k, _)| *k == *key) {
-                            None => {
-                                Err(self
-                                    .fail(format!("No such property: {key} on {name}"), &expr.loc))
-                            }
                             Some((_, typ)) => Ok(typ.clone()),
+                            None => Err(self.fail(
+                                format!("Unknown attribute: {key} on {subject_typ:?}"),
+                                &expr.loc,
+                            )),
                         }
                     }
-                    _ => panic!("Unexpected property access on {subject:?}"),
+                    _ => Err(self.fail(
+                        format!("Unknown attribute: {key} on {subject_typ:?}"),
+                        &expr.loc,
+                    )),
                 }
             }
             ExpressionKind::Not(expr) => {
@@ -293,54 +300,66 @@ impl<'a> Validator<'a> {
                         let arg = args.first().expect("state arg");
                         let typ = self.validate_expr(arg, scope)?;
 
-                        // XXX Should be a function returning this type
                         Ok(ScriptType::State(typ.into()))
                     }
-                    _ => match scope.locals.get(name) {
-                        None => {
-                            Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
-                        }
-                        Some(ScriptType::Function { params, ret }) => {
-                            self.validate_args(params, args, kwargs, scope, &expr.loc)?;
+                    _ => {
+                        match scope.locals.get(name) {
+                            None => {
+                                Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
+                            }
+                            Some(ScriptType::Function { params, ret }) => {
+                                self.validate_args(params, args, kwargs, scope, &expr.loc)?;
 
-                            Ok(*ret.clone())
-                        }
-                        Some(ScriptType::Record { params, name }) => {
-                            self.validate_args(params, args, kwargs, scope, &expr.loc)?;
+                                Ok(*ret.clone())
+                            }
+                            Some(ScriptType::RecordDef { params, name }) => {
+                                self.validate_args(params, args, kwargs, scope, &expr.loc)?;
 
-                            Ok(ScriptType::RecordInstance {
-                                params: params.clone(),
-                                name: Arc::clone(name),
-                            })
+                                Ok(ScriptType::Record {
+                                    params: params.clone(),
+                                    name: Arc::clone(name),
+                                })
+                            }
+                            Some(t) => Err(self
+                                .fail(format!("Expected a callable, found {t:?}"), &subject.loc)),
                         }
-                        _ => panic!("Function not found {name:?}"),
-                    },
+                    }
                 },
                 ExpressionKind::Access { subject, key } => {
                     let subject_typ = self.validate_expr(subject, scope)?;
-                    match subject_typ {
-                        ScriptType::State(typ) => match key.as_ref() {
-                            "get" => Ok(*typ),
-                            "set" => {
-                                // XXX Simulate normal function call
-                                let params = vec![("".into(), *typ)];
-                                self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
-                                Ok(ScriptType::Void)
-                            }
-                            _ => panic!("Unknown method: {key}"),
-                        },
-                        ScriptType::List(typ) => match key.as_ref() {
-                            "push" => {
-                                let params = vec![("".into(), *typ.clone())];
-                                self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
-                                Ok(ScriptType::List(typ))
-                            }
-                            _ => panic!("Unknown method: {key}"),
-                        },
-                        _ => todo!("User-defined methods"),
+                    match (&subject_typ, key.as_ref()) {
+                        (ScriptType::State(typ), "get") => Ok(*typ.clone()),
+                        (ScriptType::State(typ), "set") => {
+                            // XXX Simulate normal function call
+                            let params = vec![("".into(), *typ.clone())];
+                            self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
+                            Ok(ScriptType::Void)
+                        }
+                        (ScriptType::List(typ), "push") => {
+                            // "Promote" list type, if empty list
+                            let typ = match typ.as_ref() {
+                                ScriptType::Void => {
+                                    let t = args
+                                        .first()
+                                        .map(|i| self.validate_expr(i, scope))
+                                        .transpose()?;
+
+                                    t.unwrap()
+                                }
+                                _ => *typ.clone(),
+                            };
+
+                            let params = vec![("".into(), typ.clone())];
+                            self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
+                            Ok(ScriptType::List(typ.into()))
+                        }
+                        _ => Err(self.fail(
+                            format!("Unknown method: {key} on {subject_typ:?}"),
+                            &expr.loc,
+                        )),
                     }
                 }
-                _ => panic!("Call on something that's not a ref"),
+                _ => Err(self.fail("Call not allowed here".into(), &expr.loc)),
             },
         }
     }
@@ -372,11 +391,13 @@ impl<'a> Validator<'a> {
         scope: &Scope,
         loc: &Range<usize>,
     ) -> Result<()> {
-        // FIXME This should already be checked during type checking phase
+        // XXX Keyword arguments might be optional
         if params.len() != args.len() + kwargs.len() {
             let msg = format!("Expected {} arguments, found {}", params.len(), args.len());
             return Err(self.fail(msg, loc));
         }
+
+        // TODO Check for keyword arguments that don't exist
 
         for ((_, param_typ), expr) in params.iter().zip(args) {
             let typ = self.validate_expr(expr, scope)?;
@@ -387,8 +408,7 @@ impl<'a> Validator<'a> {
         }
 
         // Match kwargs against remaining arguments
-        let rest = &params[args.len()..];
-        for (name, param_typ) in rest {
+        for (name, param_typ) in &params[args.len()..] {
             if let Some((_, expr)) = kwargs.iter().find(|(n, _)| *n == *name) {
                 let typ = self.validate_expr(expr, scope)?;
                 if typ != *param_typ {
@@ -404,14 +424,19 @@ impl<'a> Validator<'a> {
         Ok(())
     }
 
-    fn eval_type_expr(&self, type_expr: &str, scope: &Scope) -> Result<ScriptType> {
-        let typ = match type_expr {
-            "str" => ScriptType::Str,
-            "int" => ScriptType::Int,
-            "bool" => ScriptType::Bool,
-            e => todo!("Unrecognized type expr: {e:?}"),
-        };
-        Ok(typ)
+    fn eval_type_expr(&self, type_expr: &TypeExpression, scope: &Scope) -> Result<ScriptType> {
+        match type_expr.raw.as_ref() {
+            "str" => Ok(ScriptType::Str),
+            "int" => Ok(ScriptType::Int),
+            "bool" => Ok(ScriptType::Bool),
+            e => match scope.locals.get(e) {
+                Some(ScriptType::RecordDef { name, params }) => Ok(ScriptType::Record {
+                    params: params.clone(),
+                    name: Arc::clone(name),
+                }),
+                _ => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
+            },
+        }
     }
 
     fn fail(&self, msg: String, loc: &Range<usize>) -> Error {

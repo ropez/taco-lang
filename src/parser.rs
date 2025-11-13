@@ -30,7 +30,6 @@ pub enum AstNode {
     Function {
         name: Arc<str>,
         fun: Arc<Function>,
-        type_expr: Option<Arc<str>>, // TODO Move to Function, and parse
     },
 
     Iteration {
@@ -64,6 +63,12 @@ impl Expression {
 }
 
 #[derive(Debug)]
+pub struct TypeExpression {
+    pub(crate) raw: Arc<str>,
+    pub(crate) loc: Range<usize>,
+}
+
+#[derive(Debug)]
 pub(crate) enum ExpressionKind {
     Ref(Arc<str>),
     String(Arc<str>),
@@ -93,8 +98,8 @@ pub(crate) enum ExpressionKind {
 
 #[derive(Debug)]
 pub struct Function {
-    // return type
     pub(crate) params: Vec<Parameter>,
+    pub(crate) type_expr: Option<TypeExpression>,
     pub(crate) body: Vec<AstNode>,
 }
 
@@ -107,7 +112,7 @@ pub struct Record {
 #[derive(Debug)]
 pub struct Parameter {
     pub(crate) name: Arc<str>,
-    pub(crate) type_expr: Arc<str>, // TODO type
+    pub(crate) type_expr: TypeExpression,
 }
 
 pub struct Parser<'a> {
@@ -150,8 +155,8 @@ impl<'a> Parser<'a> {
                     let params = self.parse_params(TokenKind::RightParen)?;
 
                     let type_expr = if self.next_if_kind(&TokenKind::Colon).is_some() {
-                        let (expr, _) = self.expect_ident()?;
-                        Some(expr)
+                        let (raw, loc) = self.expect_ident()?;
+                        Some(TypeExpression { raw, loc })
                     } else {
                         None
                     };
@@ -161,12 +166,12 @@ impl<'a> Parser<'a> {
 
                     let body = self.parse()?;
 
-                    let fun = Arc::new(Function { body, params });
-                    ast.push(AstNode::Function {
-                        name,
-                        fun,
+                    let fun = Arc::new(Function {
+                        body,
+                        params,
                         type_expr,
                     });
+                    ast.push(AstNode::Function { name, fun });
                 }
                 // FIXME Not allowed at global scope
                 TokenKind::Return => {
@@ -441,7 +446,8 @@ impl<'a> Parser<'a> {
 
             let (name, _) = self.expect_ident()?;
             self.expect_kind(TokenKind::Colon)?;
-            let (type_expr, _) = self.expect_ident()?; // TODO Parse type expr
+            let (raw, loc) = self.expect_ident()?; // TODO Parse type expr
+            let type_expr = TypeExpression { raw, loc };
             let param = Parameter { name, type_expr };
             items.push(param);
 
@@ -502,9 +508,6 @@ impl<'a> Parser<'a> {
             //
             // Can check here or later:
             // `name` is only assigned once
-            //
-            // Must check later:
-            // no kwargs for argument assigned positionally
 
             if let Some(TokenKind::Identifier(name)) = self.peek_kind() {
                 let name = Arc::clone(name);
@@ -515,12 +518,20 @@ impl<'a> Parser<'a> {
                     kwargs.push((name, value));
                 } else {
                     let expr = Expression::new(ExpressionKind::Ref(name), t.loc);
-                    let value = self.parse_continuation(expr, 0)?;
-                    args.push(value);
+                    let expr = self.parse_continuation(expr, 0)?;
+
+                    if !kwargs.is_empty() {
+                        return Err(self.fail("Unexpected positional argument after keyword argument", &expr.loc));
+                    }
+
+                    args.push(expr);
                 }
             } else {
-                let value = self.parse_expression(0)?;
-                args.push(value);
+                let expr = self.parse_expression(0)?;
+                if !kwargs.is_empty() {
+                    return Err(self.fail("Unexpected positional argument after keyword argument", &expr.loc));
+                }
+                args.push(expr);
             }
 
             let kind = self.peek_kind();
