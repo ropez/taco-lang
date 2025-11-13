@@ -19,7 +19,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f)?;
         writeln!(f, "{}", self.details)?;
-        writeln!(f, "{}", self.message)?;
+        writeln!(f, "\x1b[31m  ERROR {}\x1b[0m", self.message)?;
         Ok(())
     }
 }
