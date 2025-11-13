@@ -69,6 +69,8 @@ pub(crate) enum ExpressionKind {
     String(Arc<str>),
     StringInterpolate(Vec<Expression>),
     Number(i64),
+    True,
+    False,
     List(Vec<Expression>),
     Not(Box<Expression>),
     Equal(Box<Expression>, Box<Expression>),
@@ -253,6 +255,14 @@ impl<'a> Parser<'a> {
             }
             TokenKind::Number(n) => {
                 let e = Expression::new(ExpressionKind::Number(n), token.loc);
+                self.parse_continuation(e, bp)?
+            }
+            TokenKind::True => {
+                let e = Expression::new(ExpressionKind::True, token.loc);
+                self.parse_continuation(e, bp)?
+            }
+            TokenKind::False => {
+                let e = Expression::new(ExpressionKind::False, token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::LeftSquare => {

@@ -30,6 +30,8 @@ pub enum TokenKind {
     // Keywords
     Fun,
     Return,
+    True,
+    False,
     If,
     Else,
     For,
@@ -116,6 +118,8 @@ impl<'a> Tokenizer<'a> {
                     match s.as_ref() {
                         "fun" => Some(self.produce(TokenKind::Fun)),
                         "return" => Some(self.produce(TokenKind::Return)),
+                        "true" => Some(self.produce(TokenKind::True)),
+                        "false" => Some(self.produce(TokenKind::False)),
                         "if" => Some(self.produce(TokenKind::If)),
                         "else" => Some(self.produce(TokenKind::Else)),
                         "for" => Some(self.produce(TokenKind::For)),

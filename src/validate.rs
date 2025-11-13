@@ -172,7 +172,10 @@ impl<'a> Validator<'a> {
 
     fn validate_expr(&self, expr: &Expression, scope: &Scope) -> Result<ScriptType> {
         match &expr.kind {
+            ExpressionKind::Number(_) => Ok(ScriptType::Int),
             ExpressionKind::String(_) => Ok(ScriptType::Str),
+            ExpressionKind::True => Ok(ScriptType::Bool),
+            ExpressionKind::False => Ok(ScriptType::Bool),
             ExpressionKind::StringInterpolate(parts) => {
                 // TODO Validate internal expressions
                 Ok(ScriptType::Str)
@@ -183,7 +186,6 @@ impl<'a> Validator<'a> {
                 // }
                 // Arc::new(ScriptValue::String(builder.into()))
             }
-            ExpressionKind::Number(n) => Ok(ScriptType::Int),
             ExpressionKind::List(expressions) => {
                 let types = expressions
                     .iter()

@@ -175,6 +175,8 @@ where
                 Arc::new(ScriptValue::String(builder.into()))
             }
             ExpressionKind::Number(n) => Arc::new(ScriptValue::Number(*n)),
+            ExpressionKind::True => Arc::new(ScriptValue::Boolean(true)),
+            ExpressionKind::False => Arc::new(ScriptValue::Boolean(false)),
             ExpressionKind::List(s) => Arc::new(ScriptValue::List(
                 s.iter().map(|i| self.eval_expr(i, scope)).collect(),
             )),
