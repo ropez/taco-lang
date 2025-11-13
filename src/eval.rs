@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use crate::parser::{AstNode, Expression, Function, Record};
+use crate::parser::{AstNode, Expression, ExpressionKind, Function, Record};
 
 #[derive(Debug)]
 pub enum ScriptValue {
@@ -163,9 +163,10 @@ where
     }
 
     fn eval_expr(&self, expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
-        match expr {
-            Expression::String(s) => Arc::new(ScriptValue::String(Arc::clone(s))),
-            Expression::StringInterpolate(parts) => {
+        match &expr.kind {
+            ExpressionKind::String(s) => Arc::new(ScriptValue::String(Arc::clone(s))),
+            ExpressionKind::StringInterpolate(parts) => {
+                // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
                 let mut builder = String::new();
                 for expr in parts {
                     let val = self.eval_expr(expr, scope);
@@ -173,15 +174,15 @@ where
                 }
                 Arc::new(ScriptValue::String(builder.into()))
             }
-            Expression::Number(n) => Arc::new(ScriptValue::Number(*n)),
-            Expression::List(s) => Arc::new(ScriptValue::List(
+            ExpressionKind::Number(n) => Arc::new(ScriptValue::Number(*n)),
+            ExpressionKind::List(s) => Arc::new(ScriptValue::List(
                 s.iter().map(|i| self.eval_expr(i, scope)).collect(),
             )),
-            Expression::Ref(ident) => match scope.locals.get(ident) {
+            ExpressionKind::Ref(ident) => match scope.locals.get(ident) {
                 None => panic!("Undefined reference: {ident}"),
                 Some(value) => Arc::clone(value),
             },
-            Expression::Access { subject, key } => {
+            ExpressionKind::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
                 match subject.as_ref() {
                     ScriptValue::RecordInstance { record, values } => {
@@ -194,7 +195,7 @@ where
                     _ => panic!("Unexpected property access on {subject:?}"),
                 }
             }
-            Expression::Not(expr) => {
+            ExpressionKind::Not(expr) => {
                 let val = self.eval_expr(expr, scope);
                 if let ScriptValue::Boolean(b) = *val {
                     Arc::new(ScriptValue::Boolean(!b))
@@ -202,19 +203,19 @@ where
                     panic!("Not a boolean")
                 }
             }
-            Expression::Equal(lhs, rhs) => {
+            ExpressionKind::Equal(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
                 Arc::new(ScriptValue::Boolean(lhs.eq(&rhs)))
             }
-            Expression::NotEqual(lhs, rhs) => {
+            ExpressionKind::NotEqual(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
                 Arc::new(ScriptValue::Boolean(!lhs.eq(&rhs)))
             }
-            Expression::Range(lhs, rhs) => {
+            ExpressionKind::Range(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -225,7 +226,7 @@ where
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            Expression::Addition(lhs, rhs) => {
+            ExpressionKind::Addition(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -236,7 +237,7 @@ where
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            Expression::Subtraction(lhs, rhs) => {
+            ExpressionKind::Subtraction(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -247,7 +248,7 @@ where
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            Expression::Multiplication(lhs, rhs) => {
+            ExpressionKind::Multiplication(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -258,7 +259,7 @@ where
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            Expression::Division(lhs, rhs) => {
+            ExpressionKind::Division(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -269,12 +270,12 @@ where
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            Expression::Call {
+            ExpressionKind::Call {
                 subject,
                 args,
                 kwargs,
-            } => match subject.as_ref() {
-                Expression::Ref(name) => match name.as_ref() {
+            } => match &subject.kind {
+                ExpressionKind::Ref(name) => match name.as_ref() {
                     "print" => {
                         for arg in args {
                             let val = self.eval_expr(arg, scope);
@@ -326,7 +327,7 @@ where
                         }
                     }
                 },
-                Expression::Access { subject, key } => {
+                ExpressionKind::Access { subject, key } => {
                     let subject = self.eval_expr(subject, scope);
                     match subject.as_ref() {
                         ScriptValue::State(state) => match key.as_ref() {

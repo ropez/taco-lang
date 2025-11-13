@@ -1,4 +1,4 @@
-use std::{iter::Peekable, ops::Range, sync::Arc, vec::IntoIter};
+use std::{cmp::{self}, iter::Peekable, ops::Range, sync::Arc, vec::IntoIter};
 
 use crate::{
     error::{Error, Result},
@@ -44,9 +44,23 @@ pub enum AstNode {
     Return(Expression),
 }
 
-// Expressions must have type
 #[derive(Debug)]
-pub enum Expression {
+pub struct Expression {
+    pub(crate) kind: ExpressionKind,
+    pub(crate) loc: Range<usize>,
+}
+
+impl Expression {
+    fn new(kind: ExpressionKind, loc: Range<usize>) -> Self {
+        Self {
+            kind,
+            loc,
+        }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) enum ExpressionKind {
     Ref(Arc<str>),
     String(Arc<str>),
     StringInterpolate(Vec<Expression>),
@@ -120,7 +134,7 @@ impl<'a> Parser<'a> {
                 TokenKind::NewLine => {}        // Ignore
                 TokenKind::RightBrace => break, // FIXME Not allowed at global scope
                 TokenKind::Fun => {
-                    let name = self.expect_ident()?;
+                    let (name, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
                     self.expect_kind(TokenKind::LeftBrace)?;
@@ -142,7 +156,7 @@ impl<'a> Parser<'a> {
                         ast.push(AstNode::Assignment { name, value });
                         self.expect_kind(TokenKind::NewLine)?;
                     } else {
-                        let expr = Expression::Ref(name);
+                        let expr = Expression::new(ExpressionKind::Ref(name), token.loc);
                         let expr = self.parse_continuation(expr, 0)?;
                         ast.push(AstNode::Expression(expr));
                     }
@@ -167,7 +181,7 @@ impl<'a> Parser<'a> {
                     });
                 }
                 TokenKind::For => {
-                    let ident = self.expect_ident()?;
+                    let (ident, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::In)?;
                     let iterable = self.parse_expression(0)?;
                     self.expect_kind(TokenKind::LeftBrace)?;
@@ -180,7 +194,7 @@ impl<'a> Parser<'a> {
                     });
                 }
                 TokenKind::Record => {
-                    let ident = self.expect_ident()?;
+                    let (ident, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
 
@@ -203,17 +217,21 @@ impl<'a> Parser<'a> {
         let token = self.expect_token()?;
 
         let expr = match token.kind {
-            TokenKind::Identifier(s) => self.parse_continuation(Expression::Ref(s), bp)?,
+            TokenKind::Identifier(s) => {
+                let expr = Expression::new(ExpressionKind::Ref(s), token.loc);
+                self.parse_continuation(expr, bp)?
+            }
             TokenKind::Not => {
                 let expr = self.parse_expression(bp)?;
-                Expression::Not(expr.into())
+                let loc = wrap_locations(&token.loc, &expr.loc);
+                Expression::new(ExpressionKind::Not(expr.into()), loc)
             }
             TokenKind::String(s) => {
-                let expr = parse_string(s)?;
+                let expr = parse_string(s, token.loc)?;
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::Number(n) => {
-                let e = Expression::Number(n);
+                let e = Expression::new(ExpressionKind::Number(n), token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::LeftSquare => {
@@ -222,8 +240,10 @@ impl<'a> Parser<'a> {
                 // Needs to take scope into consideration, so it's probably
                 // some analysis phase after parsing, but before evaluation.
                 let list = self.parse_list(TokenKind::RightSquare)?;
+                let end = self.expect_kind(TokenKind::RightSquare)?;
+                let loc = wrap_locations(&token.loc, &end.loc);
 
-                let expr = Expression::List(list);
+                let expr = Expression::new(ExpressionKind::List(list), loc);
                 self.parse_continuation(expr, 0)?
             }
             _ => return Err(self.fail_at("unexpected token", &token)),
@@ -244,7 +264,8 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_EQUAL)?;
-                        let expr = Expression::Equal(lhs.into(), rhs.into());
+                        let loc = wrap_locations(&lhs.loc, &rhs.loc);
+                        let expr = Expression::new(ExpressionKind::Equal(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -254,7 +275,8 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_EQUAL)?;
-                        let expr = Expression::NotEqual(lhs.into(), rhs.into());
+                        let loc = wrap_locations(&lhs.loc, &rhs.loc);
+                        let expr = Expression::new(ExpressionKind::NotEqual(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -263,11 +285,12 @@ impl<'a> Parser<'a> {
                         lhs
                     } else {
                         self.iter.next();
-                        let key = self.expect_ident()?;
-                        let expr = Expression::Access {
+                        let (key, loc) = self.expect_ident()?;
+                        let loc = wrap_locations(&lhs.loc, &loc);
+                        let expr = Expression::new(ExpressionKind::Access {
                             subject: lhs.into(),
                             key,
-                        };
+                        }, loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -277,7 +300,8 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_SPREAD)?;
-                        let expr = Expression::Range(lhs.into(), rhs.into());
+                        let loc = wrap_locations(&lhs.loc, &rhs.loc);
+                        let expr = Expression::new(ExpressionKind::Range(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -287,7 +311,8 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_PLUS)?;
-                        let expr = Expression::Addition(lhs.into(), rhs.into());
+                        let loc = wrap_locations(&lhs.loc, &rhs.loc);
+                        let expr = Expression::new(ExpressionKind::Addition(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -297,7 +322,8 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_MINUS)?;
-                        let expr = Expression::Subtraction(lhs.into(), rhs.into());
+                        let loc = wrap_locations(&lhs.loc, &rhs.loc);
+                        let expr = Expression::new(ExpressionKind::Subtraction(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -307,7 +333,8 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_MULT)?;
-                        let expr = Expression::Multiplication(lhs.into(), rhs.into());
+                        let loc = wrap_locations(&lhs.loc, &rhs.loc);
+                        let expr = Expression::new(ExpressionKind::Multiplication(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -317,7 +344,8 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_DIV)?;
-                        let expr = Expression::Division(lhs.into(), rhs.into());
+                        let loc = wrap_locations(&lhs.loc, &rhs.loc);
+                        let expr = Expression::new(ExpressionKind::Division(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -329,11 +357,14 @@ impl<'a> Parser<'a> {
 
                         let (args, kwargs) = self.parse_args()?;
 
-                        let expr = Expression::Call {
+                        // XXX Get end of argument list location
+                        let loc = wrap_locations(&lhs.loc, &lhs.loc);
+
+                        let expr = Expression::new(ExpressionKind::Call {
                             subject: lhs.into(),
                             args,
                             kwargs,
-                        };
+                        }, loc);
 
                         self.parse_continuation(expr, bp)?
                     }
@@ -358,7 +389,8 @@ impl<'a> Parser<'a> {
                 break;
             }
 
-            items.push(self.expect_ident()?);
+            let (name, _) = self.expect_ident()?;
+            items.push(name);
 
             let token = self.expect_token()?;
             if token.kind == until {
@@ -380,7 +412,6 @@ impl<'a> Parser<'a> {
                 return Err(self.fail_at_end("Unexpected end of input"));
             };
             if next.kind == until {
-                self.iter.next();
                 break;
             }
 
@@ -418,13 +449,14 @@ impl<'a> Parser<'a> {
 
             if let Some(TokenKind::Identifier(name)) = self.peek_kind() {
                 let name = Arc::clone(name);
-                self.iter.next();
+                let t = self.expect_token()?;
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let value = self.parse_expression(0)?;
                     kwargs.push((name, value));
                 } else {
-                    let value = self.parse_continuation(Expression::Ref(name), 0)?;
+                    let expr = Expression::new(ExpressionKind::Ref(name), t.loc);
+                    let value = self.parse_continuation(expr, 0)?;
                     args.push(value);
                 }
             } else {
@@ -470,10 +502,10 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_ident(&mut self) -> Result<Arc<str>> {
+    fn expect_ident(&mut self) -> Result<(Arc<str>, Range<usize>)> {
         let token = self.expect_token()?;
         match token.kind {
-            TokenKind::Identifier(name) => Ok(name),
+            TokenKind::Identifier(name) => Ok((name, token.loc)),
             _ => Err(self.fail_at("Expected identifier", &token)),
         }
     }
@@ -502,18 +534,20 @@ impl<'a> Parser<'a> {
     }
 }
 
-fn parse_string(src: Arc<str>) -> Result<Expression> {
+fn parse_string(src: Arc<str>, loc: Range<usize>) -> Result<Expression> {
     let parts = interp::tokenise_string(src.as_ref());
 
+    // XXX Fix inner locations
+
     if parts.is_empty() {
-        return Ok(Expression::String("".into())); // Use constant?
+        return Ok(Expression::new(ExpressionKind::String("".into()), loc));
     }
 
     let mut res = Vec::new();
 
     for part in parts {
         let expr = match part {
-            StringToken::Str(s) => Expression::String(s.into()),
+            StringToken::Str(s) => Expression::new(ExpressionKind::String(s.into()), loc.clone()),
             StringToken::Expr(s) => {
                 let tokens = lexer::tokenize(s)?;
                 Parser::new(s, tokens).parse_expression(0)?
@@ -523,5 +557,9 @@ fn parse_string(src: Arc<str>) -> Result<Expression> {
         res.push(expr)
     }
 
-    Ok(Expression::StringInterpolate(res))
+    Ok(Expression::new(ExpressionKind::StringInterpolate(res), loc))
+}
+
+fn wrap_locations(start: &Range<usize>, end: &Range<usize>) -> Range<usize> {
+    cmp::min(start.start, end.start)..cmp::max(start.end, end.end)
 }
