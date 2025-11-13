@@ -61,7 +61,7 @@ fn test_interpolation_expression() {
 #[test]
 fn test_interpolation_call() {
     let src = r#"
-        fun foo(arg) {
+        fun foo(arg: str): str {
             return "-- $arg"
         }
 

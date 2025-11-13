@@ -10,6 +10,6 @@ fn main() {
     let src = fs::read_to_string(script).unwrap();
 
     if let Err(err) = check_call(&src, stdout()) {
-        eprintln!("ERROR: {err}");
+        eprintln!("{err}");
     }
 }

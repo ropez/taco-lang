@@ -52,7 +52,7 @@ fn test_arg_not_equals_string() {
 #[test]
 fn test_function_returns_true() {
     let src = r#"
-        fun test(arg) {
+        fun test(arg: str): bool {
             return arg == "taco"
         }
         if test("taco") {
@@ -70,7 +70,7 @@ fn test_function_returns_true() {
 #[test]
 fn test_function_returns_false() {
     let src = r#"
-        fun test(arg) {
+        fun test(arg: str): bool {
             return arg == "taco"
         }
         if test("poop") {

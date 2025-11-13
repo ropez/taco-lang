@@ -7,6 +7,7 @@ pub mod eval;
 mod interp;
 pub mod lexer;
 pub mod parser;
+pub mod validate;
 
 pub fn check_output(src: &str) -> Result<String> {
     let (mut reader, writer) = pipe().expect("create pipe");
@@ -24,6 +25,8 @@ where
 {
     let tokens = lexer::tokenize(src)?;
     let ast = Parser::new(src, tokens).parse()?;
+
+    validate::validate(src, &ast)?;
 
     let engine = Engine::new(out);
     engine.eval(&ast);

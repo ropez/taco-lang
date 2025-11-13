@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use crate::parser::{AstNode, Expression, ExpressionKind, Function, Record};
+use crate::parser::{AstNode, Expression, ExpressionKind, Function, Parameter, Record};
 
 #[derive(Debug)]
 pub enum ScriptValue {
@@ -93,7 +93,7 @@ where
                         .locals
                         .insert(Arc::clone(name), self.eval_expr(value, &scope));
                 }
-                AstNode::Function { name, fun } => {
+                AstNode::Function { name, fun, .. } => {
                     scope
                         .functions
                         .insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
@@ -186,7 +186,7 @@ where
                 let subject = self.eval_expr(subject, scope);
                 match subject.as_ref() {
                     ScriptValue::RecordInstance { record, values } => {
-                        let index = record.params.iter().position(|p| *p == *key);
+                        let index = record.params.iter().position(|p| p.name == *key);
                         match index {
                             None => panic!("Property not found: {key:?}"),
                             Some(index) => Arc::clone(&values[index]),
@@ -304,7 +304,7 @@ where
                             let mut inner_scope = captured_scope.clone();
 
                             for (ident, val) in fun.params.iter().zip(values) {
-                                inner_scope.locals.insert(ident.clone(), val);
+                                inner_scope.locals.insert(ident.name.clone(), val);
                             }
 
                             let c = self.eval_block(&fun.body, inner_scope);
@@ -367,7 +367,7 @@ where
 
     fn eval_args(
         &self,
-        params: &Vec<Arc<str>>,
+        params: &Vec<Parameter>,
         arguments: &Vec<Expression>,
         kwargs: &Vec<(Arc<str>, Expression)>,
         scope: &Scope,
@@ -384,10 +384,10 @@ where
         let mut values: Vec<_> = arguments.iter().map(|a| self.eval_expr(a, scope)).collect();
 
         for param in &params[arguments.len()..] {
-            if let Some((_, value)) = kwargs.iter().find(|(name, _)| *name == *param) {
+            if let Some((_, value)) = kwargs.iter().find(|(name, _)| *name == param.name) {
                 values.push(self.eval_expr(value, scope));
             } else {
-                panic!("Missing initial value for {}", param);
+                panic!("Missing argument: {}", param.name);
             }
         }
 
