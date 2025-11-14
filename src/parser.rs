@@ -146,14 +146,18 @@ impl<'a> Parser<'a> {
     }
 
     pub fn parse(&mut self) -> Result<Vec<AstNode>> {
+        self.parse_block(true)
+    }
+
+    pub fn parse_block(&mut self, root: bool) -> Result<Vec<AstNode>> {
         let mut ast = Vec::new();
 
         loop {
             let Some(token) = self.iter.next() else { break };
 
             match token.kind {
-                TokenKind::NewLine => {}        // Ignore
-                TokenKind::RightBrace => break, // FIXME Not allowed at global scope
+                TokenKind::NewLine => {} // Ignore
+                TokenKind::RightBrace if !root => break,
                 TokenKind::Fun => {
                     let (name, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftParen)?;
@@ -168,7 +172,7 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::LeftBrace)?;
                     self.expect_kind(TokenKind::NewLine)?;
 
-                    let body = self.parse()?;
+                    let body = self.parse_block(false)?;
 
                     let fun = Arc::new(Function {
                         body,
@@ -195,13 +199,13 @@ impl<'a> Parser<'a> {
                 TokenKind::If => {
                     let cond = self.parse_expression(0)?;
                     self.expect_kind(TokenKind::LeftBrace)?;
-                    let body = self.parse()?;
+                    let body = self.parse_block(false)?;
 
                     let else_body = self
                         .next_if_kind(&TokenKind::Else)
                         .map(|_| {
                             self.expect_kind(TokenKind::LeftBrace)?;
-                            self.parse()
+                            self.parse_block(false)
                         })
                         .transpose()?;
 
@@ -216,7 +220,7 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::In)?;
                     let iterable = self.parse_expression(0)?;
                     self.expect_kind(TokenKind::LeftBrace)?;
-                    let body = self.parse()?;
+                    let body = self.parse_block(false)?;
 
                     ast.push(AstNode::Iteration {
                         ident,
@@ -519,7 +523,10 @@ impl<'a> Parser<'a> {
                     let expr = self.parse_continuation(expr, 0)?;
 
                     if !kwargs.is_empty() {
-                        return Err(self.fail("Unexpected positional argument after keyword argument", &expr.loc));
+                        return Err(self.fail(
+                            "Unexpected positional argument after keyword argument",
+                            &expr.loc,
+                        ));
                     }
 
                     args.push(expr);
@@ -527,7 +534,10 @@ impl<'a> Parser<'a> {
             } else {
                 let expr = self.parse_expression(0)?;
                 if !kwargs.is_empty() {
-                    return Err(self.fail("Unexpected positional argument after keyword argument", &expr.loc));
+                    return Err(self.fail(
+                        "Unexpected positional argument after keyword argument",
+                        &expr.loc,
+                    ));
                 }
                 args.push(expr);
             }
@@ -555,7 +565,10 @@ impl<'a> Parser<'a> {
             let r = self.expect_kind(TokenKind::RightSquare)?;
 
             let kind = TypeExpressionKind::List(inner.into());
-            Ok(TypeExpression { kind, loc: wrap_locations(&l.loc, &r.loc) })
+            Ok(TypeExpression {
+                kind,
+                loc: wrap_locations(&l.loc, &r.loc),
+            })
         } else {
             let (raw, loc) = self.expect_ident()?;
             let kind = TypeExpressionKind::Scalar(raw);
