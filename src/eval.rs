@@ -331,34 +331,28 @@ where
                 },
                 ExpressionKind::Access { subject, key } => {
                     let subject = self.eval_expr(subject, scope);
-                    match subject.as_ref() {
-                        ScriptValue::State(state) => match key.as_ref() {
-                            "get" => {
-                                let v = state.read().unwrap();
-                                Arc::clone(v.deref())
-                            }
-                            "set" => {
-                                let val = args.first().expect("get arg");
-                                let val = self.eval_expr(val, scope);
-                                let mut v = state.write().unwrap();
-                                *v = val;
-                                Arc::new(ScriptValue::Void)
-                            }
-                            _ => panic!("Unknown method: {key}"),
-                        },
-                        ScriptValue::List(list) => match key.as_ref() {
-                            "push" => {
-                                let item = args.first().expect("push item");
-                                let value = self.eval_expr(item, scope);
-                                // This is the Copy on Write feature of the language in play.
-                                // Can we avoid copy, if we see that the original will not be used again?
-                                let mut res = list.clone();
-                                res.push(value);
-                                Arc::new(ScriptValue::List(res))
-                            }
-                            _ => panic!("Unknown method: {key}"),
-                        },
-                        _ => panic!("Call on access"),
+                    match (subject.as_ref(), key.as_ref()) {
+                        (ScriptValue::State(state), "get") => {
+                            let v = state.read().unwrap();
+                            Arc::clone(v.deref())
+                        }
+                        (ScriptValue::State(state), "set") => {
+                            let val = args.first().expect("get arg");
+                            let val = self.eval_expr(val, scope);
+                            let mut v = state.write().unwrap();
+                            *v = val;
+                            Arc::new(ScriptValue::Void)
+                        }
+                        (ScriptValue::List(list), "push") => {
+                            let item = args.first().expect("push item");
+                            let value = self.eval_expr(item, scope);
+                            // This is the Copy on Write feature of the language in play.
+                            // Can we avoid copy, if we see that the original will not be used again?
+                            let mut res = list.clone();
+                            res.push(value);
+                            Arc::new(ScriptValue::List(res))
+                        }
+                        _ => panic!("Unknown method: {key} on {subject:?}"),
                     }
                 }
                 _ => panic!("Call on something that's not a ref"),
