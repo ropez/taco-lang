@@ -352,6 +352,23 @@ where
                             res.push(value);
                             Arc::new(ScriptValue::List(res))
                         }
+                        (ScriptValue::RecordInstance { record, values }, "with") => {
+                            let mut new_values = values.clone();
+
+                            for (param, v) in record.params.iter().zip(new_values.iter_mut()) {
+                                if let Some((_, expr)) =
+                                    kwargs.iter().find(|(k, _)| *k == param.name)
+                                {
+                                    *v = self.eval_expr(expr, scope);
+                                }
+                            }
+
+                            let instance = ScriptValue::RecordInstance {
+                                record: Arc::clone(record),
+                                values: new_values,
+                            };
+                            Arc::new(instance)
+                        }
                         _ => panic!("Unknown method: {key} on {subject:?}"),
                     }
                 }

@@ -63,12 +63,6 @@ impl Expression {
 }
 
 #[derive(Debug)]
-pub struct TypeExpression {
-    pub(crate) raw: Arc<str>,
-    pub(crate) loc: Range<usize>,
-}
-
-#[derive(Debug)]
 pub(crate) enum ExpressionKind {
     Ref(Arc<str>),
     String(Arc<str>),
@@ -94,6 +88,18 @@ pub(crate) enum ExpressionKind {
         subject: Box<Expression>,
         key: Arc<str>,
     },
+}
+
+#[derive(Debug)]
+pub struct TypeExpression {
+    pub(crate) kind: TypeExpressionKind,
+    pub(crate) loc: Range<usize>,
+}
+
+#[derive(Debug)]
+pub enum TypeExpressionKind {
+    Scalar(Arc<str>),
+    List(Box<TypeExpression>),
 }
 
 #[derive(Debug)]
@@ -127,7 +133,6 @@ mod constants {
     pub(crate) const BP_MINUS: u32 = 10;
     pub(crate) const BP_DIV: u32 = 20;
     pub(crate) const BP_MULT: u32 = 20;
-    // pub(crate) const BP_UNARY: u32 = 30;
     pub(crate) const BP_CALL: u32 = 90;
     pub(crate) const BP_ACCESS: u32 = 100;
 }
@@ -155,8 +160,7 @@ impl<'a> Parser<'a> {
                     let params = self.parse_params(TokenKind::RightParen)?;
 
                     let type_expr = if self.next_if_kind(&TokenKind::Colon).is_some() {
-                        let (raw, loc) = self.expect_ident()?;
-                        Some(TypeExpression { raw, loc })
+                        Some(self.parse_type_expr()?)
                     } else {
                         None
                     };
@@ -446,8 +450,7 @@ impl<'a> Parser<'a> {
 
             let (name, _) = self.expect_ident()?;
             self.expect_kind(TokenKind::Colon)?;
-            let (raw, loc) = self.expect_ident()?; // TODO Parse type expr
-            let type_expr = TypeExpression { raw, loc };
+            let type_expr = self.parse_type_expr()?;
             let param = Parameter { name, type_expr };
             items.push(param);
 
@@ -549,6 +552,20 @@ impl<'a> Parser<'a> {
         }
 
         Ok((args, kwargs))
+    }
+
+    fn parse_type_expr(&mut self) -> Result<TypeExpression> {
+        if let Some(l) = self.next_if_kind(&TokenKind::LeftSquare) {
+            let inner = self.parse_type_expr()?;
+            let r = self.expect_kind(TokenKind::RightSquare)?;
+
+            let kind = TypeExpressionKind::List(inner.into());
+            Ok(TypeExpression { kind, loc: wrap_locations(&l.loc, &r.loc) })
+        } else {
+            let (raw, loc) = self.expect_ident()?;
+            let kind = TypeExpressionKind::Scalar(raw);
+            Ok(TypeExpression { kind, loc })
+        }
     }
 
     fn consume_whitespace(&mut self) {

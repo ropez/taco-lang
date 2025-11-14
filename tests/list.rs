@@ -14,36 +14,28 @@ fn test_simple_list() {
         }
     "#;
 
-    let out = match check_output(src) {
-        Ok(out) => out,
+    match check_output(src) {
+        Ok(out) => assert_eq!("apple\norange\nbanana\n", out),
         Err(err) => panic!("{err}"),
     };
-
-    assert_eq!("apple\norange\nbanana\n", out);
 }
-
 
 #[test]
-fn test_list_push() {
+fn test_list_as_function_argument() {
     let src = r#"
-        banana = "banana"
-        fruits = [
-            "apple"
-            banana
-        ].push("orange")
-
-        fruits = fruits.push("kiwi")
-
-        for fruit in fruits.push("pineapple") {
-            println(fruit)
+        fun show(items: [str]) {
+            for it in items {
+                println("'${it}'")
+            }
         }
+
+        show(["foo", "bar"])
     "#;
 
-    let out = match check_output(src) {
-        Ok(out) => out,
+    match check_output(src) {
+        Ok(out) => assert_eq!("'foo'\n'bar'\n", out),
         Err(err) => panic!("{err}"),
     };
-
-    assert_eq!("apple\nbanana\norange\nkiwi\npineapple\n", out);
 }
+
 

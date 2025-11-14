@@ -1,8 +1,8 @@
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{collections::HashMap, fmt::Display, ops::Range, sync::Arc};
 
 use crate::{
     error::{Error, Result},
-    parser::{AstNode, Expression, ExpressionKind, Parameter, TypeExpression},
+    parser::{AstNode, Expression, ExpressionKind, Parameter, TypeExpression, TypeExpressionKind},
 };
 
 #[derive(Debug, PartialEq, Clone)]
@@ -29,7 +29,25 @@ enum ScriptType {
     },
 }
 
-// TODO impl Display for ScriptType, and use in all error messages instead of Debug
+// TODO Validate that all branches in non-void functions return something
+// TODO Validate unreachable code?
+
+impl Display for ScriptType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Str => {
+                write!(f, "str")
+            }
+            Self::List(inner) if *inner.as_ref() == Self::Void => {
+                write!(f, "[]")
+            }
+            Self::List(inner) => {
+                write!(f, "[{inner}]")
+            }
+            _ => write!(f, "{:?}", self)
+        }
+    }
+}
 
 #[derive(Default, Clone)]
 struct Scope {
@@ -113,7 +131,7 @@ impl<'a> Validator<'a> {
                             self.validate_block(body, inner_scope)?;
                         }
                         _ => {
-                            let msg = format!("Expected iterable, found {iterable_typ:?}");
+                            let msg = format!("Expected iterable, found {iterable_typ}");
                             return Err(self.fail(msg, &iterable.loc));
                         }
                     }
@@ -126,7 +144,7 @@ impl<'a> Validator<'a> {
                     let typ = self.validate_expr(cond, &scope)?;
                     if typ != ScriptType::Bool {
                         return Err(
-                            self.fail(format!("Expected boolean, found {typ:?}"), &cond.loc)
+                            self.fail(format!("Expected boolean, found {typ}"), &cond.loc)
                         );
                     }
 
@@ -146,7 +164,7 @@ impl<'a> Validator<'a> {
                         Some(r) => {
                             if typ != *r {
                                 return Err(
-                                    self.fail(format!("Expected {r:?}, found {typ:?}"), &expr.loc)
+                                    self.fail(format!("Expected {r}, found {typ}"), &expr.loc)
                                 );
                             }
                         }
@@ -200,7 +218,7 @@ impl<'a> Validator<'a> {
                 for (typ, expr) in types.iter().zip(expressions) {
                     if *typ != inner_type {
                         return Err(
-                            self.fail(format!("Expected {inner_type:?}, found {typ:?}"), &expr.loc)
+                            self.fail(format!("Expected {inner_type}, found {typ}"), &expr.loc)
                         );
                     }
                 }
@@ -218,13 +236,13 @@ impl<'a> Validator<'a> {
                         match params.iter().find(|(k, _)| *k == *key) {
                             Some((_, typ)) => Ok(typ.clone()),
                             None => Err(self.fail(
-                                format!("Unknown attribute: {key} on {subject_typ:?}"),
+                                format!("Unknown attribute: {key} on {subject_typ}"),
                                 &expr.loc,
                             )),
                         }
                     }
                     _ => Err(self.fail(
-                        format!("Unknown attribute: {key} on {subject_typ:?}"),
+                        format!("Unknown attribute: {key} on {subject_typ}"),
                         &expr.loc,
                     )),
                 }
@@ -232,7 +250,7 @@ impl<'a> Validator<'a> {
             ExpressionKind::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if typ != ScriptType::Bool {
-                    return Err(self.fail(format!("Expected boolean, found {typ:?}"), &expr.loc));
+                    return Err(self.fail(format!("Expected boolean, found {typ}"), &expr.loc));
                 }
                 Ok(ScriptType::Bool)
             }
@@ -241,7 +259,7 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if r != l {
-                    return Err(self.fail(format!("Expected {l:?}, found {r:?}"), &rhs.loc));
+                    return Err(self.fail(format!("Expected {l}, found {r}"), &rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -251,7 +269,7 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if r != l {
-                    return Err(self.fail(format!("Expected {l:?}, found {r:?}"), &rhs.loc));
+                    return Err(self.fail(format!("Expected {l}, found {r}"), &rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -261,10 +279,10 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if l != ScriptType::Int {
-                    return Err(self.fail(format!("Expected number, found {l:?}"), &lhs.loc));
+                    return Err(self.fail(format!("Expected number, found {l}"), &lhs.loc));
                 }
                 if r != ScriptType::Int {
-                    return Err(self.fail(format!("Expected number, found {r:?}"), &rhs.loc));
+                    return Err(self.fail(format!("Expected number, found {r}"), &rhs.loc));
                 }
 
                 Ok(ScriptType::Range)
@@ -284,7 +302,7 @@ impl<'a> Validator<'a> {
                             let typ = self.validate_expr(arg, scope)?;
                             if typ != ScriptType::Str {
                                 return Err(
-                                    self.fail(format!("Expected string, found {typ:?}"), &arg.loc)
+                                    self.fail(format!("Expected string, found {typ}"), &arg.loc)
                                 );
                             }
                         }
@@ -321,7 +339,7 @@ impl<'a> Validator<'a> {
                                 })
                             }
                             Some(t) => Err(self
-                                .fail(format!("Expected a callable, found {t:?}"), &subject.loc)),
+                                .fail(format!("Expected a callable, found {t}"), &subject.loc)),
                         }
                     }
                 },
@@ -353,8 +371,14 @@ impl<'a> Validator<'a> {
                             self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
                             Ok(ScriptType::List(typ.into()))
                         }
+                        (ScriptType::Record { params, .. }, "with") => {
+                            // TODO: Check args
+                            self.validate_kwargs(params, kwargs, scope)?;
+
+                            Ok(subject_typ.clone())
+                        }
                         _ => Err(self.fail(
-                            format!("Unknown method: {key} on {subject_typ:?}"),
+                            format!("Unknown method: {key} on {subject_typ}"),
                             &expr.loc,
                         )),
                     }
@@ -374,10 +398,10 @@ impl<'a> Validator<'a> {
         let r = self.validate_expr(rhs, scope)?;
 
         if l != ScriptType::Int {
-            return Err(self.fail(format!("Expected number, found {l:?}"), &lhs.loc));
+            return Err(self.fail(format!("Expected number, found {l}"), &lhs.loc));
         }
         if r != ScriptType::Int {
-            return Err(self.fail(format!("Expected number, found {r:?}"), &rhs.loc));
+            return Err(self.fail(format!("Expected number, found {r}"), &rhs.loc));
         }
 
         Ok(ScriptType::Int)
@@ -391,32 +415,33 @@ impl<'a> Validator<'a> {
         scope: &Scope,
         loc: &Range<usize>,
     ) -> Result<()> {
-        // XXX Keyword arguments might be optional
-        if params.len() != args.len() + kwargs.len() {
-            let msg = format!("Expected {} arguments, found {}", params.len(), args.len());
-            return Err(self.fail(msg, loc));
-        }
-
-        // TODO Check for keyword arguments that don't exist
-
+        // Check positional arguments
         for ((_, param_typ), expr) in params.iter().zip(args) {
             let typ = self.validate_expr(expr, scope)?;
             if typ != *param_typ {
-                let msg = format!("Expected {param_typ:?}, found {typ:?}");
+                let msg = format!("Expected {param_typ}, found {typ}");
                 return Err(self.fail(msg, &expr.loc));
             }
         }
 
-        // Match kwargs against remaining arguments
-        for (name, param_typ) in &params[args.len()..] {
-            if let Some((_, expr)) = kwargs.iter().find(|(n, _)| *n == *name) {
-                let typ = self.validate_expr(expr, scope)?;
-                if typ != *param_typ {
-                    return Err(
-                        self.fail(format!("Expected {param_typ:?}, found {typ:?}"), &expr.loc)
-                    );
-                }
-            } else {
+        // Check number of positional args
+        if args.len() > params.len() {
+            return Err(self.fail(
+                format!(
+                    "Too many positional arguments: {} found, {} expected",
+                    args.len(),
+                    params.len()
+                ),
+                loc,
+            ));
+        }
+
+        // Check kwargs against remaining params
+        self.validate_kwargs(&params[args.len()..], kwargs, scope)?;
+
+        // Check that all params are given
+        for (name, _) in &params[args.len()..] {
+            if !kwargs.iter().any(|(n, _)| *n == *name) {
                 return Err(self.fail(format!("Missing argument: {}", name), loc));
             }
         }
@@ -424,18 +449,53 @@ impl<'a> Validator<'a> {
         Ok(())
     }
 
+    fn validate_kwargs(
+        &self,
+        params: &[(Arc<str>, ScriptType)],
+        kwargs: &[(Arc<str>, Expression)],
+        scope: &Scope,
+    ) -> Result<()> {
+        let mut found = Vec::new();
+
+        for (name, expr) in kwargs {
+            if found.contains(name) {
+                return Err(self.fail(format!("Duplicate keyword argument: {name}"), &expr.loc));
+            }
+            found.push(Arc::clone(name));
+
+            if let Some((_, param_typ)) = params.iter().find(|(n, _)| *n == *name) {
+                let typ = self.validate_expr(expr, scope)?;
+                if typ != *param_typ {
+                    return Err(
+                        self.fail(format!("Expected {param_typ}, found {typ}"), &expr.loc)
+                    );
+                }
+            } else {
+                return Err(self.fail(format!("Argument not found, {name}"), &expr.loc));
+            }
+        }
+
+        Ok(())
+    }
+
     fn eval_type_expr(&self, type_expr: &TypeExpression, scope: &Scope) -> Result<ScriptType> {
-        match type_expr.raw.as_ref() {
-            "str" => Ok(ScriptType::Str),
-            "int" => Ok(ScriptType::Int),
-            "bool" => Ok(ScriptType::Bool),
-            e => match scope.locals.get(e) {
-                Some(ScriptType::RecordDef { name, params }) => Ok(ScriptType::Record {
-                    params: params.clone(),
-                    name: Arc::clone(name),
-                }),
-                _ => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
+        match &type_expr.kind {
+            TypeExpressionKind::Scalar(ident) => match ident.as_ref() {
+                "str" => Ok(ScriptType::Str),
+                "int" => Ok(ScriptType::Int),
+                "bool" => Ok(ScriptType::Bool),
+                e => match scope.locals.get(e) {
+                    Some(ScriptType::RecordDef { name, params }) => Ok(ScriptType::Record {
+                        params: params.clone(),
+                        name: Arc::clone(name),
+                    }),
+                    _ => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
+                },
             },
+            TypeExpressionKind::List(inner) => {
+                let inner = self.eval_type_expr(inner.as_ref(), scope)?;
+                Ok(ScriptType::List(inner.into()))
+            }
         }
     }
 
