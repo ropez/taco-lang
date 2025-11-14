@@ -177,7 +177,6 @@ impl<'a> Parser<'a> {
                     });
                     ast.push(AstNode::Function { name, fun });
                 }
-                // FIXME Not allowed at global scope
                 TokenKind::Return => {
                     let expr = self.parse_expression(0)?;
                     ast.push(AstNode::Return(expr));
@@ -275,10 +274,6 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(e, bp)?
             }
             TokenKind::LeftSquare => {
-                // FIXME: Infer type of list, and validate each item's type
-                // Not sure if this is really a parser concern.
-                // Needs to take scope into consideration, so it's probably
-                // some analysis phase after parsing, but before evaluation.
                 let list = self.parse_list()?;
                 let end = self.expect_kind(TokenKind::RightSquare)?;
                 let loc = wrap_locations(&token.loc, &end.loc);

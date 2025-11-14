@@ -4,7 +4,7 @@ use std::{
 
 #[derive(Debug, Clone)]
 pub struct Error {
-    message: String,
+    pub message: String,
     details: String,
 }
 

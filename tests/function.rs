@@ -52,3 +52,15 @@ fn test_mixed_arguments() {
 
     assert_eq!("first: a, second: b, third: c\n", out);
 }
+
+#[test]
+fn test_return_not_allowed_outside_function() {
+    let src = r#"
+        return 10
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Unexpected return value")
+    }
+}

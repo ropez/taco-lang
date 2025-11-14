@@ -60,3 +60,33 @@ fn test_simple_division() {
     assert_eq!("15 / 5 = 3", out);
 }
 
+#[test]
+fn test_add_and_multiply_precedence() {
+    let src = r#"
+        a = 15
+        print("2 + 3 * 4 = ${2 + 3 * 4}")
+    "#;
+
+    let out = match check_output(src) {
+        Ok(out) => out,
+        Err(err) => panic!("{err}"),
+    };
+
+    assert_eq!("2 + 3 * 4 = 14", out);
+}
+
+#[test]
+fn test_multiply_and_add_precedence() {
+    let src = r#"
+        a = 15
+        print("2 * 3 + 4 = ${2 * 3 + 4}")
+    "#;
+
+    let out = match check_output(src) {
+        Ok(out) => out,
+        Err(err) => panic!("{err}"),
+    };
+
+    assert_eq!("2 * 3 + 4 = 10", out);
+}
+
