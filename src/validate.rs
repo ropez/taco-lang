@@ -19,11 +19,11 @@ enum ScriptType {
         ret: Box<ScriptType>,
     },
     // Maybe this shouldn't be a 'ScriptType'
-    RecordDef {
+    RecDefinition {
         name: Arc<str>,
         params: Vec<(Arc<str>, ScriptType)>,
     },
-    Record {
+    Rec {
         name: Arc<str>,
         params: Vec<(Arc<str>, ScriptType)>,
     },
@@ -99,12 +99,12 @@ impl<'a> Validator<'a> {
                         },
                     );
                 }
-                AstNode::Record(rec) => {
+                AstNode::Rec(rec) => {
                     let params = self.eval_params(&rec.params, &scope)?;
 
                     scope.locals.insert(
                         Arc::clone(&rec.name),
-                        ScriptType::RecordDef {
+                        ScriptType::RecDefinition {
                             params,
                             name: Arc::clone(&rec.name),
                         },
@@ -232,7 +232,7 @@ impl<'a> Validator<'a> {
             ExpressionKind::Access { subject, key } => {
                 let subject_typ = self.validate_expr(subject, scope)?;
                 match &subject_typ {
-                    ScriptType::Record { params, .. } => {
+                    ScriptType::Rec { params, .. } => {
                         match params.iter().find(|(k, _)| *k == *key) {
                             Some((_, typ)) => Ok(typ.clone()),
                             None => Err(self.fail(
@@ -330,10 +330,10 @@ impl<'a> Validator<'a> {
 
                                 Ok(*ret.clone())
                             }
-                            Some(ScriptType::RecordDef { params, name }) => {
+                            Some(ScriptType::RecDefinition { params, name }) => {
                                 self.validate_args(params, args, kwargs, scope, &expr.loc)?;
 
-                                Ok(ScriptType::Record {
+                                Ok(ScriptType::Rec {
                                     params: params.clone(),
                                     name: Arc::clone(name),
                                 })
@@ -371,7 +371,7 @@ impl<'a> Validator<'a> {
                             self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
                             Ok(ScriptType::List(typ.into()))
                         }
-                        (ScriptType::Record { params, .. }, "with") => {
+                        (ScriptType::Rec { params, .. }, "with") => {
                             // TODO: Check args
                             self.validate_kwargs(params, kwargs, scope)?;
 
@@ -485,7 +485,7 @@ impl<'a> Validator<'a> {
                 "int" => Ok(ScriptType::Int),
                 "bool" => Ok(ScriptType::Bool),
                 e => match scope.locals.get(e) {
-                    Some(ScriptType::RecordDef { name, params }) => Ok(ScriptType::Record {
+                    Some(ScriptType::RecDefinition { name, params }) => Ok(ScriptType::Rec {
                         params: params.clone(),
                         name: Arc::clone(name),
                     }),

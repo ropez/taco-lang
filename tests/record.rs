@@ -3,7 +3,7 @@ use taco::check_output;
 #[test]
 fn test_record_tuple_like() {
     let src = r#"
-        record Point(x: int, y: int)
+        rec Point(x: int, y: int)
 
         p = Point(100, 200)
 
@@ -22,7 +22,7 @@ fn test_record_tuple_like() {
 #[test]
 fn test_record_attribute_access() {
     let src = r#"
-        record Point(x: int, y: int)
+        rec Point(x: int, y: int)
 
         p = Point(100, 200)
 
@@ -52,7 +52,7 @@ fn test_record_attribute_access() {
 #[test]
 fn test_record_struct_like() {
     let src = r#"
-        record Person(
+        rec Person(
             name: str
             email: str
         )
@@ -77,7 +77,7 @@ fn test_record_struct_like() {
 #[test]
 fn test_record_with_method() {
     let src = r#"
-        record Person(
+        rec Person(
             name: str
             email: str
         )

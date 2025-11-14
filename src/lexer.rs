@@ -36,7 +36,7 @@ pub enum TokenKind {
     Else,
     For,
     In,
-    Record,
+    Rec,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -124,7 +124,7 @@ impl<'a> Tokenizer<'a> {
                         "else" => Some(self.produce(TokenKind::Else)),
                         "for" => Some(self.produce(TokenKind::For)),
                         "in" => Some(self.produce(TokenKind::In)),
-                        "record" => Some(self.produce(TokenKind::Record)),
+                        "rec" => Some(self.produce(TokenKind::Rec)),
                         _ => Some(self.produce(TokenKind::Identifier(s))),
                     }
                 }

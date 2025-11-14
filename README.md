@@ -164,7 +164,7 @@ fun print_names(names: list<str>) {
 ```
 
 ```
-record Project {
+rec Project {
     id: str
     name: str
     number: str

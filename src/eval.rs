@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use crate::parser::{AstNode, Expression, ExpressionKind, Function, Parameter, Record};
+use crate::parser::{AstNode, Expression, ExpressionKind, Function, Parameter, Rec};
 
 #[derive(Debug)]
 pub enum ScriptValue {
@@ -17,8 +17,8 @@ pub enum ScriptValue {
     Range(i64, i64),
     List(Vec<Arc<ScriptValue>>),
 
-    RecordInstance {
-        record: Arc<Record>,
+    Rec {
+        rec: Arc<Rec>,
         values: Vec<Arc<ScriptValue>>,
     },
 
@@ -61,7 +61,7 @@ struct Scope {
 
     // XXX functions, records could all be script values in locals
     functions: HashMap<Arc<str>, (Arc<Function>, Scope)>,
-    records: HashMap<Arc<str>, Arc<Record>>,
+    records: HashMap<Arc<str>, Arc<Rec>>,
 }
 
 pub struct Engine<O>
@@ -98,7 +98,7 @@ where
                         .functions
                         .insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
                 }
-                AstNode::Record(rec) => {
+                AstNode::Rec(rec) => {
                     scope.records.insert(Arc::clone(&rec.name), Arc::clone(rec));
                 }
                 AstNode::Iteration {
@@ -187,8 +187,8 @@ where
             ExpressionKind::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
                 match subject.as_ref() {
-                    ScriptValue::RecordInstance { record, values } => {
-                        let index = record.params.iter().position(|p| p.name == *key);
+                    ScriptValue::Rec { rec, values } => {
+                        let index = rec.params.iter().position(|p| p.name == *key);
                         match index {
                             None => panic!("Property not found: {key:?}"),
                             Some(index) => Arc::clone(&values[index]),
@@ -318,8 +318,8 @@ where
                         } else if let Some(rec) = scope.records.get(name) {
                             let values = self.eval_args(&rec.params, args, kwargs, scope);
 
-                            let instance = ScriptValue::RecordInstance {
-                                record: Arc::clone(rec),
+                            let instance = ScriptValue::Rec {
+                                rec: Arc::clone(rec),
                                 values,
                             };
 
@@ -352,10 +352,10 @@ where
                             res.push(value);
                             Arc::new(ScriptValue::List(res))
                         }
-                        (ScriptValue::RecordInstance { record, values }, "with") => {
+                        (ScriptValue::Rec { rec, values }, "with") => {
                             let mut new_values = values.clone();
 
-                            for (param, v) in record.params.iter().zip(new_values.iter_mut()) {
+                            for (param, v) in rec.params.iter().zip(new_values.iter_mut()) {
                                 if let Some((_, expr)) =
                                     kwargs.iter().find(|(k, _)| *k == param.name)
                                 {
@@ -363,8 +363,8 @@ where
                                 }
                             }
 
-                            let instance = ScriptValue::RecordInstance {
-                                record: Arc::clone(record),
+                            let instance = ScriptValue::Rec {
+                                rec: Arc::clone(rec),
                                 values: new_values,
                             };
                             Arc::new(instance)

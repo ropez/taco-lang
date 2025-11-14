@@ -44,7 +44,7 @@ pub enum AstNode {
         else_body: Option<Vec<AstNode>>,
     },
 
-    Record(Arc<Record>),
+    Rec(Arc<Rec>),
 
     Expression(Expression),
     Return(Expression),
@@ -110,7 +110,7 @@ pub struct Function {
 }
 
 #[derive(Debug)]
-pub struct Record {
+pub struct Rec {
     pub(crate) name: Arc<str>,
     pub(crate) params: Vec<Parameter>,
 }
@@ -224,16 +224,16 @@ impl<'a> Parser<'a> {
                         body,
                     });
                 }
-                TokenKind::Record => {
+                TokenKind::Rec => {
                     let (ident, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
 
-                    let rec = Arc::new(Record {
+                    let rec = Arc::new(Rec {
                         name: ident,
                         params,
                     });
-                    ast.push(AstNode::Record(rec));
+                    ast.push(AstNode::Rec(rec));
                 }
                 _ => {
                     return Err(self.fail_at("Unexpected token", &token));
