@@ -35,9 +35,10 @@ where
     let mut validator = Validator::new(src);
     let mut engine = Engine::default();
 
-    for f in print_extension::create(out) {
-        validator = validator.with_global(Arc::clone(&f.name), f.script_type);
-        engine = engine.with_global(f.name, f.func);
+    for (name, f) in print_extension::create(out) {
+        let name = name.into();
+        validator = validator.with_global(Arc::clone(&name), f.script_type);
+        engine = engine.with_global(Arc::clone(&name), f.func);
     }
 
     validator.validate(&ast)?;

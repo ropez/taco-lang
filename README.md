@@ -126,28 +126,6 @@ println("Hello, world")
 ```
 
 ```
-println(
-    "Hello, world"
-    "What's up?"
-)
-
-# Prints:
-# Hello, world
-# What's up?
-```
-
-```
-print(
-    1
-    2
-    3
-)
-
-# Prints:
-# 123
-```
-
-```
 fun welcome(msg: str) {
     println(msg)
 }
@@ -155,22 +133,28 @@ fun welcome(msg: str) {
 welcome("Hello, world")
 ```
 
-```
-fun print_names(names: list<str>) {
-    for name in names {
-        println("Name: ", name)
-    }
-}
-```
+Lists
 
 ```
-rec Project {
+fun print_names(names: [str]) {
+    for name in names {
+        println("Name: $name")
+    }
+}
+
+print_names(["luke', "leia"])
+```
+
+Records, HTTP/JSON (not implemented)
+
+```
+rec Project(
     id: str
     name: str
     number: str
-}
+)
 
-fun get_projects() -> list<Project> {
+fun get_projects(): [Project] {
     res = http.get(cfg.api_url)
     return res.json()
 }
@@ -180,61 +164,42 @@ for p in get_projects() {
 }
 ```
 
+Methods:
 
 ```
-exec('ls').pipe('less')
-```
+rec Person(
+    first_name: str
+    last_name: str
+)
 
-```
-rec Point {
-    x: int
-    y: int
+fun Person.full_name(self): str {
+    return "${self.first_name} ${self.last_name}"
 }
 
-# Equivalent
+# Used like
+
+p = Person("Albert", "Einstein")
+
+print(p.full_name())
+```
+
+Associated function:
+
+```
 rec Point(x: int, y: int)
 
-enum Opt<T> {
-    None
-    Some(T)
+fun Point.origo(): Point {
+    return Point(0, 0)
 }
 
-p: Opt<Point> = Some(Point(0, 0))
-p: Point? = None
+# or
 
-fn parse(json: str): Point? {
-}
+fun Point.origo() => Point(0, 0)
 
-enum Res<T, E> {
-    Ok(T)
-    Err(E)
-}
+# used like
 
-r: Res<Point, Error>
-r: Point ~ Error
-
-fun parse(json: str): Res<Opt<Point>, Error> {
-}
-
-fun parse(json: str): Res<Point?, Error> {
-}
-
-fun parse(json: str): Opt<Point> ~ Error {
-}
-
-fun parse(json: str): Point? ~ Error {
-}
+p = Point.origo()
 ```
-
-Eventually, add something like this:
-
-```
-fruits = state(list<str>())
-
-fruits.set(fruits.get().add("Apple"))
-fruits.set(fruits.get().add("Banana"))
-```
-
 
 ## Assignment always shadows
 
@@ -249,44 +214,49 @@ a = a.json<Data>()
 a = a.items
 ```
 
-Scoped:
+Scope:
 
 ```
-a = 10
+a = "foo"
 if true {
-    println(a) # 10
-    a: str = "hello"
-    println(a) # hello
+    println(a) # foo
+    a = "bar"
+    println(a) # bar
 }
-println(a) # 10
+println(a) # foo
 ```
 
-To change outer state:
-
 ```
-a = state(10)
-
-if true {
-    a.set(20)
-}
-println(a.get()) # 20
-```
-
-XXX Avoid = / == confusion?
-
-But what happens here??
-
-```
-a = 10
+a = "foo"
 
 fun foo() {
     println(a)
 }
 
-a = 20
-
-foo()
+foo() # foo
+a = "bar"
+println(a) # bar
+foo() # still foo
 ```
 
-XXX Probably this should not be allowed?
-XXX In Rust, this is legal, and prints "10"
+## State
+
+
+```
+a = state(10)
+fun show_state() {
+    println("State: ${a.get()}")
+}
+
+show_state() # 10
+s.set(20)
+show_state() # 20
+```
+
+Typed:
+
+```
+a = state(10)
+
+s.set("foo") # type error!
+```
