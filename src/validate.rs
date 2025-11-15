@@ -10,7 +10,6 @@ use crate::{
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ScriptType {
-    Void,
     Bool,
     Int,
     Range,
@@ -36,14 +35,18 @@ pub enum ScriptType {
 // TODO Validate that all branches in non-void functions return something
 // TODO Validate unreachable code?
 
+impl ScriptType {
+    // Use () to represent nothing, like Rust
+    pub const fn identity() -> Self {
+        Self::Tuple(Vec::new())
+    }
+}
+
 impl Display for ScriptType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::Str => {
                 write!(f, "str")
-            }
-            Self::List(inner) if *inner.as_ref() == Self::Void => {
-                write!(f, "[]")
             }
             Self::List(inner) => {
                 write!(f, "[{inner}]")
@@ -103,12 +106,6 @@ impl<'a> Validator<'a> {
                 AstNode::Assignment { assignee, value } => match assignee {
                     Assignmee::Scalar(name) => {
                         let typ = self.validate_expr(value, &scope)?;
-                        if typ == ScriptType::Void {
-                            return Err(self.fail(
-                                "Expected a value, found Void expression".into(),
-                                &value.loc,
-                            ));
-                        }
                         scope.set_local(Arc::clone(name), typ);
                     }
                     Assignmee::Destructure(names) => {
@@ -137,7 +134,7 @@ impl<'a> Validator<'a> {
                     let params = self.eval_params(&fun.params, &scope)?;
                     let ret = match &fun.type_expr {
                         Some(expr) => self.eval_type_expr(expr, &scope)?,
-                        None => ScriptType::Void,
+                        None => ScriptType::identity(),
                     };
 
                     let mut inner = scope.clone();
@@ -266,7 +263,7 @@ impl<'a> Validator<'a> {
 
                 // XXX How to define type for empty list?
 
-                let inner_type = types.first().cloned().unwrap_or(ScriptType::Void);
+                let inner_type = types.first().cloned().unwrap_or(ScriptType::identity());
                 for (typ, expr) in types.iter().zip(expressions) {
                     if *typ != inner_type {
                         return Err(
@@ -399,20 +396,19 @@ impl<'a> Validator<'a> {
                             // Simulate normal function call
                             let params = vec![("".into(), *typ.clone())];
                             self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
-                            Ok(ScriptType::Void)
+                            Ok(ScriptType::identity())
                         }
                         (ScriptType::List(typ), "push") => {
                             // "Promote" list type, if empty list
-                            let typ = match typ.as_ref() {
-                                ScriptType::Void => {
-                                    let t = args
-                                        .first()
-                                        .map(|i| self.validate_expr(i, scope))
-                                        .transpose()?;
+                            let typ = if let ScriptType::Tuple(t) = typ.as_ref() && t.is_empty() {
+                                let t = args
+                                    .first()
+                                    .map(|i| self.validate_expr(i, scope))
+                                    .transpose()?;
 
-                                    t.unwrap()
-                                }
-                                _ => *typ.clone(),
+                                t.unwrap()
+                            } else {
+                                *typ.clone()
                             };
 
                             let params = vec![("".into(), typ.clone())];

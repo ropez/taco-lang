@@ -13,7 +13,7 @@ pub fn create<O>(out: Arc<Mutex<O>>) -> Vec<ExtensionFunction>
 {
     let print_type = ScriptType::Function {
         params: vec![("_".into(), ScriptType::Str)],
-        ret: Box::new(ScriptType::Void),
+        ret: Box::new(ScriptType::identity()),
     };
 
     let print_out = out.clone();
@@ -22,7 +22,7 @@ pub fn create<O>(out: Arc<Mutex<O>>) -> Vec<ExtensionFunction>
             let mut out = print_out.lock().unwrap();
             write!(out, "{arg}").unwrap();
         }
-        ScriptValue::Void
+        ScriptValue::identity()
     };
 
     let println_out = out.clone();
@@ -31,7 +31,7 @@ pub fn create<O>(out: Arc<Mutex<O>>) -> Vec<ExtensionFunction>
             let mut out = println_out.lock().unwrap();
             writeln!(out, "{arg}").unwrap();
         }
-        ScriptValue::Void
+        ScriptValue::identity()
     };
 
     vec![

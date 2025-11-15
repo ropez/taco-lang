@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
-    io::Write,
     ops::Deref,
     sync::{Arc, Mutex, RwLock},
 };
@@ -10,7 +9,6 @@ use crate::parser::{Assignmee, AstNode, Expression, ExpressionKind, Function, Pa
 
 #[derive(Debug)]
 pub enum ScriptValue {
-    Void,
     Boolean(bool),
     String(Arc<str>),
     Number(i64),
@@ -24,6 +22,12 @@ pub enum ScriptValue {
     },
 
     State(RwLock<Arc<ScriptValue>>),
+}
+
+impl ScriptValue {
+    pub const fn identity() -> Self {
+        Self::Tuple(Vec::new())
+    }
 }
 
 impl PartialEq for ScriptValue {
@@ -323,7 +327,7 @@ impl Engine
                             let c = self.eval_block(&fun.body, inner_scope);
 
                             match c {
-                                Completion::EndOfBlock => Arc::new(ScriptValue::Void),
+                                Completion::EndOfBlock => Arc::new(ScriptValue::identity()),
                                 Completion::Return(v) => v,
                             }
                         } else if let Some(rec) = scope.records.get(name) {
@@ -358,7 +362,7 @@ impl Engine
                             let val = self.eval_expr(val, scope);
                             let mut v = state.write().unwrap();
                             *v = val;
-                            Arc::new(ScriptValue::Void)
+                            Arc::new(ScriptValue::identity())
                         }
                         (ScriptValue::List(list), "push") => {
                             let item = args.first().expect("push item");
