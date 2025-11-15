@@ -50,3 +50,28 @@ fn test_three_tuple_as_function_argument() {
     };
 }
 
+#[test]
+fn test_destructure_discard_value() {
+    let src = r#"
+        (_, fruit, _) = (99, "banana", false)
+        print(fruit)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("banana", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_discarded_value_not_assigned() {
+    let src = r#"
+        (_, fruit) = ("foo", "bar")
+        print(_)
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Expected identifier"),
+    };
+}

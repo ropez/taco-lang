@@ -112,7 +112,7 @@ impl<'a> Tokenizer<'a> {
                     let s = self.find_number()?;
                     Some(self.produce(TokenKind::Number(s)))
                 }
-                'A'..='Z' | 'a'..='z' => {
+                'A'..='Z' | 'a'..='z' | '_' => {
                     self.untake();
                     let s = self.find_ident();
                     match s.as_ref() {
@@ -225,7 +225,7 @@ impl<'a> Tokenizer<'a> {
             match self.peek() {
                 None => break,
                 Some(c) => match c {
-                    'A'..='Z' | 'a'..='z' => {
+                    'A'..='Z' | 'a'..='z' | '_' => {
                         s.push(c);
                         self.read_char();
                     }

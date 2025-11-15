@@ -66,6 +66,15 @@ struct Scope {
     records: HashMap<Arc<str>, Arc<Rec>>,
 }
 
+impl Scope {
+    fn set_local(&mut self, name: Arc<str>, value: Arc<ScriptValue>) {
+        // Make sure we never assign a value to '_'
+        if name.as_ref() != "_" {
+            self.locals.insert(name, value);
+        }
+    }
+}
+
 pub struct Engine<O>
 where
     O: Write,
@@ -92,16 +101,14 @@ where
             match node {
                 AstNode::Assignment { assignee, value } => match assignee {
                     Assignmee::Scalar(name) => {
-                        scope
-                            .locals
-                            .insert(Arc::clone(name), self.eval_expr(value, &scope));
+                        scope.set_local(Arc::clone(name), self.eval_expr(value, &scope));
                     }
                     Assignmee::Destructure(names) => {
                         let rhs = self.eval_expr(value, &scope);
                         if let ScriptValue::Tuple(values) = rhs.as_ref() {
                             assert_eq!(names.len(), values.len());
                             for (n, v) in names.iter().zip(values) {
-                                scope.locals.insert(Arc::clone(n), Arc::clone(v));
+                                scope.set_local(Arc::clone(n), Arc::clone(v));
                             }
                         } else {
                             panic!("Expected tuple, found: {rhs:?}");
@@ -126,7 +133,7 @@ where
                         ScriptValue::List(ref items) => {
                             for item in items {
                                 let mut scope = scope.clone();
-                                scope.locals.insert(Arc::clone(ident), Arc::clone(item));
+                                scope.set_local(Arc::clone(ident), Arc::clone(item));
                                 self.eval_block(body, scope);
                             }
                         }
@@ -134,8 +141,7 @@ where
                             for v in lhs..=rhs {
                                 let mut scope = scope.clone();
                                 scope
-                                    .locals
-                                    .insert(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
+                                    .set_local(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
                                 self.eval_block(body, scope);
                             }
                         }
@@ -324,7 +330,7 @@ where
                             let mut inner_scope = captured_scope.clone();
 
                             for (ident, val) in fun.params.iter().zip(values) {
-                                inner_scope.locals.insert(ident.name.clone(), val);
+                                inner_scope.set_local(ident.name.clone(), val);
                             }
 
                             let c = self.eval_block(&fun.body, inner_scope);

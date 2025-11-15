@@ -59,6 +59,15 @@ struct Scope {
     ret: Option<ScriptType>,
 }
 
+impl Scope {
+    fn set_local(&mut self, name: Arc<str>, value: ScriptType) {
+        // Make sure we never assign a value to '_'
+        if name.as_ref() != "_" {
+            self.locals.insert(name, value);
+        }
+    }
+}
+
 struct Validator<'a> {
     src: &'a str,
 }
@@ -81,14 +90,14 @@ impl<'a> Validator<'a> {
                                 &value.loc,
                             ));
                         }
-                        scope.locals.insert(Arc::clone(name), typ);
+                        scope.set_local(Arc::clone(name), typ);
                     }
                     Assignmee::Destructure(names) => {
                         let typ = self.validate_expr(value, &scope)?;
                         if let ScriptType::Tuple(types) = typ {
                             if names.len() == types.len() {
                                 for (n, t) in names.iter().zip(types) {
-                                    scope.locals.insert(Arc::clone(n), t);
+                                    scope.set_local(Arc::clone(n), t);
                                 }
                             } else {
                                 return Err(self.fail(
@@ -114,12 +123,12 @@ impl<'a> Validator<'a> {
 
                     let mut inner = scope.clone();
                     for (name, typ) in &params {
-                        inner.locals.insert(Arc::clone(name), typ.clone());
+                        inner.set_local(Arc::clone(name), typ.clone());
                     }
                     inner.ret = Some(ret.clone());
                     self.validate_block(&fun.body, inner)?;
 
-                    scope.locals.insert(
+                    scope.set_local(
                         Arc::clone(name),
                         ScriptType::Function {
                             params,
@@ -130,7 +139,7 @@ impl<'a> Validator<'a> {
                 AstNode::Rec(rec) => {
                     let params = self.eval_params(&rec.params, &scope)?;
 
-                    scope.locals.insert(
+                    scope.set_local(
                         Arc::clone(&rec.name),
                         ScriptType::RecDefinition {
                             params,
@@ -148,14 +157,12 @@ impl<'a> Validator<'a> {
                     match iterable_typ {
                         ScriptType::List(inner) => {
                             let mut inner_scope = scope.clone();
-                            inner_scope.locals.insert(Arc::clone(ident), *inner);
+                            inner_scope.set_local(Arc::clone(ident), *inner);
                             self.validate_block(body, inner_scope)?;
                         }
                         ScriptType::Range => {
                             let mut inner_scope = scope.clone();
-                            inner_scope
-                                .locals
-                                .insert(Arc::clone(ident), ScriptType::Int);
+                            inner_scope.set_local(Arc::clone(ident), ScriptType::Int);
                             self.validate_block(body, inner_scope)?;
                         }
                         _ => {

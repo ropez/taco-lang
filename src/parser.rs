@@ -270,10 +270,7 @@ impl<'a> Parser<'a> {
         let token = self.expect_token()?;
 
         let expr = match token.kind {
-            TokenKind::Identifier(s) => {
-                let expr = Expression::new(ExpressionKind::Ref(s), token.loc);
-                self.parse_continuation(expr, bp)?
-            }
+            TokenKind::Identifier(s) => self.handle_identifier(s, token.loc, bp)?,
             TokenKind::Not => {
                 let expr = self.parse_expression(bp)?;
                 let loc = wrap_locations(&token.loc, &expr.loc);
@@ -315,6 +312,14 @@ impl<'a> Parser<'a> {
         };
 
         Ok(expr)
+    }
+
+    fn handle_identifier(&mut self, s: Arc<str>, loc: Range<usize>, bp: u32) -> Result<Expression> {
+        if s.as_ref() == "_" {
+            return Err(self.fail("Expected identifier", &loc));
+        }
+        let expr = Expression::new(ExpressionKind::Ref(s), loc);
+        self.parse_continuation(expr, bp)
     }
 
     fn parse_continuation(&mut self, lhs: Expression, bp: u32) -> Result<Expression> {
@@ -525,8 +530,7 @@ impl<'a> Parser<'a> {
                     let value = self.parse_expression(0)?;
                     kwargs.push((name, value));
                 } else {
-                    let expr = Expression::new(ExpressionKind::Ref(name), t.loc);
-                    let expr = self.parse_continuation(expr, 0)?;
+                    let expr = self.handle_identifier(name, t.loc, 0)?;
 
                     if !kwargs.is_empty() {
                         return Err(self.fail(
