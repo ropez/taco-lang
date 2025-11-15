@@ -21,7 +21,7 @@ use crate::{
 #[derive(Debug)]
 pub enum AstNode {
     Assignment {
-        name: Arc<str>,
+        assignee: Assignmee,
         value: Expression,
     },
 
@@ -71,6 +71,7 @@ pub(crate) enum ExpressionKind {
     True,
     False,
     List(Vec<Expression>),
+    Tuple(Vec<Expression>),
     Not(Box<Expression>),
     Equal(Box<Expression>, Box<Expression>),
     NotEqual(Box<Expression>, Box<Expression>),
@@ -100,6 +101,7 @@ pub struct TypeExpression {
 pub enum TypeExpressionKind {
     Scalar(Arc<str>),
     List(Box<TypeExpression>),
+    Tuple(Vec<TypeExpression>),
 }
 
 #[derive(Debug)]
@@ -117,8 +119,14 @@ pub struct Rec {
 
 #[derive(Debug)]
 pub struct Parameter {
-    pub(crate) name: Arc<str>,
+    pub(crate) name: Arc<str>, // Can also be destructuring
     pub(crate) type_expr: TypeExpression,
+}
+
+#[derive(Debug)]
+pub enum Assignmee {
+    Scalar(Arc<str>),
+    Destructure(Vec<Arc<str>>),
 }
 
 pub struct Parser<'a> {
@@ -187,14 +195,24 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Identifier(name) => {
                     if self.next_if_kind(&TokenKind::Assign).is_some() {
+                        let assignee = Assignmee::Scalar(name);
                         let value = self.parse_expression(0)?;
-                        ast.push(AstNode::Assignment { name, value });
+                        ast.push(AstNode::Assignment { assignee, value });
                         self.expect_kind(TokenKind::NewLine)?;
                     } else {
                         let expr = Expression::new(ExpressionKind::Ref(name), token.loc);
                         let expr = self.parse_continuation(expr, 0)?;
                         ast.push(AstNode::Expression(expr));
                     }
+                }
+                TokenKind::LeftParen => {
+                    let idents = self.parse_ident_list()?;
+                    self.expect_kind(TokenKind::RightParen)?;
+                    self.expect_kind(TokenKind::Assign)?;
+                    let value = self.parse_expression(0)?;
+                    let assignee = Assignmee::Destructure(idents);
+                    ast.push(AstNode::Assignment { assignee, value });
+                    self.expect_kind(TokenKind::NewLine)?;
                 }
                 TokenKind::If => {
                     let cond = self.parse_expression(0)?;
@@ -278,11 +296,19 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(e, bp)?
             }
             TokenKind::LeftSquare => {
-                let list = self.parse_list()?;
+                let list = self.parse_expressions(TokenKind::RightSquare)?;
                 let end = self.expect_kind(TokenKind::RightSquare)?;
                 let loc = wrap_locations(&token.loc, &end.loc);
 
                 let expr = Expression::new(ExpressionKind::List(list), loc);
+                self.parse_continuation(expr, 0)?
+            }
+            TokenKind::LeftParen => {
+                let list = self.parse_expressions(TokenKind::RightParen)?;
+                let end = self.expect_kind(TokenKind::RightParen)?;
+                let loc = wrap_locations(&token.loc, &end.loc);
+
+                let expr = Expression::new(ExpressionKind::Tuple(list), loc);
                 self.parse_continuation(expr, 0)?
             }
             _ => return Err(self.fail_at("unexpected token", &token)),
@@ -464,35 +490,15 @@ impl<'a> Parser<'a> {
         Ok(items)
     }
 
-    fn parse_list(&mut self) -> Result<Vec<Expression>> {
-        let mut items = Vec::new();
+    fn parse_expressions(&mut self, until: TokenKind) -> Result<Vec<Expression>> {
+        self.parse_list(until, |p| p.parse_expression(0))
+    }
 
-        loop {
-            self.consume_whitespace();
-            let Some(next) = self.iter.peek() else {
-                return Err(self.fail_at_end("Unexpected end of input"));
-            };
-            if next.kind == TokenKind::RightSquare {
-                break;
-            }
-
-            items.push(self.parse_expression(0)?);
-
-            let kind = self.peek_kind();
-            match kind {
-                Some(TokenKind::RightSquare) => break,
-                Some(TokenKind::Comma | TokenKind::NewLine) => {
-                    self.iter.next();
-                    continue;
-                }
-                _ => {
-                    let token = self.expect_token()?;
-                    return Err(self.fail_at("Unexpected token", &token));
-                }
-            }
-        }
-
-        Ok(items)
+    fn parse_ident_list(&mut self) -> Result<Vec<Arc<str>>> {
+        self.parse_list(TokenKind::RightParen, |p| {
+            let (ident, _) = p.expect_ident()?;
+            Ok(ident)
+        })
     }
 
     fn parse_args(&mut self) -> Result<(Vec<Expression>, Vec<(Arc<str>, Expression)>)> {
@@ -569,11 +575,54 @@ impl<'a> Parser<'a> {
                 kind,
                 loc: wrap_locations(&l.loc, &r.loc),
             })
+        } else if let Some(l) = self.next_if_kind(&TokenKind::LeftParen) {
+            let types = self.parse_list(TokenKind::RightParen, |p| p.parse_type_expr())?;
+            let r = self.expect_kind(TokenKind::RightParen)?;
+
+            let kind = TypeExpressionKind::Tuple(types);
+            Ok(TypeExpression {
+                kind,
+                loc: wrap_locations(&l.loc, &r.loc),
+            })
         } else {
             let (raw, loc) = self.expect_ident()?;
             let kind = TypeExpressionKind::Scalar(raw);
             Ok(TypeExpression { kind, loc })
         }
+    }
+
+    fn parse_list<T, P>(&mut self, until: TokenKind, mut item_parser: P) -> Result<Vec<T>>
+    where
+        P: FnMut(&mut Self) -> Result<T>,
+    {
+        let mut items = Vec::new();
+
+        loop {
+            self.consume_whitespace();
+            let Some(next) = self.iter.peek() else {
+                return Err(self.fail_at_end("Unexpected end of input"));
+            };
+            if next.kind == until {
+                break;
+            }
+
+            items.push(item_parser(self)?);
+
+            let kind = self.peek_kind();
+            match kind {
+                Some(kind) if *kind == until => break,
+                Some(TokenKind::Comma | TokenKind::NewLine) => {
+                    self.iter.next();
+                    continue;
+                }
+                _ => {
+                    let token = self.expect_token()?;
+                    return Err(self.fail_at("Unexpected token", &token));
+                }
+            }
+        }
+
+        Ok(items)
     }
 
     fn consume_whitespace(&mut self) {

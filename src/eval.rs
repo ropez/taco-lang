@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use crate::parser::{AstNode, Expression, ExpressionKind, Function, Parameter, Rec};
+use crate::parser::{Assignmee, AstNode, Expression, ExpressionKind, Function, Parameter, Rec};
 
 #[derive(Debug)]
 pub enum ScriptValue {
@@ -16,6 +16,7 @@ pub enum ScriptValue {
     Number(i64),
     Range(i64, i64),
     List(Vec<Arc<ScriptValue>>),
+    Tuple(Vec<Arc<ScriptValue>>),
 
     Rec {
         rec: Arc<Rec>,
@@ -40,6 +41,7 @@ impl Display for ScriptValue {
         match self {
             ScriptValue::String(s) => write!(f, "{s}"),
             ScriptValue::Number(n) => write!(f, "{n}"),
+            ScriptValue::Tuple(values) => write!(f, "{values:?}"), // XXX
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
@@ -88,11 +90,24 @@ where
     fn eval_block(&self, ast: &[AstNode], mut scope: Scope) -> Completion {
         for node in ast {
             match node {
-                AstNode::Assignment { name, value } => {
-                    scope
-                        .locals
-                        .insert(Arc::clone(name), self.eval_expr(value, &scope));
-                }
+                AstNode::Assignment { assignee, value } => match assignee {
+                    Assignmee::Scalar(name) => {
+                        scope
+                            .locals
+                            .insert(Arc::clone(name), self.eval_expr(value, &scope));
+                    }
+                    Assignmee::Destructure(names) => {
+                        let rhs = self.eval_expr(value, &scope);
+                        if let ScriptValue::Tuple(values) = rhs.as_ref() {
+                            assert_eq!(names.len(), values.len());
+                            for (n, v) in names.iter().zip(values) {
+                                scope.locals.insert(Arc::clone(n), Arc::clone(v));
+                            }
+                        } else {
+                            panic!("Expected tuple, found: {rhs:?}");
+                        }
+                    }
+                },
                 AstNode::Function { name, fun, .. } => {
                     scope
                         .functions
@@ -178,6 +193,9 @@ where
             ExpressionKind::True => Arc::new(ScriptValue::Boolean(true)),
             ExpressionKind::False => Arc::new(ScriptValue::Boolean(false)),
             ExpressionKind::List(s) => Arc::new(ScriptValue::List(
+                s.iter().map(|i| self.eval_expr(i, scope)).collect(),
+            )),
+            ExpressionKind::Tuple(s) => Arc::new(ScriptValue::Tuple(
                 s.iter().map(|i| self.eval_expr(i, scope)).collect(),
             )),
             ExpressionKind::Ref(ident) => match scope.locals.get(ident) {
