@@ -9,7 +9,7 @@ use crate::{
 };
 
 #[derive(Debug, PartialEq, Clone)]
-enum ScriptType {
+pub enum ScriptType {
     Void,
     Bool,
     Int,
@@ -60,6 +60,15 @@ struct Scope {
 }
 
 impl Scope {
+    fn with_globals(globals: &HashMap<Arc<str>, ScriptType>) -> Self {
+        let locals = globals.clone();
+        Self { locals, ret: None }
+    }
+
+    fn get_local(&self, name: &str) -> Option<&ScriptType> {
+        self.locals.get(name)
+    }
+
     fn set_local(&mut self, name: Arc<str>, value: ScriptType) {
         // Make sure we never assign a value to '_'
         if name.as_ref() != "_" {
@@ -68,16 +77,26 @@ impl Scope {
     }
 }
 
-struct Validator<'a> {
+pub struct Validator<'a> {
     src: &'a str,
-}
-
-pub fn validate(src: &str, ast: &[AstNode]) -> Result<()> {
-    let validator = Validator { src };
-    validator.validate_block(ast, Scope::default())
+    globals: HashMap<Arc<str>, ScriptType>,
 }
 
 impl<'a> Validator<'a> {
+    pub fn new(src: &'a str) -> Self {
+        Self { src, globals: Default::default() }
+    }
+
+    pub fn with_global(self, name: impl Into<Arc<str>>, typ: ScriptType) -> Self {
+        let mut globals = self.globals;
+        globals.insert(name.into(), typ);
+        Self { globals, ..self }
+    }
+
+    pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
+        self.validate_block(ast, Scope::with_globals(&self.globals))
+    }
+
     fn validate_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<()> {
         for node in ast {
             match node {
@@ -266,7 +285,7 @@ impl<'a> Validator<'a> {
 
                 Ok(ScriptType::Tuple(types))
             }
-            ExpressionKind::Ref(ident) => match scope.locals.get(ident) {
+            ExpressionKind::Ref(ident) => match scope.get_local(ident) {
                 None => Err(self.fail(format!("Undefined reference: {ident}"), &expr.loc)),
                 Some(value) => Ok(value.clone()),
             },
@@ -338,17 +357,6 @@ impl<'a> Validator<'a> {
                 kwargs,
             } => match &subject.kind {
                 ExpressionKind::Ref(name) => match name.as_ref() {
-                    "print" | "println" => {
-                        for arg in args {
-                            let typ = self.validate_expr(arg, scope)?;
-                            if typ != ScriptType::Str {
-                                return Err(
-                                    self.fail(format!("Expected string, found {typ}"), &arg.loc)
-                                );
-                            }
-                        }
-                        Ok(ScriptType::Void)
-                    }
                     "state" => {
                         if args.len() != 1 {
                             return Err(self.fail(
@@ -361,7 +369,7 @@ impl<'a> Validator<'a> {
 
                         Ok(ScriptType::State(typ.into()))
                     }
-                    _ => match scope.locals.get(name) {
+                    _ => match scope.get_local(name) {
                         None => {
                             Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
                         }
@@ -522,7 +530,7 @@ impl<'a> Validator<'a> {
                 "str" => Ok(ScriptType::Str),
                 "int" => Ok(ScriptType::Int),
                 "bool" => Ok(ScriptType::Bool),
-                e => match scope.locals.get(e) {
+                e => match scope.get_local(e) {
                     Some(ScriptType::RecDefinition { name, params }) => Ok(ScriptType::Rec {
                         params: params.clone(),
                         name: Arc::clone(name),

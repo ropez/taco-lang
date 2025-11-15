@@ -9,7 +9,8 @@ fn test_function_calling_function() {
 
         fun bye(arg: str) {
             msg = "Good bye"
-            println(msg, indent(arg))
+            println(msg)
+            println(indent(arg))
         }
 
         bye("Have a nice day")

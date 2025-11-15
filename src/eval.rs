@@ -66,6 +66,9 @@ struct Scope {
     records: HashMap<Arc<str>, Arc<Rec>>,
 }
 
+pub trait NativeFn: FnMut(&[Arc<ScriptValue>]) -> ScriptValue {}
+impl<T: FnMut(&[Arc<ScriptValue>]) -> ScriptValue> NativeFn for T {}
+
 impl Scope {
     fn set_local(&mut self, name: Arc<str>, value: Arc<ScriptValue>) {
         // Make sure we never assign a value to '_'
@@ -75,21 +78,21 @@ impl Scope {
     }
 }
 
-pub struct Engine<O>
-where
-    O: Write,
+#[derive(Default)]
+pub struct Engine
 {
-    stdout: Mutex<O>,
+    globals: HashMap<Arc<str>, Mutex<Box<dyn NativeFn>>>,
 }
 
-impl<O> Engine<O>
-where
-    O: Write,
+impl Engine
 {
-    pub fn new(stdout: O) -> Self {
-        Self {
-            stdout: Mutex::new(stdout),
-        }
+    pub fn with_global<F>(self, name: impl Into<Arc<str>>, val: F) -> Self
+    where
+        F: NativeFn + 'static,
+    {
+        let mut globals = self.globals;
+        globals.insert(name.into(), Mutex::new(Box::new(val)));
+        Self { globals }
     }
 
     pub fn eval(&self, ast: &[AstNode]) {
@@ -302,24 +305,8 @@ where
                 kwargs,
             } => match &subject.kind {
                 ExpressionKind::Ref(name) => match name.as_ref() {
-                    "print" => {
-                        for arg in args {
-                            let val = self.eval_expr(arg, scope);
-                            let mut out = self.stdout.lock().unwrap();
-                            write!(out, "{val}").unwrap();
-                        }
-                        Arc::new(ScriptValue::Void)
-                    }
-                    "println" => {
-                        for arg in args {
-                            let val = self.eval_expr(arg, scope);
-                            let mut out = self.stdout.lock().unwrap();
-                            writeln!(out, "{val}").unwrap();
-                        }
-                        Arc::new(ScriptValue::Void)
-                    }
                     "state" => {
-                        let arg = args.get(0).expect("state arg");
+                        let arg = args.first().expect("state arg");
                         let value = self.eval_expr(arg, scope);
                         Arc::new(ScriptValue::State(RwLock::new(value)))
                     }
@@ -348,6 +335,12 @@ where
                             };
 
                             Arc::new(instance)
+                        } else if let Some(func) = self.globals.get(name) {
+                            // XXX eval_args like script function
+                            let values: Vec<_> = args.iter().map(|e| self.eval_expr(e, scope)).collect();
+                            let mut func = func.lock().unwrap();
+                            let ret = func(&values);
+                            Arc::new(ret)
                         } else {
                             panic!("Undefined function: {subject:?}")
                         }
