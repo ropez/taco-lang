@@ -27,6 +27,23 @@ that the language could be _embeddable_, and support native extensions specific
 to the embedded context. For instance, a text editor could inject a global
 `document` object available inside an embedded script.
 
+### Simple syntax
+
+I've tried to eliminate many of the syntactical inconsistencies and
+ambiguity found in many other languages:
+
+- All code blocks have curly braces, and curly braces are only used for code
+  blocks (not record instantiation etc)
+- All strings support interpolation, there is no special quotation or prefix
+  needed to "enable" interpolation
+- Record "constructors" are just functions, with all the same rules
+- Type annotations for lists and tuples use the same symbols and look similar
+  to literal instances
+- Type annotations are required in function and record definitions, and not
+  present in variable assignments
+- Type annotations always use a color followed by the type (never an arrow like
+  in some languages)
+
 ### No memory management
 
 The language by design doesn't offer any ways to manually allocate or manage
@@ -118,12 +135,13 @@ variety of existing programming languages and frameworks:
 
 ## Code drafts
 
+Hello, world
+
 ```
 println("Hello, world")
-
-# Prints:
-# Hello, world
 ```
+
+Functions
 
 ```
 fun welcome(msg: str) {
@@ -164,6 +182,19 @@ for p in get_projects() {
 }
 ```
 
+Changing an attribute creates a new instance
+
+```
+rec Person(
+    name: str
+    age: int
+)
+
+bob = Person("Bob", 40)
+older_bob = bob.with(age: 41)
+```
+
+
 Methods:
 
 ```
@@ -183,18 +214,22 @@ p = Person("Albert", "Einstein")
 print(p.full_name())
 ```
 
+```
+rec Point(x: int, y: int)
+
+fun Point.move_by(self, x: int, y: int): Point {
+    self.with(x: self.x + x, y: self.y + y)
+}
+```
+
 Associated function:
 
 ```
 rec Point(x: int, y: int)
 
 fun Point.origo(): Point {
-    return Point(0, 0)
+    Point(0, 0)
 }
-
-# or
-
-fun Point.origo() => Point(0, 0)
 
 # used like
 

@@ -98,3 +98,61 @@ fn test_return_not_allowed_outside_function() {
         Err(err) => assert_eq!(err.message, "Unexpected return value")
     }
 }
+
+#[test]
+fn test_implied_return() {
+    let src = r#"
+        fun square(n: int): int {
+            n * n
+        }
+        n = square(2)
+        print("${square(n)}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("16", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_implied_return_with_implied_type() {
+    let src = r#"
+        fun square(n: int) { n * n }
+        n = square(2)
+        print("${square(n)}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("16", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_explicit_return_wrong_type() {
+    let src = r#"
+        fun square(n: int): bool {
+            return n * n
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Expected bool, found int")
+    }
+}
+
+#[test]
+fn test_implied_return_wrong_type() {
+    let src = r#"
+        fun square(n: int): bool {
+            n * n
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Expected bool, found int")
+    }
+}

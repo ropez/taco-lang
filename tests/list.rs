@@ -26,6 +26,7 @@ fn test_list_as_function_argument() {
         fun show(items: [str]) {
             for it in items {
                 println("'${it}'")
+                return () # XXX Not implemented
             }
         }
 

@@ -132,15 +132,24 @@ impl<'a> Validator<'a> {
                 },
                 AstNode::Function { name, fun } => {
                     let params = self.eval_params(&fun.params, &scope)?;
-                    let ret = match &fun.type_expr {
-                        Some(expr) => self.eval_type_expr(expr, &scope)?,
-                        None => ScriptType::identity(),
-                    };
 
                     let mut inner = scope.clone();
                     for (name, typ) in &params {
                         inner.set_local(Arc::clone(name), typ.clone());
                     }
+
+                    let ret = match &fun.type_expr {
+                        Some(expr) => self.eval_type_expr(expr, &scope)?,
+                        None => {
+                            // TODO Refactor implied return, and support if/else
+                            if fun.body.len() == 1 && let Some(AstNode::Expression(expr)) = fun.body.first() {
+                                self.validate_expr(expr, &inner)?
+                            } else {
+                                ScriptType::identity()
+                            }
+                        },
+                    };
+
                     inner.ret = Some(ret.clone());
                     self.validate_block(&fun.body, inner)?;
 
@@ -204,7 +213,14 @@ impl<'a> Validator<'a> {
                     }
                 }
                 AstNode::Expression(expr) => {
-                    self.validate_expr(expr, &scope)?;
+                    let typ = self.validate_expr(expr, &scope)?;
+
+                    // Check implied return
+                    if ast.len() == 1 && let Some(r) = &scope.ret && typ != *r {
+                        return Err(
+                            self.fail(format!("Expected {r}, found {typ}"), &expr.loc)
+                        );
+                    }
                 }
                 AstNode::Return(expr) => {
                     let typ = self.validate_expr(expr, &scope)?;

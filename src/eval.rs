@@ -175,10 +175,13 @@ impl Engine
                     }
                 }
                 AstNode::Expression(expr) => {
-                    // HACK Evaluating expression for side-effects
-                    // Should it be some restrictions on this?
-                    // Only allowed for Void expressions?
-                    self.eval_expr(expr, &scope);
+                    let val = self.eval_expr(expr, &scope);
+
+                    // Implied return if and only if the block consist of exactly one expression
+                    // XXX This is probably wrong inside if/else/for, when return is handled
+                    if ast.len() == 1 {
+                        return Completion::Return(val);
+                    }
                 }
                 AstNode::Return(expr) => {
                     let val = self.eval_expr(expr, &scope);
