@@ -5,7 +5,9 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use crate::parser::{Assignmee, AstNode, Expression, ExpressionKind, Function, Parameter, Rec};
+use crate::parser::{
+    Assignmee, AstNode, Enumeration, Expression, ExpressionKind, Function, Parameter, Record,
+};
 
 #[derive(Debug)]
 pub enum ScriptValue {
@@ -17,8 +19,13 @@ pub enum ScriptValue {
     Tuple(Vec<Arc<ScriptValue>>),
 
     Rec {
-        rec: Arc<Rec>,
+        rec: Arc<Record>,
         values: Vec<Arc<ScriptValue>>,
+    },
+
+    Enum {
+        def: Arc<Enumeration>,
+        index: usize,
     },
 
     State(RwLock<Arc<ScriptValue>>),
@@ -35,7 +42,10 @@ impl PartialEq for ScriptValue {
         match (self, other) {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
-            _ => todo!(),
+            (Self::Enum { def: dl, index: il }, Self::Enum { def: dr, index: ir }) => {
+                Arc::ptr_eq(dl, dr) && il == ir
+            }
+            _ => todo!("Equality for {self:?}"),
         }
     }
 }
@@ -45,12 +55,16 @@ impl Display for ScriptValue {
         match self {
             ScriptValue::String(s) => write!(f, "{s}"),
             ScriptValue::Number(n) => write!(f, "{n}"),
-            ScriptValue::Tuple(values) => write!(f, "{values:?}"), // XXX
+            ScriptValue::Tuple(values) => write!(f, "({values:?})"), // XXX
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
             },
-            _ => panic!("Unexpected token in string interpolation!"),
+            ScriptValue::Enum { def, index } => {
+                let var = &def.variants[*index];
+                write!(f, "{}", var.name)
+            }
+            _ => todo!("Display impl for {self:?}"),
         }
     }
 }
@@ -67,7 +81,8 @@ struct Scope {
 
     // XXX functions, records could all be script values in locals
     functions: HashMap<Arc<str>, (Arc<Function>, Scope)>,
-    records: HashMap<Arc<str>, Arc<Rec>>,
+    records: HashMap<Arc<str>, Arc<Record>>,
+    enums: HashMap<Arc<str>, Arc<Enumeration>>,
 }
 
 pub trait NativeFn: FnMut(&[Arc<ScriptValue>]) -> ScriptValue {}
@@ -83,13 +98,11 @@ impl Scope {
 }
 
 #[derive(Default)]
-pub struct Engine
-{
+pub struct Engine {
     globals: HashMap<Arc<str>, Mutex<Box<dyn NativeFn>>>,
 }
 
-impl Engine
-{
+impl Engine {
     pub fn with_global<F>(self, name: impl Into<Arc<str>>, val: F) -> Self
     where
         F: NativeFn + 'static,
@@ -129,6 +142,9 @@ impl Engine
                 }
                 AstNode::Rec(rec) => {
                     scope.records.insert(Arc::clone(&rec.name), Arc::clone(rec));
+                }
+                AstNode::Enum(rec) => {
+                    scope.enums.insert(Arc::clone(&rec.name), Arc::clone(rec));
                 }
                 AstNode::Iteration {
                     ident,
@@ -217,6 +233,21 @@ impl Engine
             ExpressionKind::Ref(ident) => match scope.locals.get(ident) {
                 None => panic!("Undefined reference: {ident}"),
                 Some(value) => Arc::clone(value),
+            },
+            ExpressionKind::PrefixedName(prefix, name) => match scope.enums.get(prefix) {
+                Some(v) => {
+                    if let Some((index, _variant)) =
+                        v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
+                    {
+                        Arc::new(ScriptValue::Enum {
+                            def: Arc::clone(v),
+                            index,
+                        })
+                    } else {
+                        panic!("Enum variant not found: {name} in {prefix}");
+                    }
+                }
+                None => panic!("Enum not found: {prefix}"),
             },
             ExpressionKind::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
@@ -344,7 +375,8 @@ impl Engine
                             Arc::new(instance)
                         } else if let Some(func) = self.globals.get(name) {
                             // XXX eval_args like script function
-                            let values: Vec<_> = args.iter().map(|e| self.eval_expr(e, scope)).collect();
+                            let values: Vec<_> =
+                                args.iter().map(|e| self.eval_expr(e, scope)).collect();
                             let mut func = func.lock().unwrap();
                             let ret = func(&values);
                             Arc::new(ret)

@@ -44,7 +44,8 @@ pub enum AstNode {
         else_body: Option<Vec<AstNode>>,
     },
 
-    Rec(Arc<Rec>),
+    Rec(Arc<Record>),
+    Enum(Arc<Enumeration>),
 
     Expression(Expression),
     Return(Expression),
@@ -65,6 +66,7 @@ impl Expression {
 #[derive(Debug)]
 pub(crate) enum ExpressionKind {
     Ref(Arc<str>),
+    PrefixedName(Arc<str>, Arc<str>),
     String(Arc<str>),
     StringInterpolate(Vec<Expression>),
     Number(i64),
@@ -112,7 +114,7 @@ pub struct Function {
 }
 
 #[derive(Debug)]
-pub struct Rec {
+pub struct Record {
     pub(crate) name: Arc<str>,
     pub(crate) params: Vec<Parameter>,
 }
@@ -121,6 +123,17 @@ pub struct Rec {
 pub struct Parameter {
     pub(crate) name: Arc<str>, // Can also be destructuring
     pub(crate) type_expr: TypeExpression,
+}
+
+#[derive(Debug)]
+pub struct Enumeration {
+    pub(crate) name: Arc<str>,
+    pub(crate) variants: Vec<Variant>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Variant {
+    pub(crate) name: Arc<str>,
 }
 
 #[derive(Debug)]
@@ -178,7 +191,6 @@ impl<'a> Parser<'a> {
                     };
 
                     self.expect_kind(TokenKind::LeftBrace)?;
-                    self.expect_kind(TokenKind::NewLine)?;
 
                     let body = self.parse_block(false)?;
 
@@ -251,11 +263,23 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
 
-                    let rec = Arc::new(Rec {
+                    let rec = Arc::new(Record {
                         name: ident,
                         params,
                     });
                     ast.push(AstNode::Rec(rec));
+                }
+                TokenKind::Enum => {
+                    let (ident, _) = self.expect_ident()?;
+                    self.expect_kind(TokenKind::LeftParen)?;
+                    let variants = self.parse_ident_list()?;
+                    self.expect_kind(TokenKind::RightParen)?;
+
+                    let rec = Arc::new(Enumeration {
+                        name: ident,
+                        variants: variants.into_iter().map(|name| Variant { name }).collect(),
+                    });
+                    ast.push(AstNode::Enum(rec));
                 }
                 _ => {
                     return Err(self.fail_at("Unexpected token", &token));
@@ -270,7 +294,7 @@ impl<'a> Parser<'a> {
         let token = self.expect_token()?;
 
         let expr = match token.kind {
-            TokenKind::Identifier(s) => self.handle_identifier(s, token.loc, bp)?,
+            TokenKind::Identifier(s) => self.handle_identifier_expr(s, token.loc, bp)?,
             TokenKind::Not => {
                 let expr = self.parse_expression(bp)?;
                 let loc = wrap_locations(&token.loc, &expr.loc);
@@ -314,12 +338,19 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn handle_identifier(&mut self, s: Arc<str>, loc: Range<usize>, bp: u32) -> Result<Expression> {
+    fn handle_identifier_expr(&mut self, s: Arc<str>, loc: Range<usize>, bp: u32) -> Result<Expression> {
         if s.as_ref() == "_" {
             return Err(self.fail("Expected identifier", &loc));
         }
-        let expr = Expression::new(ExpressionKind::Ref(s), loc);
-        self.parse_continuation(expr, bp)
+        if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
+            let (name, l) = self.expect_ident()?;
+            let loc = wrap_locations(&loc, &l);
+            let expr = Expression::new(ExpressionKind::PrefixedName(s, name), loc);
+            self.parse_continuation(expr, bp)
+        } else {
+            let expr = Expression::new(ExpressionKind::Ref(s), loc);
+            self.parse_continuation(expr, bp)
+        }
     }
 
     fn parse_continuation(&mut self, lhs: Expression, bp: u32) -> Result<Expression> {
@@ -530,7 +561,7 @@ impl<'a> Parser<'a> {
                     let value = self.parse_expression(0)?;
                     kwargs.push((name, value));
                 } else {
-                    let expr = self.handle_identifier(name, t.loc, 0)?;
+                    let expr = self.handle_identifier_expr(name, t.loc, 0)?;
 
                     if !kwargs.is_empty() {
                         return Err(self.fail(

@@ -21,15 +21,11 @@ pub enum ScriptType {
         params: Vec<(Arc<str>, ScriptType)>,
         ret: Box<ScriptType>,
     },
-    // Maybe this shouldn't be a 'ScriptType'
-    RecDefinition {
-        name: Arc<str>,
-        params: Vec<(Arc<str>, ScriptType)>,
-    },
     Rec {
         name: Arc<str>,
         params: Vec<(Arc<str>, ScriptType)>,
     },
+    Enum(Arc<str>),
 }
 
 // TODO Validate that all branches in non-void functions return something
@@ -45,9 +41,10 @@ impl ScriptType {
 impl Display for ScriptType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Self::Str => {
-                write!(f, "str")
-            }
+            Self::Bool => write!(f, "bool"),
+            Self::Int => write!(f, "int"),
+            Self::Str => write!(f, "str"),
+            Self::Enum(name) => write!(f, "{name}"),
             Self::List(inner) => {
                 write!(f, "[{inner}]")
             }
@@ -56,16 +53,38 @@ impl Display for ScriptType {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum TypeDefinition {
+    RecDefinition {
+        name: Arc<str>,
+        params: Vec<(Arc<str>, ScriptType)>,
+    },
+    EnumDefinition(Arc<EnumDefinition>),
+}
+
+#[derive(Debug)]
+struct EnumDefinition {
+    name: Arc<str>,
+    variants: Vec<EnumVariant>,
+}
+
+#[derive(Debug)]
+struct EnumVariant {
+    name: Arc<str>,
+    params: Vec<ScriptType>,
+}
+
 #[derive(Default, Clone)]
 struct Scope {
     locals: HashMap<Arc<str>, ScriptType>,
+    types: HashMap<Arc<str>, TypeDefinition>,
     ret: Option<ScriptType>,
 }
 
 impl Scope {
     fn with_globals(globals: &HashMap<Arc<str>, ScriptType>) -> Self {
         let locals = globals.clone();
-        Self { locals, ret: None }
+        Self { locals, types: Default::default(), ret: None }
     }
 
     fn get_local(&self, name: &str) -> Option<&ScriptType> {
@@ -164,12 +183,25 @@ impl<'a> Validator<'a> {
                 AstNode::Rec(rec) => {
                     let params = self.eval_params(&rec.params, &scope)?;
 
-                    scope.set_local(
+                    scope.types.insert(
                         Arc::clone(&rec.name),
-                        ScriptType::RecDefinition {
+                        TypeDefinition::RecDefinition {
                             params,
                             name: Arc::clone(&rec.name),
                         },
+                    );
+                }
+                AstNode::Enum(rec) => {
+                    let def = EnumDefinition {
+                        name: Arc::clone(&rec.name),
+                        variants: rec.variants.iter().map(|v| EnumVariant {
+                            name: Arc::clone(&v.name),
+                            params: Vec::new(),
+                        }).collect()
+                    };
+                    scope.types.insert(
+                        Arc::clone(&rec.name),
+                        TypeDefinition::EnumDefinition(def.into()),
                     );
                 }
                 AstNode::Iteration {
@@ -278,6 +310,10 @@ impl<'a> Validator<'a> {
                     .collect::<Result<Vec<ScriptType>>>()?;
 
                 // XXX How to define type for empty list?
+                // l: [str] = []
+                // l = []: str
+                // l = [:str]
+                // l = [;str]
 
                 let inner_type = types.first().cloned().unwrap_or(ScriptType::identity());
                 for (typ, expr) in types.iter().zip(expressions) {
@@ -302,7 +338,24 @@ impl<'a> Validator<'a> {
                 None => Err(self.fail(format!("Undefined reference: {ident}"), &expr.loc)),
                 Some(value) => Ok(value.clone()),
             },
+            ExpressionKind::PrefixedName(prefix, name) => {
+                match scope.types.get(prefix) {
+                    Some(TypeDefinition::RecDefinition{..}) => todo!("rec access"),
+                    Some(TypeDefinition::EnumDefinition(def)) => {
+                        if def.variants.iter().any(|v| v.name == *name) {
+                            Ok(ScriptType::Enum(Arc::clone(prefix)))
+                        } else {
+                            Err(self.fail(format!("Variant not found: {name} in {}", def.name), &expr.loc))
+                        }
+                    }
+                    None => Err(self.fail(format!("Undefined type: {prefix}"), &expr.loc)),
+                }
+            }
             ExpressionKind::Access { subject, key } => {
+                println!("Access {subject:?} -> {key}");
+                // if let Some(ExpressionKind::Ref(name)) = subject.kind {
+                // }
+
                 let subject_typ = self.validate_expr(subject, scope)?;
                 match &subject_typ {
                     ScriptType::Rec { params, .. } => {
@@ -383,24 +436,27 @@ impl<'a> Validator<'a> {
                         Ok(ScriptType::State(typ.into()))
                     }
                     _ => match scope.get_local(name) {
-                        None => {
-                            Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
-                        }
                         Some(ScriptType::Function { params, ret }) => {
                             self.validate_args(params, args, kwargs, scope, &expr.loc)?;
 
                             Ok(*ret.clone())
                         }
-                        Some(ScriptType::RecDefinition { params, name }) => {
-                            self.validate_args(params, args, kwargs, scope, &expr.loc)?;
-
-                            Ok(ScriptType::Rec {
-                                params: params.clone(),
-                                name: Arc::clone(name),
-                            })
-                        }
                         Some(t) => {
                             Err(self.fail(format!("Expected a callable, found {t}"), &subject.loc))
+                        }
+                        None => {
+                            match scope.types.get(name) {
+                                Some(TypeDefinition::RecDefinition { params, name }) => {
+                                    self.validate_args(params, args, kwargs, scope, &expr.loc)?;
+
+                                    Ok(ScriptType::Rec {
+                                        params: params.clone(),
+                                        name: Arc::clone(name),
+                                    })
+                                }
+                                Some(TypeDefinition::EnumDefinition(_)) => todo!("call on enum variant"),
+                                None => Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
+                            }
                         }
                     },
                 },
@@ -542,12 +598,13 @@ impl<'a> Validator<'a> {
                 "str" => Ok(ScriptType::Str),
                 "int" => Ok(ScriptType::Int),
                 "bool" => Ok(ScriptType::Bool),
-                e => match scope.get_local(e) {
-                    Some(ScriptType::RecDefinition { name, params }) => Ok(ScriptType::Rec {
+                e => match scope.types.get(e) {
+                    Some(TypeDefinition::RecDefinition { name, params }) => Ok(ScriptType::Rec {
                         params: params.clone(),
                         name: Arc::clone(name),
                     }),
-                    _ => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
+                    Some(TypeDefinition::EnumDefinition(_)) => todo!(),
+                    None => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
                 },
             },
             TypeExpressionKind::Tuple(types) => {

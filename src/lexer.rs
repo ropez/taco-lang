@@ -16,6 +16,7 @@ pub enum TokenKind {
     NotEqual,
     Comma,
     Colon,
+    DoubleColon,
     Dot,
     Spread,
     Plus,
@@ -37,6 +38,7 @@ pub enum TokenKind {
     For,
     In,
     Rec,
+    Enum,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -101,7 +103,13 @@ impl<'a> Tokenizer<'a> {
                 '[' => Some(self.produce(TokenKind::LeftSquare)),
                 ']' => Some(self.produce(TokenKind::RightSquare)),
                 ',' => Some(self.produce(TokenKind::Comma)),
-                ':' => Some(self.produce(TokenKind::Colon)),
+                ':' => {
+                    if self.take_if_eq(':') {
+                        Some(self.produce(TokenKind::DoubleColon))
+                    } else {
+                        Some(self.produce(TokenKind::Colon))
+                    }
+                }
                 '\n' => Some(self.produce(TokenKind::NewLine)),
                 '"' => {
                     let s = self.find_str()?;
@@ -125,6 +133,7 @@ impl<'a> Tokenizer<'a> {
                         "for" => Some(self.produce(TokenKind::For)),
                         "in" => Some(self.produce(TokenKind::In)),
                         "rec" => Some(self.produce(TokenKind::Rec)),
+                        "enum" => Some(self.produce(TokenKind::Enum)),
                         _ => Some(self.produce(TokenKind::Identifier(s))),
                     }
                 }
