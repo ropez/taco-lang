@@ -26,6 +26,7 @@ pub enum ScriptValue {
     Enum {
         def: Arc<Enumeration>,
         index: usize,
+        values: Vec<Arc<ScriptValue>>, // Maybe use a Tuple struct?
     },
 
     State(RwLock<Arc<ScriptValue>>),
@@ -42,9 +43,18 @@ impl PartialEq for ScriptValue {
         match (self, other) {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
-            (Self::Enum { def: dl, index: il }, Self::Enum { def: dr, index: ir }) => {
-                Arc::ptr_eq(dl, dr) && il == ir
-            }
+            (
+                Self::Enum {
+                    def: dl,
+                    index: il,
+                    values: lv,
+                },
+                Self::Enum {
+                    def: dr,
+                    index: ir,
+                    values: rv,
+                },
+            ) => Arc::ptr_eq(dl, dr) && *il == *ir && *lv == *rv,
             _ => todo!("Equality for {self:?}"),
         }
     }
@@ -55,14 +65,23 @@ impl Display for ScriptValue {
         match self {
             ScriptValue::String(s) => write!(f, "{s}"),
             ScriptValue::Number(n) => write!(f, "{n}"),
-            ScriptValue::Tuple(values) => write!(f, "({values:?})"), // XXX
+            ScriptValue::Tuple(values) => write!(f, "({values:?})"), // XXX Serialize Tuple
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
             },
-            ScriptValue::Enum { def, index } => {
+            ScriptValue::Enum { def, index, values } => {
                 let var = &def.variants[*index];
-                write!(f, "{}", var.name)
+                write!(f, "{}", var.name)?;
+                if !values.is_empty() {
+                    // FIXME Proper serialization of Tuple
+                    if values.len() == 1 {
+                        write!(f, "({})", values.first().unwrap())?;
+                    } else {
+                        write!(f, "({values:?})")?; // XXX Again, need to duplicate Tuple
+                    }
+                }
+                Ok(())
             }
             _ => todo!("Display impl for {self:?}"),
         }
@@ -242,6 +261,7 @@ impl Engine {
                         Arc::new(ScriptValue::Enum {
                             def: Arc::clone(v),
                             index,
+                            values: Default::default(),
                         })
                     } else {
                         panic!("Enum variant not found: {name} in {prefix}");
@@ -384,6 +404,27 @@ impl Engine {
                             panic!("Undefined function: {subject:?}")
                         }
                     }
+                },
+                ExpressionKind::PrefixedName(prefix, name) => match scope.enums.get(prefix) {
+                    Some(v) => {
+                        if let Some((index, variant)) =
+                            v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
+                        {
+                            // XXX Include values here
+                            // XXX Clunky and unnatural to just ignore kwargs here
+
+                            let values =
+                                args.iter().map(|arg| self.eval_expr(arg, scope)).collect();
+                            Arc::new(ScriptValue::Enum {
+                                def: Arc::clone(v),
+                                index,
+                                values,
+                            })
+                        } else {
+                            panic!("Enum variant not found: {name} in {prefix}");
+                        }
+                    }
+                    None => panic!("Enum not found: {prefix}"),
                 },
                 ExpressionKind::Access { subject, key } => {
                     let subject = self.eval_expr(subject, scope);

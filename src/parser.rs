@@ -131,9 +131,10 @@ pub struct Enumeration {
     pub(crate) variants: Vec<Variant>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct Variant {
     pub(crate) name: Arc<str>,
+    pub(crate) type_exprs: Vec<TypeExpression>,
 }
 
 #[derive(Debug)]
@@ -272,12 +273,12 @@ impl<'a> Parser<'a> {
                 TokenKind::Enum => {
                     let (ident, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftParen)?;
-                    let variants = self.parse_ident_list()?;
+                    let variants = self.parse_variants()?;
                     self.expect_kind(TokenKind::RightParen)?;
 
                     let rec = Arc::new(Enumeration {
                         name: ident,
-                        variants: variants.into_iter().map(|name| Variant { name }).collect(),
+                        variants,
                     });
                     ast.push(AstNode::Enum(rec));
                 }
@@ -534,6 +535,21 @@ impl<'a> Parser<'a> {
         self.parse_list(TokenKind::RightParen, |p| {
             let (ident, _) = p.expect_ident()?;
             Ok(ident)
+        })
+    }
+
+    fn parse_variants(&mut self) -> Result<Vec<Variant>> {
+        self.parse_list(TokenKind::RightParen, |p| {
+            let (name, _) = p.expect_ident()?;
+
+            if p.next_if_kind(&TokenKind::LeftParen).is_some() {
+                let params = p.parse_list(TokenKind::RightParen, |p| p.parse_type_expr())?;
+                let r = p.expect_kind(TokenKind::RightParen)?;
+
+                Ok(Variant { name, type_exprs: params })
+            } else {
+                Ok(Variant { name, type_exprs: Default::default() })
+            }
         })
     }
 

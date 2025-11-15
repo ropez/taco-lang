@@ -84,7 +84,11 @@ struct Scope {
 impl Scope {
     fn with_globals(globals: &HashMap<Arc<str>, ScriptType>) -> Self {
         let locals = globals.clone();
-        Self { locals, types: Default::default(), ret: None }
+        Self {
+            locals,
+            types: Default::default(),
+            ret: None,
+        }
     }
 
     fn get_local(&self, name: &str) -> Option<&ScriptType> {
@@ -106,7 +110,10 @@ pub struct Validator<'a> {
 
 impl<'a> Validator<'a> {
     pub fn new(src: &'a str) -> Self {
-        Self { src, globals: Default::default() }
+        Self {
+            src,
+            globals: Default::default(),
+        }
     }
 
     pub fn with_global(self, name: impl Into<Arc<str>>, typ: ScriptType) -> Self {
@@ -161,12 +168,14 @@ impl<'a> Validator<'a> {
                         Some(expr) => self.eval_type_expr(expr, &scope)?,
                         None => {
                             // TODO Refactor implied return, and support if/else
-                            if fun.body.len() == 1 && let Some(AstNode::Expression(expr)) = fun.body.first() {
+                            if fun.body.len() == 1
+                                && let Some(AstNode::Expression(expr)) = fun.body.first()
+                            {
                                 self.validate_expr(expr, &inner)?
                             } else {
                                 ScriptType::identity()
                             }
-                        },
+                        }
                     };
 
                     inner.ret = Some(ret.clone());
@@ -194,10 +203,21 @@ impl<'a> Validator<'a> {
                 AstNode::Enum(rec) => {
                     let def = EnumDefinition {
                         name: Arc::clone(&rec.name),
-                        variants: rec.variants.iter().map(|v| EnumVariant {
-                            name: Arc::clone(&v.name),
-                            params: Vec::new(),
-                        }).collect()
+                        variants: rec
+                            .variants
+                            .iter()
+                            .map(|v| {
+                                let params = v
+                                    .type_exprs
+                                    .iter()
+                                    .map(|expr| self.eval_type_expr(expr, &scope))
+                                    .collect::<Result<Vec<ScriptType>>>()?;
+                                Ok(EnumVariant {
+                                    name: Arc::clone(&v.name),
+                                    params,
+                                })
+                            })
+                            .collect::<Result<Vec<EnumVariant>>>()?,
                     };
                     scope.types.insert(
                         Arc::clone(&rec.name),
@@ -248,10 +268,11 @@ impl<'a> Validator<'a> {
                     let typ = self.validate_expr(expr, &scope)?;
 
                     // Check implied return
-                    if ast.len() == 1 && let Some(r) = &scope.ret && typ != *r {
-                        return Err(
-                            self.fail(format!("Expected {r}, found {typ}"), &expr.loc)
-                        );
+                    if ast.len() == 1
+                        && let Some(r) = &scope.ret
+                        && typ != *r
+                    {
+                        return Err(self.fail(format!("Expected {r}, found {typ}"), &expr.loc));
                     }
                 }
                 AstNode::Return(expr) => {
@@ -338,19 +359,20 @@ impl<'a> Validator<'a> {
                 None => Err(self.fail(format!("Undefined reference: {ident}"), &expr.loc)),
                 Some(value) => Ok(value.clone()),
             },
-            ExpressionKind::PrefixedName(prefix, name) => {
-                match scope.types.get(prefix) {
-                    Some(TypeDefinition::RecDefinition{..}) => todo!("rec access"),
-                    Some(TypeDefinition::EnumDefinition(def)) => {
-                        if def.variants.iter().any(|v| v.name == *name) {
-                            Ok(ScriptType::Enum(Arc::clone(prefix)))
-                        } else {
-                            Err(self.fail(format!("Variant not found: {name} in {}", def.name), &expr.loc))
-                        }
+            ExpressionKind::PrefixedName(prefix, name) => match scope.types.get(prefix) {
+                Some(TypeDefinition::RecDefinition { .. }) => todo!("rec access"),
+                Some(TypeDefinition::EnumDefinition(def)) => {
+                    if def.variants.iter().any(|v| v.name == *name) {
+                        Ok(ScriptType::Enum(Arc::clone(prefix)))
+                    } else {
+                        Err(self.fail(
+                            format!("Variant not found: {name} in {}", def.name),
+                            &expr.loc,
+                        ))
                     }
-                    None => Err(self.fail(format!("Undefined type: {prefix}"), &expr.loc)),
                 }
-            }
+                None => Err(self.fail(format!("Undefined type: {prefix}"), &expr.loc)),
+            },
             ExpressionKind::Access { subject, key } => {
                 println!("Access {subject:?} -> {key}");
                 // if let Some(ExpressionKind::Ref(name)) = subject.kind {
@@ -444,22 +466,57 @@ impl<'a> Validator<'a> {
                         Some(t) => {
                             Err(self.fail(format!("Expected a callable, found {t}"), &subject.loc))
                         }
-                        None => {
-                            match scope.types.get(name) {
-                                Some(TypeDefinition::RecDefinition { params, name }) => {
-                                    self.validate_args(params, args, kwargs, scope, &expr.loc)?;
+                        None => match scope.types.get(name) {
+                            Some(TypeDefinition::RecDefinition { params, name }) => {
+                                self.validate_args(params, args, kwargs, scope, &expr.loc)?;
 
-                                    Ok(ScriptType::Rec {
-                                        params: params.clone(),
-                                        name: Arc::clone(name),
-                                    })
-                                }
-                                Some(TypeDefinition::EnumDefinition(_)) => todo!("call on enum variant"),
-                                None => Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
+                                Ok(ScriptType::Rec {
+                                    params: params.clone(),
+                                    name: Arc::clone(name),
+                                })
                             }
-                        }
+                            Some(TypeDefinition::EnumDefinition(_)) => {
+                                todo!("call on enum variant")
+                            }
+                            None => {
+                                Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
+                            }
+                        },
                     },
                 },
+                ExpressionKind::PrefixedName(prefix, name) => {
+                    match scope.types.get(prefix) {
+                        Some(TypeDefinition::RecDefinition { .. }) => todo!("rec call"),
+                        Some(TypeDefinition::EnumDefinition(def)) => {
+                            if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
+                                // XXX Need to get rid of kwargs here. Maybe this shouldn't be a Call expression, but something like the literal Tuple expression
+                                // XXX Feels like we're re-implementing everything from Tuple
+                                let expected_type = &var.params;
+                                let actual_type = args
+                                    .iter()
+                                    .map(|expr| self.validate_expr(expr, scope))
+                                    .collect::<Result<Vec<ScriptType>>>()?;
+
+                                if *expected_type != actual_type {
+                                    return Err(self.fail(
+                                        format!(
+                                            "Expected {expected_type:?}, found {actual_type:?}"
+                                        ),
+                                        &expr.loc,
+                                    ));
+                                }
+
+                                Ok(ScriptType::Enum(Arc::clone(prefix)))
+                            } else {
+                                Err(self.fail(
+                                    format!("Variant not found: {name} in {}", def.name),
+                                    &expr.loc,
+                                ))
+                            }
+                        }
+                        None => Err(self.fail(format!("Undefined type: {prefix}"), &expr.loc)),
+                    }
+                }
                 ExpressionKind::Access { subject, key } => {
                     let subject_typ = self.validate_expr(subject, scope)?;
                     match (&subject_typ, key.as_ref()) {
@@ -472,7 +529,9 @@ impl<'a> Validator<'a> {
                         }
                         (ScriptType::List(typ), "push") => {
                             // "Promote" list type, if empty list
-                            let typ = if let ScriptType::Tuple(t) = typ.as_ref() && t.is_empty() {
+                            let typ = if let ScriptType::Tuple(t) = typ.as_ref()
+                                && t.is_empty()
+                            {
                                 let t = args
                                     .first()
                                     .map(|i| self.validate_expr(i, scope))
@@ -603,7 +662,9 @@ impl<'a> Validator<'a> {
                         params: params.clone(),
                         name: Arc::clone(name),
                     }),
-                    Some(TypeDefinition::EnumDefinition(_)) => todo!(),
+                    Some(TypeDefinition::EnumDefinition(def)) => {
+                        Ok(ScriptType::Enum(Arc::clone(&def.name)))
+                    }
                     None => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
                 },
             },

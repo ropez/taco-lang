@@ -59,3 +59,28 @@ fn test_comparison_not_allowed_for_different_enums() {
     };
 }
 
+#[test]
+fn test_enum_with_value() {
+    let src = r#"
+        enum City (
+            Paris
+            London
+            Madrid
+        )
+
+        enum VacationPlan (
+            StayAtHome
+            TravelTo(City)
+        )
+
+        plan = VacationPlan::TravelTo(City::Madrid)
+        print("$plan")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("TravelTo(Madrid)", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+
