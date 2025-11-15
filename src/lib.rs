@@ -3,18 +3,14 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{
-    error::Result,
-    eval::{Engine, ScriptValue},
-    parser::Parser,
-    validate::{ScriptType, Validator},
-};
+use crate::{error::Result, eval::Engine, parser::Parser, validate::Validator};
 
 pub mod error;
 pub mod eval;
 mod interp;
 pub mod lexer;
 pub mod parser;
+pub mod print_extension;
 pub mod validate;
 
 pub fn check_output(src: &str) -> Result<String> {
@@ -34,40 +30,17 @@ where
     let tokens = lexer::tokenize(src)?;
     let ast = Parser::new(src, tokens).parse()?;
 
-    let print_type = ScriptType::Function {
-        params: vec![("_".into(), ScriptType::Str)],
-        ret: Box::new(ScriptType::Void),
-    };
+    let out = Arc::new(Mutex::new(out));
 
-    let validator = Validator::new(src)
-        .with_global("print", print_type.clone())
-        .with_global("println", print_type.clone());
+    let mut validator = Validator::new(src);
+    let mut engine = Engine::default();
+
+    for f in print_extension::create(out) {
+        validator = validator.with_global(Arc::clone(&f.name), f.script_type);
+        engine = engine.with_global(f.name, f.func);
+    }
 
     validator.validate(&ast)?;
-
-    let stdout1 = Arc::new(Mutex::new(out));
-    let stdout2 = stdout1.clone();
-
-    let print_fn = move |args: &[Arc<ScriptValue>]| {
-        if let Some(arg) = args.first() {
-            let mut out = stdout1.lock().unwrap();
-            write!(out, "{arg}").unwrap();
-        }
-        ScriptValue::Void
-    };
-
-    let println_fn = move |args: &[Arc<ScriptValue>]| {
-        if let Some(arg) = args.first() {
-            let mut out = stdout2.lock().unwrap();
-            writeln!(out, "{arg}").unwrap();
-        }
-        ScriptValue::Void
-    };
-
-    let engine = Engine::default()
-        .with_global("print", print_fn)
-        .with_global("println", println_fn);
-
     engine.eval(&ast);
 
     Ok(())
