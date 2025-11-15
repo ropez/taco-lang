@@ -54,6 +54,39 @@ fn test_mixed_arguments() {
 }
 
 #[test]
+fn test_can_discard_args() {
+    let src = r#"
+        fun args(first: str, _: str) {
+            print("$first")
+        }
+
+        args("foo", "bar")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("foo", out),
+        Err(err) => panic!("{err}"),
+    };
+
+}
+
+#[test]
+fn test_discarded_arg_not_assigned() {
+    let src = r#"
+        fun args(first: str, _: str) {
+            print("${_}")
+        }
+
+        args("foo", "bar")
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Expected identifier"),
+    };
+}
+
+#[test]
 fn test_return_not_allowed_outside_function() {
     let src = r#"
         return 10
