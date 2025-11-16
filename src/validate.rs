@@ -46,6 +46,20 @@ impl ScriptType {
             _ => *self == *other,
         }
     }
+
+    fn most_specific(types: &[Self]) -> Option<Self> {
+        if let Some(first) = types.first() {
+            let mut typ = first;
+            for t in types.iter().skip(1) {
+                if t.accepts(typ) {
+                    typ = t;
+                }
+            }
+            Some(typ.clone())
+        } else {
+            None
+        }
+    }
 }
 
 impl Display for ScriptType {
@@ -344,7 +358,7 @@ impl<'a> Validator<'a> {
                     .map(|i| self.validate_expr(i, scope))
                     .collect::<Result<Vec<ScriptType>>>()?;
 
-                if let Some(inner_type) = types.first().cloned() {
+                if let Some(inner_type) = ScriptType::most_specific(&types) {
                     for (typ, expr) in types.iter().zip(expressions) {
                         if !inner_type.accepts(typ) {
                             return Err(

@@ -112,10 +112,13 @@ fn test_empty_list_promotes_list_items() {
 
         list = [[42], []]
         println("3: $list")
+
+        list = [[], [42]]
+        println("4: $list")
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!("1: [[10]]\n2: [[10], []]\n3: [[42], []]\n", out),
+        Ok(out) => assert_eq!("1: [[10]]\n2: [[10], []]\n3: [[42], []]\n4: [[], [42]]\n", out),
         Err(err) => panic!("{err}"),
     };
 }
