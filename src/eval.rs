@@ -111,7 +111,8 @@ impl Display for ScriptValue {
 #[derive(Debug)]
 pub enum Completion {
     EndOfBlock,
-    Return(Arc<ScriptValue>),
+    ExplicitReturn(Arc<ScriptValue>),
+    ImpliedReturn(Arc<ScriptValue>),
 }
 
 #[derive(Default, Clone)]
@@ -196,7 +197,9 @@ impl Engine {
                             for item in items {
                                 let mut scope = scope.clone();
                                 scope.set_local(Arc::clone(ident), Arc::clone(item));
-                                self.eval_block(body, scope);
+                                if let Completion::ExplicitReturn(val) = self.eval_block(body, scope) {
+                                    return Completion::ExplicitReturn(val);
+                                }
                             }
                         }
                         ScriptValue::Range(lhs, rhs) => {
@@ -204,7 +207,9 @@ impl Engine {
                                 let mut scope = scope.clone();
                                 scope
                                     .set_local(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
-                                self.eval_block(body, scope);
+                                if let Completion::ExplicitReturn(val) = self.eval_block(body, scope) {
+                                    return Completion::ExplicitReturn(val);
+                                }
                             }
                         }
                         _ => panic!("Expected iterable, found: {iterable}"),
@@ -220,10 +225,14 @@ impl Engine {
                     if let ScriptValue::Boolean(b) = *val {
                         if b {
                             let scope = scope.clone();
-                            self.eval_block(body, scope);
+                            if let Completion::ExplicitReturn(val) = self.eval_block(body, scope) {
+                                return Completion::ExplicitReturn(val);
+                            }
                         } else if let Some(else_body) = else_body {
                             let scope = scope.clone();
-                            self.eval_block(else_body, scope);
+                            if let Completion::ExplicitReturn(val) = self.eval_block(else_body, scope) {
+                                return Completion::ExplicitReturn(val);
+                            }
                         }
                     } else {
                         panic!("Not a boolean");
@@ -233,14 +242,13 @@ impl Engine {
                     let val = self.eval_expr(expr, &scope);
 
                     // Implied return if and only if the block consist of exactly one expression
-                    // XXX This is probably wrong inside if/else/for, when return is handled
                     if ast.len() == 1 {
-                        return Completion::Return(val);
+                        return Completion::ImpliedReturn(val);
                     }
                 }
                 AstNode::Return(expr) => {
                     let val = self.eval_expr(expr, &scope);
-                    return Completion::Return(val);
+                    return Completion::ExplicitReturn(val);
                 }
             }
         }
@@ -402,7 +410,8 @@ impl Engine {
 
                             match c {
                                 Completion::EndOfBlock => Arc::new(ScriptValue::identity()),
-                                Completion::Return(v) => v,
+                                Completion::ExplicitReturn(v) => v,
+                                Completion::ImpliedReturn(v) => v,
                             }
                         } else if let Some(rec) = scope.records.get(name) {
                             let values = self.eval_args(&rec.params, args, kwargs, scope);

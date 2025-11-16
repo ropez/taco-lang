@@ -100,6 +100,20 @@ fn test_return_not_allowed_outside_function() {
 }
 
 #[test]
+fn test_return_not_allowed_in_contitional_outside_function() {
+    let src = r#"
+        if true {
+            return 10
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Unexpected return value")
+    }
+}
+
+#[test]
 fn test_implied_return() {
     let src = r#"
         fun square(n: int): int {
@@ -154,5 +168,76 @@ fn test_implied_return_wrong_type() {
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
         Err(err) => assert_eq!(err.message, "Expected bool, found int")
+    }
+}
+
+#[test]
+fn test_explicit_return_inside_if() {
+    let src = r#"
+        enum Color(Green, Blue)
+
+        fun select(col: Color): str {
+            if col == Color::Green {
+                return "The color is green"
+            } else {
+                return "Not green, probably blue"
+            }
+        }
+
+        println(select(Color::Green))
+        println(select(Color::Blue))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("The color is green\nNot green, probably blue\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_explicit_return_inside_list_iteration() {
+    let src = r#"
+        enum Color(Green, Blue)
+
+        fun search(colors: [Color]): str {
+            for col in colors {
+                if col == Color::Green {
+                    return "Found green"
+                }
+            }
+            return "Not found"
+        }
+
+        println(search([Color::Blue, Color::Green]))
+        println(search([Color::Blue]))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("Found green\nNot found\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_explicit_return_inside_range_iteration() {
+    let src = r#"
+        enum Color(Green, Blue)
+
+        fun search(r: int): str {
+            for i in 0..100 {
+                if i == r {
+                    return "Found $r"
+                }
+            }
+            return "Not found"
+        }
+
+        println(search(42))
+        println(search(999))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("Found 42\nNot found\n", out),
+        Err(err) => panic!("{err}"),
     }
 }

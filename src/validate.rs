@@ -399,10 +399,6 @@ impl<'a> Validator<'a> {
                 None => Err(self.fail(format!("Undefined type: {prefix}"), &expr.loc)),
             },
             ExpressionKind::Access { subject, key } => {
-                println!("Access {subject:?} -> {key}");
-                // if let Some(ExpressionKind::Ref(name)) = subject.kind {
-                // }
-
                 let subject_typ = self.validate_expr(subject, scope)?;
                 match &subject_typ {
                     ScriptType::Rec { params, .. } => {
