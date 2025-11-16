@@ -574,7 +574,7 @@ impl<'a> Validator<'a> {
                             Ok(ScriptType::List(typ.clone()))
                         }
                         (ScriptType::Rec { params, .. }, "with") => {
-                            // TODO: Check the args is empty
+                            // TODO: Check that args is empty
                             self.validate_kwargs(params, kwargs, scope)?;
 
                             Ok(subject_typ.clone())

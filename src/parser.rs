@@ -12,12 +12,6 @@ use crate::{
     lexer::{self, Token, TokenKind},
 };
 
-// TODO Informational errors in static analysis/evaluation:
-// - AST must include location info in every node
-// - Parent nodes locations wrap child node locations
-// - Need to refactor, using structs around enums
-// - Using a single node type everywhere makes invalid state representable
-
 #[derive(Debug)]
 pub enum AstNode {
     Assignment {
@@ -483,8 +477,6 @@ impl<'a> Parser<'a> {
                         let (args, kwargs) = self.parse_args()?;
 
                         let t = self.expect_kind(TokenKind::RightParen)?;
-
-                        // XXX Get end of argument list location
                         let loc = wrap_locations(&lhs.loc, &t.loc);
 
                         let expr = Expression::new(
@@ -571,12 +563,6 @@ impl<'a> Parser<'a> {
             if let Some(TokenKind::RightParen) = self.peek_kind() {
                 break;
             }
-
-            // TODO Checks needed here:
-            // positional args must come before kwargs
-            //
-            // Can check here or later:
-            // `name` is only assigned once
 
             if let Some(TokenKind::Identifier(name)) = self.peek_kind() {
                 let name = Arc::clone(name);

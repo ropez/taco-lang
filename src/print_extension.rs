@@ -9,7 +9,7 @@ use crate::{
     validate::ScriptType,
 };
 
-// XXX An exception probably needs to be more than just collection of functions
+// XXX An extension probably needs to be more than just collection of functions
 
 pub struct ExtensionFunction {
     pub script_type: ScriptType,
