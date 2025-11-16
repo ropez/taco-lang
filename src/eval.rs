@@ -73,13 +73,12 @@ impl Display for ScriptValue {
             ScriptValue::Enum { def, index, values } => {
                 let var = &def.variants[*index];
                 write!(f, "{}", var.name)?;
-                if !values.is_empty() {
-                    // FIXME Proper serialization of Tuple
-                    if values.len() == 1 {
-                        write!(f, "({})", values.first().unwrap())?;
-                    } else {
-                        write!(f, "({values:?})")?; // XXX Again, need to duplicate Tuple
+                if let Some(first) = values.first() {
+                    write!(f, "({}", first)?;
+                    for val in values.iter().skip(1) {
+                        write!(f, ", {}", val)?;
                     }
+                    write!(f, ")")?;
                 }
                 Ok(())
             }
@@ -410,7 +409,6 @@ impl Engine {
                         if let Some((index, variant)) =
                             v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
                         {
-                            // XXX Include values here
                             // XXX Clunky and unnatural to just ignore kwargs here
 
                             let values =
@@ -478,22 +476,13 @@ impl Engine {
     fn eval_args(
         &self,
         params: &Vec<Parameter>,
-        arguments: &Vec<Expression>,
+        args: &Vec<Expression>,
         kwargs: &Vec<(Arc<str>, Expression)>,
         scope: &Scope,
     ) -> Vec<Arc<ScriptValue>> {
-        // FIXME This should already be checked during type checking phase
-        if params.len() != arguments.len() + kwargs.len() {
-            panic!(
-                "Expected {} arguments, found {}",
-                params.len(),
-                arguments.len()
-            );
-        }
+        let mut values: Vec<_> = args.iter().map(|a| self.eval_expr(a, scope)).collect();
 
-        let mut values: Vec<_> = arguments.iter().map(|a| self.eval_expr(a, scope)).collect();
-
-        for param in &params[arguments.len()..] {
+        for param in &params[args.len()..] {
             if let Some((_, value)) = kwargs.iter().find(|(name, _)| *name == param.name) {
                 values.push(self.eval_expr(value, scope));
             } else {
