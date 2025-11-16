@@ -4,17 +4,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use crate::{
-    eval::{NativeFn, ScriptValue},
-    validate::ScriptType,
-};
-
-// XXX An extension probably needs to be more than just collection of functions
-
-pub struct ExtensionFunction {
-    pub script_type: ScriptType,
-    pub func: Box<dyn NativeFn>,
-}
+use crate::{eval::ScriptValue, extensions::ExtensionFunction, validate::ScriptType};
 
 pub fn create<O>(out: Arc<Mutex<O>>) -> HashMap<String, ExtensionFunction>
 where

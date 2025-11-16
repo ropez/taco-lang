@@ -10,8 +10,8 @@ pub mod eval;
 mod interp;
 pub mod lexer;
 pub mod parser;
-pub mod print_extension;
 pub mod validate;
+mod extensions;
 
 pub fn check_output(src: &str) -> Result<String> {
     let (mut reader, writer) = pipe().expect("create pipe");
@@ -35,7 +35,13 @@ where
     let mut validator = Validator::new(src);
     let mut engine = Engine::default();
 
-    for (name, f) in print_extension::create(out) {
+    for (name, f) in extensions::fs::create() {
+        let name = name.into();
+        validator = validator.with_global(Arc::clone(&name), f.script_type);
+        engine = engine.with_global(Arc::clone(&name), f.func);
+    }
+
+    for (name, f) in extensions::print::create(out) {
         let name = name.into();
         validator = validator.with_global(Arc::clone(&name), f.script_type);
         engine = engine.with_global(Arc::clone(&name), f.func);
