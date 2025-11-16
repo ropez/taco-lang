@@ -3,7 +3,7 @@ use std::{collections::HashMap, fmt::Display, ops::Range, sync::Arc};
 use crate::{
     error::{Error, Result},
     parser::{
-        Assignmee, AstNode, Expression, ExpressionKind, Parameter, TypeExpression,
+        Arguments, Assignmee, AstNode, Expression, ExpressionKind, Parameter, TypeExpression,
         TypeExpressionKind,
     },
 };
@@ -554,27 +554,23 @@ impl<'a> Validator<'a> {
             ExpressionKind::Subtraction(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
             ExpressionKind::Multiplication(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
             ExpressionKind::Division(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
-            ExpressionKind::Call {
-                subject,
-                args,
-                kwargs,
-            } => match &subject.kind {
+            ExpressionKind::Call { subject, arguments } => match &subject.kind {
                 ExpressionKind::Ref(name) => match name.as_ref() {
                     "state" => {
-                        if args.len() != 1 {
+                        if arguments.args.len() != 1 {
                             return Err(self.fail(
-                                format!("Expected 1 argument, got {}", args.len()),
+                                format!("Expected 1 argument, got {}", arguments.args.len()),
                                 &expr.loc,
                             ));
                         }
-                        let arg = args.first().expect("state arg");
+                        let arg = arguments.args.first().expect("state arg");
                         let typ = self.validate_expr(arg, scope)?;
 
                         Ok(ScriptType::State(typ.into()))
                     }
                     _ => match scope.get_local(name) {
                         Some(ScriptType::Function { params, ret }) => {
-                            self.validate_args(params, args, kwargs, scope, &expr.loc)?;
+                            self.validate_args(params, arguments, scope, &expr.loc)?;
 
                             Ok(*ret.clone())
                         }
@@ -583,7 +579,7 @@ impl<'a> Validator<'a> {
                         }
                         None => match scope.types.get(name) {
                             Some(TypeDefinition::RecDefinition { params, name }) => {
-                                self.validate_args(params, args, kwargs, scope, &expr.loc)?;
+                                self.validate_args(params, arguments, scope, &expr.loc)?;
 
                                 Ok(ScriptType::Rec {
                                     params: params.clone(),
@@ -607,7 +603,8 @@ impl<'a> Validator<'a> {
                                 // XXX Need to get rid of kwargs here. Maybe this shouldn't be a Call expression, but something like the literal Tuple expression
                                 // XXX Feels like we're re-implementing everything from Tuple
                                 let expected_type = &var.params;
-                                let actual_type = args
+                                let actual_type = arguments
+                                    .args
                                     .iter()
                                     .map(|expr| self.validate_expr(expr, scope))
                                     .collect::<Result<Vec<ScriptType>>>()?;
@@ -639,19 +636,20 @@ impl<'a> Validator<'a> {
                         (ScriptType::State(typ), "set") => {
                             // Simulate normal function call
                             let params = vec![("".into(), *typ.clone())];
-                            self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
+                            self.validate_args(&params, arguments, scope, &expr.loc)?;
                             Ok(ScriptType::identity())
                         }
                         (ScriptType::EmptyList, "push") => {
                             // "Promote" list based on the first argument type
-                            if let Some(typ) = args
+                            if let Some(typ) = arguments
+                                .args
                                 .first()
                                 .map(|i| self.validate_expr(i, scope))
                                 .transpose()?
                             {
                                 // XXX Variadic args not supported (but allowed in runtime)
                                 let params = vec![("".into(), typ.clone())];
-                                self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
+                                self.validate_args(&params, arguments, scope, &expr.loc)?;
                                 Ok(ScriptType::List(typ.into()))
                             } else {
                                 Ok(ScriptType::EmptyList)
@@ -660,12 +658,12 @@ impl<'a> Validator<'a> {
                         (ScriptType::List(typ), "push") => {
                             // XXX Variadic args not supported (but allowed in runtime)
                             let params = vec![("".into(), *typ.clone())];
-                            self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
+                            self.validate_args(&params, arguments, scope, &expr.loc)?;
                             Ok(ScriptType::List(typ.clone()))
                         }
                         (ScriptType::Rec { params, .. }, "with") => {
                             // TODO: Check that args is empty
-                            self.validate_kwargs(params, kwargs, scope)?;
+                            self.validate_kwargs(params, &arguments.kwargs, scope)?;
 
                             Ok(subject_typ.clone())
                         }
@@ -702,13 +700,12 @@ impl<'a> Validator<'a> {
     fn validate_args(
         &self,
         params: &[(Arc<str>, ScriptType)],
-        args: &[Expression],
-        kwargs: &[(Arc<str>, Expression)],
+        arguments: &Arguments,
         scope: &Scope,
         loc: &Range<usize>,
     ) -> Result<()> {
         // Check positional arguments
-        for ((_, param_typ), expr) in params.iter().zip(args) {
+        for ((_, param_typ), expr) in params.iter().zip(&arguments.args) {
             let typ = self.validate_expr(expr, scope)?;
             if !param_typ.accepts(&typ) {
                 let msg = format!("Expected {param_typ}, found {typ}");
@@ -717,11 +714,11 @@ impl<'a> Validator<'a> {
         }
 
         // Check number of positional args
-        if args.len() > params.len() {
+        if arguments.args.len() > params.len() {
             return Err(self.fail(
                 format!(
                     "Too many positional arguments: {} found, {} expected",
-                    args.len(),
+                    arguments.args.len(),
                     params.len()
                 ),
                 loc,
@@ -729,11 +726,11 @@ impl<'a> Validator<'a> {
         }
 
         // Check kwargs against remaining params
-        self.validate_kwargs(&params[args.len()..], kwargs, scope)?;
+        self.validate_kwargs(&params[arguments.args.len()..], &arguments.kwargs, scope)?;
 
         // Check that all params are given
-        for (name, _) in &params[args.len()..] {
-            if !kwargs.iter().any(|(n, _)| *n == *name) {
+        for (name, _) in &params[arguments.args.len()..] {
+            if !arguments.kwargs.iter().any(|(n, _)| *n == *name) {
                 return Err(self.fail(format!("Missing argument: {}", name), loc));
             }
         }

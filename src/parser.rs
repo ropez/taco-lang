@@ -78,13 +78,18 @@ pub(crate) enum ExpressionKind {
     Division(Box<Expression>, Box<Expression>),
     Call {
         subject: Box<Expression>,
-        args: Vec<Expression>,
-        kwargs: Vec<(Arc<str>, Expression)>,
+        arguments: Arguments,
     },
     Access {
         subject: Box<Expression>,
         key: Arc<str>,
     },
+}
+
+#[derive(Debug)]
+pub struct Arguments {
+    pub(crate) args: Vec<Expression>,
+    pub(crate) kwargs: Vec<(Arc<str>, Expression)>,
 }
 
 #[derive(Debug)]
@@ -494,7 +499,7 @@ impl<'a> Parser<'a> {
                     } else {
                         self.iter.next();
 
-                        let (args, kwargs) = self.parse_args()?;
+                        let arguments = self.parse_args()?;
 
                         let t = self.expect_kind(TokenKind::RightParen)?;
                         let loc = wrap_locations(&lhs.loc, &t.loc);
@@ -502,8 +507,7 @@ impl<'a> Parser<'a> {
                         let expr = Expression::new(
                             ExpressionKind::Call {
                                 subject: lhs.into(),
-                                args,
-                                kwargs,
+                                arguments,
                             },
                             loc,
                         );
@@ -580,7 +584,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_args(&mut self) -> Result<(Vec<Expression>, Vec<(Arc<str>, Expression)>)> {
+    fn parse_args(&mut self) -> Result<Arguments> {
         let mut args = Vec::new();
         let mut kwargs = Vec::new();
 
@@ -634,7 +638,7 @@ impl<'a> Parser<'a> {
             }
         }
 
-        Ok((args, kwargs))
+        Ok(Arguments { args, kwargs })
     }
 
     fn parse_type_expr(&mut self) -> Result<TypeExpression> {

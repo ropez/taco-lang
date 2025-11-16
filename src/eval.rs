@@ -6,7 +6,8 @@ use std::{
 };
 
 use crate::parser::{
-    Assignmee, AstNode, Enumeration, Expression, ExpressionKind, Function, Parameter, Record,
+    Arguments, Assignmee, AstNode, Enumeration, Expression, ExpressionKind, Function, Parameter,
+    Record,
 };
 
 #[derive(Debug)]
@@ -390,20 +391,16 @@ impl Engine {
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            ExpressionKind::Call {
-                subject,
-                args,
-                kwargs,
-            } => match &subject.kind {
+            ExpressionKind::Call { subject, arguments } => match &subject.kind {
                 ExpressionKind::Ref(name) => match name.as_ref() {
                     "state" => {
-                        let arg = args.first().expect("state arg");
+                        let arg = arguments.args.first().expect("state arg");
                         let value = self.eval_expr(arg, scope);
                         Arc::new(ScriptValue::State(RwLock::new(value)))
                     }
                     _ => {
                         if let Some((fun, captured_scope)) = scope.functions.get(name) {
-                            let values = self.eval_args(&fun.params, args, kwargs, scope);
+                            let values = self.eval_args(&fun.params, arguments, scope);
 
                             let mut inner_scope = captured_scope.clone();
 
@@ -419,7 +416,7 @@ impl Engine {
                                 Completion::ImpliedReturn(v) => v,
                             }
                         } else if let Some(rec) = scope.records.get(name) {
-                            let values = self.eval_args(&rec.params, args, kwargs, scope);
+                            let values = self.eval_args(&rec.params, arguments, scope);
 
                             let instance = ScriptValue::Rec {
                                 rec: Arc::clone(rec),
@@ -429,8 +426,11 @@ impl Engine {
                             Arc::new(instance)
                         } else if let Some(func) = self.globals.get(name) {
                             // XXX eval_args like script function
-                            let values: Vec<_> =
-                                args.iter().map(|e| self.eval_expr(e, scope)).collect();
+                            let values: Vec<_> = arguments
+                                .args
+                                .iter()
+                                .map(|e| self.eval_expr(e, scope))
+                                .collect();
                             let mut func = func.lock().unwrap();
                             let ret = func(&values);
                             Arc::new(ret)
@@ -446,8 +446,11 @@ impl Engine {
                         {
                             // XXX Clunky and unnatural to just ignore kwargs here
 
-                            let values =
-                                args.iter().map(|arg| self.eval_expr(arg, scope)).collect();
+                            let values = arguments
+                                .args
+                                .iter()
+                                .map(|arg| self.eval_expr(arg, scope))
+                                .collect();
                             Arc::new(ScriptValue::Enum {
                                 def: Arc::clone(v),
                                 index,
@@ -467,7 +470,7 @@ impl Engine {
                             Arc::clone(v.deref())
                         }
                         (ScriptValue::State(state), "set") => {
-                            let val = args.first().expect("get arg");
+                            let val = arguments.args.first().expect("get arg");
                             let val = self.eval_expr(val, scope);
                             let mut v = state.write().unwrap();
                             *v = val;
@@ -477,7 +480,7 @@ impl Engine {
                             // This is the Copy on Write feature of the language in play.
                             // Can we avoid copy, if we see that the original will not be used again?
                             let mut res = list.clone();
-                            for expr in args {
+                            for expr in &arguments.args {
                                 res.push(self.eval_expr(expr, scope));
                             }
                             Arc::new(ScriptValue::List(res))
@@ -487,7 +490,7 @@ impl Engine {
 
                             for (param, v) in rec.params.iter().zip(new_values.iter_mut()) {
                                 if let Some((_, expr)) =
-                                    kwargs.iter().find(|(k, _)| *k == param.name)
+                                    arguments.kwargs.iter().find(|(k, _)| *k == param.name)
                                 {
                                     *v = self.eval_expr(expr, scope);
                                 }
@@ -510,15 +513,22 @@ impl Engine {
 
     fn eval_args(
         &self,
-        params: &Vec<Parameter>,
-        args: &Vec<Expression>,
-        kwargs: &Vec<(Arc<str>, Expression)>,
+        params: &[Parameter],
+        arguments: &Arguments,
         scope: &Scope,
     ) -> Vec<Arc<ScriptValue>> {
-        let mut values: Vec<_> = args.iter().map(|a| self.eval_expr(a, scope)).collect();
+        let mut values: Vec<_> = arguments
+            .args
+            .iter()
+            .map(|a| self.eval_expr(a, scope))
+            .collect();
 
-        for param in &params[args.len()..] {
-            if let Some((_, value)) = kwargs.iter().find(|(name, _)| *name == param.name) {
+        for param in &params[arguments.args.len()..] {
+            if let Some((_, value)) = arguments
+                .kwargs
+                .iter()
+                .find(|(name, _)| *name == param.name)
+            {
                 values.push(self.eval_expr(value, scope));
             } else {
                 panic!("Missing argument: {}", param.name);
