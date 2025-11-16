@@ -218,10 +218,19 @@ impl<'a> Parser<'a> {
                         ast.push(AstNode::Expression(expr));
                     }
                 }
+                TokenKind::LeftSquare => {
+                    let list = self.parse_expressions(TokenKind::RightSquare)?;
+                    let end = self.expect_kind(TokenKind::RightSquare)?;
+                    let loc = wrap_locations(&token.loc, &end.loc);
+
+                    let expr = Expression::new(ExpressionKind::List(list), loc);
+                    let expr = self.parse_continuation(expr, 0)?;
+                    ast.push(AstNode::Expression(expr))
+                }
                 TokenKind::LeftParen => {
                     let idents = self.parse_ident_list()?;
                     self.expect_kind(TokenKind::RightParen)?;
-                    self.expect_kind(TokenKind::Assign)?;
+                    self.expect_kind(TokenKind::Assign)?; // XXX Can also be a tuple expression
                     let value = self.parse_expression(0)?;
                     let assignee = Assignmee::Destructure(idents);
                     ast.push(AstNode::Assignment { assignee, value });

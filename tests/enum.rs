@@ -62,6 +62,12 @@ fn test_comparison_not_allowed_for_different_enums() {
 #[test]
 fn test_enum_with_value() {
     let src = r#"
+        enum Country (
+            Spain
+            France
+            Italy
+        )
+
         enum City (
             Paris
             London
@@ -70,15 +76,15 @@ fn test_enum_with_value() {
 
         enum VacationPlan (
             StayAtHome
-            TravelTo(City)
+            TravelTo(Country, City)
         )
 
-        plan = VacationPlan::TravelTo(City::Madrid)
+        plan = VacationPlan::TravelTo(Country::Spain, City::Madrid)
         print("$plan")
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!("TravelTo(Madrid)", out),
+        Ok(out) => assert_eq!("TravelTo(Spain, Madrid)", out),
         Err(err) => panic!("{err}"),
     };
 }

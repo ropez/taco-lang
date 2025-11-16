@@ -65,11 +65,32 @@ impl Display for ScriptValue {
         match self {
             ScriptValue::String(s) => write!(f, "{s}"),
             ScriptValue::Number(n) => write!(f, "{n}"),
-            ScriptValue::Tuple(values) => write!(f, "({values:?})"), // XXX Serialize Tuple
+            ScriptValue::Tuple(items) => {
+                write!(f, "(")?;
+                if let Some(first) = items.first() {
+                    write!(f, "{first}")?;
+                    for val in items.iter().skip(1) {
+                        write!(f, ", {val}")?;
+                    }
+                }
+                write!(f, ")")?;
+                Ok(())
+            }
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
             },
+            ScriptValue::List(items) => {
+                write!(f, "[")?;
+                if let Some(first) = items.first() {
+                    write!(f, "{first}")?;
+                    for val in items.iter().skip(1) {
+                        write!(f, ", {val}")?;
+                    }
+                }
+                write!(f, "]")?;
+                Ok(())
+            }
             ScriptValue::Enum { def, index, values } => {
                 let var = &def.variants[*index];
                 write!(f, "{}", var.name)?;
@@ -149,7 +170,7 @@ impl Engine {
                                 scope.set_local(Arc::clone(n), Arc::clone(v));
                             }
                         } else {
-                            panic!("Expected tuple, found: {rhs:?}");
+                            panic!("Expected tuple, found: {rhs}");
                         }
                     }
                 },
@@ -186,7 +207,7 @@ impl Engine {
                                 self.eval_block(body, scope);
                             }
                         }
-                        _ => panic!("Expected iterable, found: {iterable:?}"),
+                        _ => panic!("Expected iterable, found: {iterable}"),
                     }
                 }
                 AstNode::Condition {
@@ -439,12 +460,12 @@ impl Engine {
                             Arc::new(ScriptValue::identity())
                         }
                         (ScriptValue::List(list), "push") => {
-                            let item = args.first().expect("push item");
-                            let value = self.eval_expr(item, scope);
                             // This is the Copy on Write feature of the language in play.
                             // Can we avoid copy, if we see that the original will not be used again?
                             let mut res = list.clone();
-                            res.push(value);
+                            for expr in args {
+                                res.push(self.eval_expr(expr, scope));
+                            }
                             Arc::new(ScriptValue::List(res))
                         }
                         (ScriptValue::Rec { rec, values }, "with") => {

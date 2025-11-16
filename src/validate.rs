@@ -14,9 +14,10 @@ pub enum ScriptType {
     Int,
     Range,
     Str,
-    State(Box<ScriptType>),
+    EmptyList,
     List(Box<ScriptType>),
     Tuple(Vec<ScriptType>),
+    Enum(Arc<str>),
     Function {
         params: Vec<(Arc<str>, ScriptType)>,
         ret: Box<ScriptType>,
@@ -25,7 +26,7 @@ pub enum ScriptType {
         name: Arc<str>,
         params: Vec<(Arc<str>, ScriptType)>,
     },
-    Enum(Arc<str>),
+    State(Box<ScriptType>),
 }
 
 // TODO Validate that all branches in non-void functions return something
@@ -36,6 +37,15 @@ impl ScriptType {
     pub const fn identity() -> Self {
         Self::Tuple(Vec::new())
     }
+
+    fn accepts(&self, other: &ScriptType) -> bool {
+        match (self, other) {
+            (ScriptType::State(_), _) => false,
+            (ScriptType::List(_), ScriptType::EmptyList) => true,
+            (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
+            _ => *self == *other,
+        }
+    }
 }
 
 impl Display for ScriptType {
@@ -45,6 +55,7 @@ impl Display for ScriptType {
             Self::Int => write!(f, "int"),
             Self::Str => write!(f, "str"),
             Self::Enum(name) => write!(f, "{name}"),
+            Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => {
                 write!(f, "[{inner}]")
             }
@@ -63,7 +74,7 @@ pub enum TypeDefinition {
 }
 
 #[derive(Debug)]
-struct EnumDefinition {
+pub struct EnumDefinition {
     name: Arc<str>,
     variants: Vec<EnumVariant>,
 }
@@ -96,7 +107,7 @@ impl Scope {
     }
 
     fn set_local(&mut self, name: Arc<str>, value: ScriptType) {
-        // Make sure we never assign a value to '_'
+        // Make sure we never assign a type to '_'
         if name.as_ref() != "_" {
             self.locals.insert(name, value);
         }
@@ -232,6 +243,9 @@ impl<'a> Validator<'a> {
                     let iterable_typ = self.validate_expr(iterable, &scope)?;
 
                     match iterable_typ {
+                        ScriptType::EmptyList => {
+                            return Err(self.fail("List is always empty".into(), &iterable.loc));
+                        }
                         ScriptType::List(inner) => {
                             let mut inner_scope = scope.clone();
                             inner_scope.set_local(Arc::clone(ident), *inner);
@@ -254,7 +268,7 @@ impl<'a> Validator<'a> {
                     else_body,
                 } => {
                     let typ = self.validate_expr(cond, &scope)?;
-                    if typ != ScriptType::Bool {
+                    if !ScriptType::Bool.accepts(&typ) {
                         return Err(self.fail(format!("Expected boolean, found {typ}"), &cond.loc));
                     }
 
@@ -270,7 +284,7 @@ impl<'a> Validator<'a> {
                     // Check implied return
                     if ast.len() == 1
                         && let Some(r) = &scope.ret
-                        && typ != *r
+                        && !r.accepts(&typ)
                     {
                         return Err(self.fail(format!("Expected {r}, found {typ}"), &expr.loc));
                     }
@@ -280,7 +294,7 @@ impl<'a> Validator<'a> {
                     match &scope.ret {
                         None => return Err(self.fail("Unexpected return value".into(), &expr.loc)),
                         Some(r) => {
-                            if typ != *r {
+                            if !r.accepts(&typ) {
                                 return Err(
                                     self.fail(format!("Expected {r}, found {typ}"), &expr.loc)
                                 );
@@ -330,22 +344,19 @@ impl<'a> Validator<'a> {
                     .map(|i| self.validate_expr(i, scope))
                     .collect::<Result<Vec<ScriptType>>>()?;
 
-                // XXX How to define type for empty list?
-                // l: [str] = []
-                // l = []: str
-                // l = [:str]
-                // l = [;str]
-
-                let inner_type = types.first().cloned().unwrap_or(ScriptType::identity());
-                for (typ, expr) in types.iter().zip(expressions) {
-                    if *typ != inner_type {
-                        return Err(
-                            self.fail(format!("Expected {inner_type}, found {typ}"), &expr.loc)
-                        );
+                if let Some(inner_type) = types.first().cloned() {
+                    for (typ, expr) in types.iter().zip(expressions) {
+                        if !inner_type.accepts(typ) {
+                            return Err(
+                                self.fail(format!("Expected {inner_type}, found {typ}"), &expr.loc)
+                            );
+                        }
                     }
-                }
 
-                Ok(ScriptType::List(inner_type.into()))
+                    Ok(ScriptType::List(inner_type.into()))
+                } else {
+                    Ok(ScriptType::EmptyList)
+                }
             }
             ExpressionKind::Tuple(expressions) => {
                 let types = expressions
@@ -397,7 +408,7 @@ impl<'a> Validator<'a> {
             }
             ExpressionKind::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
-                if typ != ScriptType::Bool {
+                if ScriptType::Bool.accepts(&typ) {
                     return Err(self.fail(format!("Expected boolean, found {typ}"), &expr.loc));
                 }
                 Ok(ScriptType::Bool)
@@ -527,27 +538,29 @@ impl<'a> Validator<'a> {
                             self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
                             Ok(ScriptType::identity())
                         }
-                        (ScriptType::List(typ), "push") => {
-                            // "Promote" list type, if empty list
-                            let typ = if let ScriptType::Tuple(t) = typ.as_ref()
-                                && t.is_empty()
+                        (ScriptType::EmptyList, "push") => {
+                            // "Promote" list based on the first argument type
+                            if let Some(typ) = args
+                                .first()
+                                .map(|i| self.validate_expr(i, scope))
+                                .transpose()?
                             {
-                                let t = args
-                                    .first()
-                                    .map(|i| self.validate_expr(i, scope))
-                                    .transpose()?;
-
-                                t.unwrap()
+                                // XXX Variadic args not supported (but allowed in runtime)
+                                let params = vec![("".into(), typ.clone())];
+                                self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
+                                Ok(ScriptType::List(typ.into()))
                             } else {
-                                *typ.clone()
-                            };
-
-                            let params = vec![("".into(), typ.clone())];
+                                Ok(ScriptType::EmptyList)
+                            }
+                        }
+                        (ScriptType::List(typ), "push") => {
+                            // XXX Variadic args not supported (but allowed in runtime)
+                            let params = vec![("".into(), *typ.clone())];
                             self.validate_args(&params, args, kwargs, scope, &expr.loc)?;
-                            Ok(ScriptType::List(typ.into()))
+                            Ok(ScriptType::List(typ.clone()))
                         }
                         (ScriptType::Rec { params, .. }, "with") => {
-                            // TODO: Check args
+                            // TODO: Check the args is empty
                             self.validate_kwargs(params, kwargs, scope)?;
 
                             Ok(subject_typ.clone())
@@ -593,7 +606,7 @@ impl<'a> Validator<'a> {
         // Check positional arguments
         for ((_, param_typ), expr) in params.iter().zip(args) {
             let typ = self.validate_expr(expr, scope)?;
-            if typ != *param_typ {
+            if !param_typ.accepts(&typ) {
                 let msg = format!("Expected {param_typ}, found {typ}");
                 return Err(self.fail(msg, &expr.loc));
             }
@@ -640,7 +653,7 @@ impl<'a> Validator<'a> {
 
             if let Some((_, param_typ)) = params.iter().find(|(n, _)| *n == *name) {
                 let typ = self.validate_expr(expr, scope)?;
-                if typ != *param_typ {
+                if !param_typ.accepts(&typ) {
                     return Err(self.fail(format!("Expected {param_typ}, found {typ}"), &expr.loc));
                 }
             } else {
