@@ -167,7 +167,7 @@ fn test_implied_return_wrong_type() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Expected bool, found int")
+        Err(err) => assert_eq!(err.message, "Incompatible return type: Expected bool, found int")
     }
 }
 
@@ -181,6 +181,52 @@ fn test_explicit_return_inside_if() {
                 return "The color is green"
             } else {
                 return "Not green, probably blue"
+            }
+        }
+
+        println(select(Color::Green))
+        println(select(Color::Blue))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("The color is green\nNot green, probably blue\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_implicit_return_inside_if_with_explicit_function_type() {
+    let src = r#"
+        enum Color(Green, Blue)
+
+        fun select(col: Color): str {
+            if col == Color::Green {
+                "The color is green"
+            } else {
+                "Not green, probably blue"
+            }
+        }
+
+        println(select(Color::Green))
+        println(select(Color::Blue))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("The color is green\nNot green, probably blue\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_implicit_return_inside_if_with_inferred_function_type() {
+    let src = r#"
+        enum Color(Green, Blue)
+
+        fun select(col: Color) {
+            if col == Color::Green {
+                "The color is green"
+            } else {
+                "Not green, probably blue"
             }
         }
 
@@ -238,6 +284,115 @@ fn test_explicit_return_inside_range_iteration() {
 
     match check_output(src) {
         Ok(out) => assert_eq!("Found 42\nNot found\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_missing_return_statement() {
+    let src = r#"
+        fun foo(): str {
+            println("foo")
+            println("bar")
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Missing return statement")
+    }
+}
+
+#[test]
+fn test_missing_return_statement_in_one_condition() {
+    let src = r#"
+        fun foo(cond: bool): str {
+            if cond {
+                println("foo")
+                return "foo"
+            } else {
+                println("bar")
+                println("bar")
+            }
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => {
+            println!("{err}");
+            assert_eq!(err.message, "Missing return statement")
+        }
+    }
+}
+
+#[test]
+fn test_missing_return_statement_with_conditional_at_end() {
+    let src = r#"
+        fun foo(cond: bool): str {
+            println("foo")
+            if cond {
+                "foo"
+            } else {
+                "bar"
+            }
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => {
+            println!("{err}");
+            assert_eq!(err.message, "Missing return statement")
+        }
+    }
+}
+
+#[test]
+fn test_return_from_conditional_at_end() {
+    let src = r#"
+        fun foo(cond: bool): str {
+            println("foo")
+            if cond {
+                return "foo"
+            } else {
+                return "bar"
+            }
+        }
+
+        println(foo(false))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("foo\nbar\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_return_from_nested_conditional() {
+    let src = r#"
+        fun foo(a: bool, b: bool): str {
+            if a {
+                if b {
+                    "ab"
+                } else {
+                    "a_"
+                }
+            } else {
+                if b {
+                    "_b"
+                } else {
+                    "__"
+                }
+            }
+        }
+
+        print(foo(false, true))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("_b", out),
         Err(err) => panic!("{err}"),
     }
 }

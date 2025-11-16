@@ -197,7 +197,9 @@ impl Engine {
                             for item in items {
                                 let mut scope = scope.clone();
                                 scope.set_local(Arc::clone(ident), Arc::clone(item));
-                                if let Completion::ExplicitReturn(val) = self.eval_block(body, scope) {
+                                if let Completion::ExplicitReturn(val) =
+                                    self.eval_block(body, scope)
+                                {
                                     return Completion::ExplicitReturn(val);
                                 }
                             }
@@ -207,7 +209,9 @@ impl Engine {
                                 let mut scope = scope.clone();
                                 scope
                                     .set_local(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
-                                if let Completion::ExplicitReturn(val) = self.eval_block(body, scope) {
+                                if let Completion::ExplicitReturn(val) =
+                                    self.eval_block(body, scope)
+                                {
                                     return Completion::ExplicitReturn(val);
                                 }
                             }
@@ -221,21 +225,22 @@ impl Engine {
                     else_body,
                 } => {
                     let val = self.eval_expr(cond, &scope);
-
-                    if let ScriptValue::Boolean(b) = *val {
-                        if b {
-                            let scope = scope.clone();
-                            if let Completion::ExplicitReturn(val) = self.eval_block(body, scope) {
-                                return Completion::ExplicitReturn(val);
-                            }
-                        } else if let Some(else_body) = else_body {
-                            let scope = scope.clone();
-                            if let Completion::ExplicitReturn(val) = self.eval_block(else_body, scope) {
-                                return Completion::ExplicitReturn(val);
-                            }
-                        }
-                    } else {
+                    let ScriptValue::Boolean(val) = *val else {
                         panic!("Not a boolean");
+                    };
+
+                    let branch = if val { Some(body) } else { else_body.as_ref() };
+                    if let Some(block) = branch {
+                        let scope = scope.clone();
+                        match self.eval_block(block, scope) {
+                            Completion::ExplicitReturn(val) => {
+                                return Completion::ExplicitReturn(val);
+                            }
+                            Completion::ImpliedReturn(val) if ast.len() == 1 => {
+                                return Completion::ImpliedReturn(val);
+                            }
+                            _ => (),
+                        }
                     }
                 }
                 AstNode::Expression(expr) => {

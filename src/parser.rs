@@ -212,6 +212,11 @@ impl<'a> Parser<'a> {
                         ast.push(AstNode::Expression(expr));
                     }
                 }
+                TokenKind::String(s) => {
+                    let expr = parse_string(s, token.loc)?;
+                    let expr = self.parse_continuation(expr, 0)?;
+                    ast.push(AstNode::Expression(expr));
+                }
                 TokenKind::LeftSquare => {
                     let list = self.parse_expressions(TokenKind::RightSquare)?;
                     let end = self.expect_kind(TokenKind::RightSquare)?;
@@ -342,7 +347,12 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    fn handle_identifier_expr(&mut self, s: Arc<str>, loc: Range<usize>, bp: u32) -> Result<Expression> {
+    fn handle_identifier_expr(
+        &mut self,
+        s: Arc<str>,
+        loc: Range<usize>,
+        bp: u32,
+    ) -> Result<Expression> {
         if s.as_ref() == "_" {
             return Err(self.fail("Expected identifier", &loc));
         }
@@ -547,9 +557,15 @@ impl<'a> Parser<'a> {
                 let params = p.parse_list(TokenKind::RightParen, |p| p.parse_type_expr())?;
                 let r = p.expect_kind(TokenKind::RightParen)?;
 
-                Ok(Variant { name, type_exprs: params })
+                Ok(Variant {
+                    name,
+                    type_exprs: params,
+                })
             } else {
-                Ok(Variant { name, type_exprs: Default::default() })
+                Ok(Variant {
+                    name,
+                    type_exprs: Default::default(),
+                })
             }
         })
     }

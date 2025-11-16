@@ -53,6 +53,8 @@ impl ScriptType {
             for t in types.iter().skip(1) {
                 if t.accepts(typ) {
                     typ = t;
+                } else if !typ.accepts(t) {
+                    todo!("Handle incompatible types error");
                 }
             }
             Some(typ.clone())
@@ -72,6 +74,17 @@ impl Display for ScriptType {
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => {
                 write!(f, "[{inner}]")
+            }
+            Self::Tuple(inner) => {
+                write!(f, "(")?;
+                if let Some(first) = inner.first() {
+                    write!(f, "{first}")?;
+                    for val in inner.iter().skip(1) {
+                        write!(f, ", {val}")?;
+                    }
+                }
+                write!(f, ")")?;
+                Ok(())
             }
             _ => write!(f, "{:?}", self),
         }
@@ -124,6 +137,28 @@ impl Scope {
         // Make sure we never assign a type to '_'
         if name.as_ref() != "_" {
             self.locals.insert(name, value);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct ReturnType {
+    typ: ScriptType,
+    is_explicit: bool,
+}
+
+impl ReturnType {
+    fn implicit(typ: ScriptType) -> Self {
+        Self {
+            typ,
+            is_explicit: false,
+        }
+    }
+
+    fn explicit(typ: ScriptType) -> Self {
+        Self {
+            typ,
+            is_explicit: true,
         }
     }
 }
@@ -184,27 +219,44 @@ impl<'a> Validator<'a> {
                 AstNode::Function { name, fun } => {
                     let params = self.eval_params(&fun.params, &scope)?;
 
+                    let declared_type = fun
+                        .type_expr
+                        .as_ref()
+                        .map(|expr| self.eval_type_expr(expr, &scope))
+                        .transpose()?;
+
                     let mut inner = scope.clone();
                     for (name, typ) in &params {
                         inner.set_local(Arc::clone(name), typ.clone());
                     }
+                    inner.ret = declared_type.clone();
+                    self.validate_block(&fun.body, inner.clone())?;
 
-                    let ret = match &fun.type_expr {
-                        Some(expr) => self.eval_type_expr(expr, &scope)?,
-                        None => {
-                            // TODO Refactor implied return, and support if/else
-                            if fun.body.len() == 1
-                                && let Some(AstNode::Expression(expr)) = fun.body.first()
-                            {
-                                self.validate_expr(expr, &inner)?
-                            } else {
-                                ScriptType::identity()
-                            }
+                    let found_ret_type = self.eval_return_type(&fun.body, &inner)?;
+                    let found_type = found_ret_type
+                        .as_ref()
+                        .map(|r| r.typ.clone())
+                        .unwrap_or(ScriptType::identity());
+
+                    if let Some(typ) = &declared_type
+                        && !typ.accepts(&found_type)
+                    {
+                        if found_ret_type.is_some() {
+                            return Err(self.fail(
+                                format!(
+                                    "Incompatible return type: Expected {typ}, found {found_type}"
+                                ),
+                                &(0..0), // XXX Need location
+                            ));
+                        } else {
+                            return Err(self.fail("Missing return statement".into(), &(0..0)));
                         }
-                    };
+                    }
 
-                    inner.ret = Some(ret.clone());
-                    self.validate_block(&fun.body, inner)?;
+                    let ret = match (declared_type, found_type) {
+                        (Some(r), _) => r,
+                        (None, r) => r,
+                    };
 
                     scope.set_local(
                         Arc::clone(name),
@@ -293,15 +345,7 @@ impl<'a> Validator<'a> {
                     }
                 }
                 AstNode::Expression(expr) => {
-                    let typ = self.validate_expr(expr, &scope)?;
-
-                    // Check implied return
-                    if ast.len() == 1
-                        && let Some(r) = &scope.ret
-                        && !r.accepts(&typ)
-                    {
-                        return Err(self.fail(format!("Expected {r}, found {typ}"), &expr.loc));
-                    }
+                    self.validate_expr(expr, &scope)?;
                 }
                 AstNode::Return(expr) => {
                     let typ = self.validate_expr(expr, &scope)?;
@@ -320,6 +364,53 @@ impl<'a> Validator<'a> {
         }
 
         Ok(())
+    }
+
+    fn eval_return_type(&self, ast: &[AstNode], scope: &Scope) -> Result<Option<ReturnType>> {
+        let typ = match ast.last() {
+            None => None,
+            Some(AstNode::Return(expr)) => {
+                let typ = self.validate_expr(expr, scope)?;
+                Some(ReturnType::explicit(typ))
+            }
+            Some(AstNode::Expression(expr)) => {
+                if ast.len() == 1 {
+                    let typ = self.validate_expr(expr, scope)?;
+                    Some(ReturnType::implicit(typ))
+                } else {
+                    None
+                }
+            }
+            Some(AstNode::Condition {
+                body, else_body, ..
+            }) => {
+                let ret = self.eval_return_type(body, scope)?;
+
+                if let Some(else_body) = else_body.as_ref() {
+                    let else_ret = self.eval_return_type(else_body, scope)?;
+
+                    match (ret, else_ret) {
+                        (Some(l), Some(r)) => {
+                            let typ = ScriptType::most_specific(&[l.typ.clone(), r.typ.clone()])
+                                .unwrap_or(ScriptType::identity());
+                            if l.is_explicit && r.is_explicit {
+                                Some(ReturnType::explicit(typ))
+                            } else if ast.len() == 1 {
+                                Some(ReturnType::implicit(typ))
+                            } else {
+                                None
+                            }
+                        }
+                        _ => None,
+                    }
+                } else {
+                    ret
+                }
+            }
+            Some(_) => None,
+        };
+
+        Ok(typ)
     }
 
     fn eval_params(
