@@ -43,6 +43,9 @@ impl ScriptType {
             (ScriptType::State(_), _) => false,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
+            (ScriptType::Tuple(l), ScriptType::Tuple(r)) => {
+                l.iter().zip(r).all(|(l, r)| l.accepts(r))
+            }
             _ => *self == *other,
         }
     }

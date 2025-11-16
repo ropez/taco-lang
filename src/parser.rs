@@ -227,13 +227,23 @@ impl<'a> Parser<'a> {
                     ast.push(AstNode::Expression(expr))
                 }
                 TokenKind::LeftParen => {
-                    let idents = self.parse_ident_list()?;
-                    self.expect_kind(TokenKind::RightParen)?;
-                    self.expect_kind(TokenKind::Assign)?; // XXX Can also be a tuple expression
-                    let value = self.parse_expression(0)?;
-                    let assignee = Assignmee::Destructure(idents);
-                    ast.push(AstNode::Assignment { assignee, value });
-                    self.expect_kind(TokenKind::NewLine)?;
+                    if let Some(TokenKind::Identifier(_)) = self.peek_kind() {
+                        let idents = self.parse_ident_list()?;
+                        self.expect_kind(TokenKind::RightParen)?;
+                        self.expect_kind(TokenKind::Assign)?; // XXX Can also be a tuple expression
+                        let value = self.parse_expression(0)?;
+                        let assignee = Assignmee::Destructure(idents);
+                        ast.push(AstNode::Assignment { assignee, value });
+                        self.expect_kind(TokenKind::NewLine)?;
+                    } else {
+                        let list = self.parse_expressions(TokenKind::RightParen)?;
+                        let end = self.expect_kind(TokenKind::RightParen)?;
+                        let loc = wrap_locations(&token.loc, &end.loc);
+
+                        let expr = Expression::new(ExpressionKind::Tuple(list), loc);
+                        let expr = self.parse_continuation(expr, 0)?;
+                        ast.push(AstNode::Expression(expr));
+                    }
                 }
                 TokenKind::If => {
                     let cond = self.parse_expression(0)?;

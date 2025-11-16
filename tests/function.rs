@@ -396,3 +396,20 @@ fn test_return_from_nested_conditional() {
         Err(err) => panic!("{err}"),
     }
 }
+
+#[test]
+fn test_return_implicit_tuple() {
+    let src = r#"
+        fun foo(): (str, [int]) {
+            ("banana", [])
+        }
+
+        (fruit, count) = foo()
+        print(fruit)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("banana", out),
+        Err(err) => panic!("{err}"),
+    }
+}
