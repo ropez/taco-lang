@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Display, ops::Range, sync::Arc};
 
 use crate::{
     error::{Error, Result},
+    fmt::fmt_tuple,
     parser::{
         Arguments, Assignmee, AstNode, Expression, ExpressionKind, Parameter, TypeExpression,
         TypeExpressionKind,
@@ -44,25 +45,9 @@ impl ScriptType {
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => {
-                l.iter().zip(r).all(|(l, r)| l.accepts(r))
+                l.len() == r.len() && l.iter().zip(r).all(|(l, r)| l.accepts(r))
             }
             _ => *self == *other,
-        }
-    }
-
-    fn most_specific(types: &[Self]) -> Option<Self> {
-        if let Some(first) = types.first() {
-            let mut typ = first;
-            for t in types.iter().skip(1) {
-                if t.accepts(typ) {
-                    typ = t;
-                } else if !typ.accepts(t) {
-                    todo!("Handle incompatible types error");
-                }
-            }
-            Some(typ.clone())
-        } else {
-            None
         }
     }
 }
@@ -75,20 +60,8 @@ impl Display for ScriptType {
             Self::Str => write!(f, "str"),
             Self::Enum(name) => write!(f, "{name}"),
             Self::EmptyList => write!(f, "[]"),
-            Self::List(inner) => {
-                write!(f, "[{inner}]")
-            }
-            Self::Tuple(inner) => {
-                write!(f, "(")?;
-                if let Some(first) = inner.first() {
-                    write!(f, "{first}")?;
-                    for val in inner.iter().skip(1) {
-                        write!(f, ", {val}")?;
-                    }
-                }
-                write!(f, ")")?;
-                Ok(())
-            }
+            Self::List(inner) => write!(f, "[{inner}]"),
+            Self::Tuple(inner) => fmt_tuple(f, inner),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -148,20 +121,23 @@ impl Scope {
 struct ReturnType {
     typ: ScriptType,
     is_explicit: bool,
+    loc: Range<usize>,
 }
 
 impl ReturnType {
-    fn implicit(typ: ScriptType) -> Self {
+    fn implicit(typ: ScriptType, loc: Range<usize>) -> Self {
         Self {
             typ,
             is_explicit: false,
+            loc,
         }
     }
 
-    fn explicit(typ: ScriptType) -> Self {
+    fn explicit(typ: ScriptType, loc: Range<usize>) -> Self {
         Self {
             typ,
             is_explicit: true,
+            loc,
         }
     }
 }
@@ -244,14 +220,16 @@ impl<'a> Validator<'a> {
                     if let Some(typ) = &declared_type
                         && !typ.accepts(&found_type)
                     {
-                        if found_ret_type.is_some() {
+                        if let Some(ret) = found_ret_type {
                             return Err(self.fail(
                                 format!(
                                     "Incompatible return type: Expected {typ}, found {found_type}"
                                 ),
-                                &(0..0), // XXX Need location
+                                &ret.loc,
                             ));
                         } else {
+                            // XXX Needs 'loc' for entire block, or enclosing brace, or last
+                            // statement
                             return Err(self.fail("Missing return statement".into(), &(0..0)));
                         }
                     }
@@ -374,12 +352,12 @@ impl<'a> Validator<'a> {
             None => None,
             Some(AstNode::Return(expr)) => {
                 let typ = self.validate_expr(expr, scope)?;
-                Some(ReturnType::explicit(typ))
+                Some(ReturnType::explicit(typ, expr.loc.clone()))
             }
             Some(AstNode::Expression(expr)) => {
                 if ast.len() == 1 {
                     let typ = self.validate_expr(expr, scope)?;
-                    Some(ReturnType::implicit(typ))
+                    Some(ReturnType::implicit(typ, expr.loc.clone()))
                 } else {
                     None
                 }
@@ -394,12 +372,17 @@ impl<'a> Validator<'a> {
 
                     match (ret, else_ret) {
                         (Some(l), Some(r)) => {
-                            let typ = ScriptType::most_specific(&[l.typ.clone(), r.typ.clone()])
-                                .unwrap_or(ScriptType::identity());
+                            let types = vec![
+                                (l.typ.clone(), l.loc.clone()),
+                                (r.typ.clone(), r.loc.clone()),
+                            ];
+                            let typ = self
+                                .most_specific_type(&types)?
+                                .unwrap_or((ScriptType::identity(), 0..0));
                             if l.is_explicit && r.is_explicit {
-                                Some(ReturnType::explicit(typ))
+                                Some(ReturnType::explicit(typ.0, typ.1)) // XXX Use loc of most_specific
                             } else if ast.len() == 1 {
-                                Some(ReturnType::implicit(typ))
+                                Some(ReturnType::implicit(typ.0, typ.1))
                             } else {
                                 None
                             }
@@ -449,19 +432,11 @@ impl<'a> Validator<'a> {
             ExpressionKind::List(expressions) => {
                 let types = expressions
                     .iter()
-                    .map(|i| self.validate_expr(i, scope))
-                    .collect::<Result<Vec<ScriptType>>>()?;
+                    .map(|i| self.validate_expr(i, scope).map(|t| (t, i.loc.clone())))
+                    .collect::<Result<Vec<(ScriptType, Range<usize>)>>>()?;
 
-                if let Some(inner_type) = ScriptType::most_specific(&types) {
-                    for (typ, expr) in types.iter().zip(expressions) {
-                        if !inner_type.accepts(typ) {
-                            return Err(
-                                self.fail(format!("Expected {inner_type}, found {typ}"), &expr.loc)
-                            );
-                        }
-                    }
-
-                    Ok(ScriptType::List(inner_type.into()))
+                if let Some(inner_type) = self.most_specific_type(&types)? {
+                    Ok(ScriptType::List(inner_type.0.into()))
                 } else {
                     Ok(ScriptType::EmptyList)
                 }
@@ -793,6 +768,34 @@ impl<'a> Validator<'a> {
                 let inner = self.eval_type_expr(inner.as_ref(), scope)?;
                 Ok(ScriptType::List(inner.into()))
             }
+        }
+    }
+
+    // Check that all the given types are "compatible", meaning that it's possible
+    // to construct a [list] containing elements of these types. Return the type
+    // the element type that such a list would have.
+    // Locations are included for error formatting. The returned tuple contains
+    // the location of the first found element with the returned type.
+    fn most_specific_type(
+        &self,
+        types: &[(ScriptType, Range<usize>)],
+    ) -> Result<Option<(ScriptType, Range<usize>)>> {
+        let mut iter = types.iter();
+        if let Some(first) = iter.next() {
+            let mut typ = first;
+            for t in iter {
+                if t.0.accepts(&typ.0) {
+                    typ = t;
+                } else if !typ.0.accepts(&t.0) {
+                    return Err(self.fail(
+                        format!("Found incompatible types: {} and {}", t.0, typ.0),
+                        &t.1,
+                    ));
+                }
+            }
+            Ok(Some(typ.clone()))
+        } else {
+            Ok(None)
         }
     }
 

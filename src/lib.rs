@@ -12,6 +12,7 @@ pub mod lexer;
 pub mod parser;
 pub mod validate;
 mod extensions;
+mod fmt;
 
 pub fn check_output(src: &str) -> Result<String> {
     let (mut reader, writer) = pipe().expect("create pipe");

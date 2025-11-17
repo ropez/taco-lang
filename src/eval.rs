@@ -5,9 +5,12 @@ use std::{
     sync::{Arc, Mutex, RwLock},
 };
 
-use crate::parser::{
-    Arguments, Assignmee, AstNode, Enumeration, Expression, ExpressionKind, Function, Parameter,
-    Record,
+use crate::{
+    fmt::{fmt_inner_list, fmt_tuple},
+    parser::{
+        Arguments, Assignmee, AstNode, Enumeration, Expression, ExpressionKind, Function,
+        Parameter, Record,
+    },
 };
 
 #[derive(Debug)]
@@ -66,47 +69,34 @@ impl Display for ScriptValue {
         match self {
             ScriptValue::String(s) => write!(f, "{s}"),
             ScriptValue::Number(n) => write!(f, "{n}"),
-            ScriptValue::Tuple(items) => {
-                write!(f, "(")?;
-                if let Some(first) = items.first() {
-                    write!(f, "{first}")?;
-                    for val in items.iter().skip(1) {
-                        write!(f, ", {val}")?;
-                    }
-                }
-                write!(f, ")")?;
-                Ok(())
-            }
+            ScriptValue::Tuple(items) => fmt_tuple(f, items),
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
             },
             ScriptValue::List(items) => {
                 write!(f, "[")?;
-                if let Some(first) = items.first() {
-                    write!(f, "{first}")?;
-                    for val in items.iter().skip(1) {
-                        write!(f, ", {val}")?;
-                    }
-                }
+                fmt_inner_list(f, items)?;
                 write!(f, "]")?;
                 Ok(())
             }
             ScriptValue::Enum { def, index, values } => {
                 let var = &def.variants[*index];
                 write!(f, "{}", var.name)?;
-                if let Some(first) = values.first() {
-                    write!(f, "({}", first)?;
-                    for val in values.iter().skip(1) {
-                        write!(f, ", {}", val)?;
-                    }
-                    write!(f, ")")?;
+                if !values.is_empty() {
+                    fmt_tuple(f, values)?;
                 }
                 Ok(())
             }
             _ => todo!("Display impl for {self:?}"),
         }
     }
+}
+
+#[derive(Debug)]
+pub struct EvaluatedArguments {
+    pub(crate) args: Vec<Arc<ScriptValue>>,
+    pub(crate) kwargs: Vec<(Arc<str>, Arc<ScriptValue>)>,
 }
 
 #[derive(Debug)]
@@ -391,145 +381,155 @@ impl Engine {
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            ExpressionKind::Call { subject, arguments } => match &subject.kind {
-                ExpressionKind::Ref(name) => match name.as_ref() {
-                    "state" => {
-                        let arg = arguments.args.first().expect("state arg");
-                        let value = self.eval_expr(arg, scope);
-                        Arc::new(ScriptValue::State(RwLock::new(value)))
-                    }
-                    _ => {
-                        if let Some((fun, captured_scope)) = scope.functions.get(name) {
-                            let values = self.eval_args(&fun.params, arguments, scope);
-
-                            let mut inner_scope = captured_scope.clone();
-
-                            for (ident, val) in fun.params.iter().zip(values) {
-                                inner_scope.set_local(ident.name.clone(), val);
-                            }
-
-                            let c = self.eval_block(&fun.body, inner_scope);
-
-                            match c {
-                                Completion::EndOfBlock => Arc::new(ScriptValue::identity()),
-                                Completion::ExplicitReturn(v) => v,
-                                Completion::ImpliedReturn(v) => v,
-                            }
-                        } else if let Some(rec) = scope.records.get(name) {
-                            let values = self.eval_args(&rec.params, arguments, scope);
-
-                            let instance = ScriptValue::Rec {
-                                rec: Arc::clone(rec),
-                                values,
-                            };
-
-                            Arc::new(instance)
-                        } else if let Some(func) = self.globals.get(name) {
-                            // XXX eval_args like script function
-                            let values: Vec<_> = arguments
-                                .args
-                                .iter()
-                                .map(|e| self.eval_expr(e, scope))
-                                .collect();
-                            let mut func = func.lock().unwrap();
-                            let ret = func(&values);
-                            Arc::new(ret)
-                        } else {
-                            panic!("Undefined function: {subject:?}")
-                        }
-                    }
-                },
-                ExpressionKind::PrefixedName(prefix, name) => match scope.enums.get(prefix) {
-                    Some(v) => {
-                        if let Some((index, variant)) =
-                            v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
-                        {
-                            // XXX Clunky and unnatural to just ignore kwargs here
-
-                            let values = arguments
-                                .args
-                                .iter()
-                                .map(|arg| self.eval_expr(arg, scope))
-                                .collect();
-                            Arc::new(ScriptValue::Enum {
-                                def: Arc::clone(v),
-                                index,
-                                values,
-                            })
-                        } else {
-                            panic!("Enum variant not found: {name} in {prefix}");
-                        }
-                    }
-                    None => panic!("Enum not found: {prefix}"),
-                },
-                ExpressionKind::Access { subject, key } => {
-                    let subject = self.eval_expr(subject, scope);
-                    match (subject.as_ref(), key.as_ref()) {
-                        (ScriptValue::State(state), "get") => {
-                            let v = state.read().unwrap();
-                            Arc::clone(v.deref())
-                        }
-                        (ScriptValue::State(state), "set") => {
-                            let val = arguments.args.first().expect("get arg");
-                            let val = self.eval_expr(val, scope);
-                            let mut v = state.write().unwrap();
-                            *v = val;
-                            Arc::new(ScriptValue::identity())
-                        }
-                        (ScriptValue::List(list), "push") => {
-                            // This is the Copy on Write feature of the language in play.
-                            // Can we avoid copy, if we see that the original will not be used again?
-                            let mut res = list.clone();
-                            for expr in &arguments.args {
-                                res.push(self.eval_expr(expr, scope));
-                            }
-                            Arc::new(ScriptValue::List(res))
-                        }
-                        (ScriptValue::Rec { rec, values }, "with") => {
-                            let mut new_values = values.clone();
-
-                            for (param, v) in rec.params.iter().zip(new_values.iter_mut()) {
-                                if let Some((_, expr)) =
-                                    arguments.kwargs.iter().find(|(k, _)| *k == param.name)
-                                {
-                                    *v = self.eval_expr(expr, scope);
-                                }
-                            }
-
-                            let instance = ScriptValue::Rec {
-                                rec: Arc::clone(rec),
-                                values: new_values,
-                            };
-                            Arc::new(instance)
-                        }
-                        _ => panic!("Unknown method: {key} on {subject:?}"),
-                    }
-                }
-                _ => panic!("Call on something that's not a ref"),
-            },
-            // _ => unimplemented!("Expression: {expr:?}"),
+            ExpressionKind::Call { subject, arguments } => {
+                self.eval_call(subject, arguments, scope)
+            }
         }
     }
 
-    fn eval_args(
+    fn eval_call(
         &self,
-        params: &[Parameter],
+        subject: &Expression,
         arguments: &Arguments,
         scope: &Scope,
-    ) -> Vec<Arc<ScriptValue>> {
-        let mut values: Vec<_> = arguments
+    ) -> Arc<ScriptValue> {
+        let arguments = self.eval_args(arguments, scope);
+        match &subject.kind {
+            ExpressionKind::Ref(name) => match name.as_ref() {
+                "state" => {
+                    let arg = Arc::clone(arguments.args.first().expect("state arg"));
+                    Arc::new(ScriptValue::State(RwLock::new(arg)))
+                }
+                _ => {
+                    if let Some((fun, captured_scope)) = scope.functions.get(name) {
+                        let mut inner_scope = captured_scope.clone();
+
+                        let values = self.apply_args_to_params(&fun.params, arguments);
+                        for (ident, val) in fun.params.iter().zip(values) {
+                            inner_scope.set_local(ident.name.clone(), val);
+                        }
+
+                        match self.eval_block(&fun.body, inner_scope) {
+                            Completion::EndOfBlock => Arc::new(ScriptValue::identity()),
+                            Completion::ExplicitReturn(v) => v,
+                            Completion::ImpliedReturn(v) => v,
+                        }
+                    } else if let Some(rec) = scope.records.get(name) {
+                        let values = self.apply_args_to_params(&rec.params, arguments);
+
+                        let instance = ScriptValue::Rec {
+                            rec: Arc::clone(rec),
+                            values,
+                        };
+
+                        Arc::new(instance)
+                    } else if let Some(func) = self.globals.get(name) {
+                        let values = arguments.args;
+                        let mut func = func.lock().unwrap();
+                        let ret = func(&values);
+                        Arc::new(ret)
+                    } else {
+                        panic!("Undefined function: {subject:?}")
+                    }
+                }
+            },
+            ExpressionKind::PrefixedName(prefix, name) => {
+                if let Some(v) = scope.enums.get(prefix) {
+                    if let Some((index, variant)) =
+                        v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
+                    {
+                        // XXX Clunky and unnatural to just ignore kwargs here
+                        let values = arguments.args;
+
+                        Arc::new(ScriptValue::Enum {
+                            def: Arc::clone(v),
+                            index,
+                            values,
+                        })
+                    } else {
+                        panic!("Enum variant not found: {name} in {prefix}");
+                    }
+                } else {
+                    panic!("Enum not found: {prefix}")
+                }
+            }
+            ExpressionKind::Access { subject, key } => {
+                let subject = self.eval_expr(subject, scope);
+                match (subject.as_ref(), key.as_ref()) {
+                    (ScriptValue::State(state), "get") => {
+                        let v = state.read().unwrap();
+                        Arc::clone(v.deref())
+                    }
+                    (ScriptValue::State(state), "set") => {
+                        if let Some(val) = arguments.args.first() {
+                            let mut v = state.write().unwrap();
+                            *v = Arc::clone(val);
+                        }
+                        Arc::new(ScriptValue::identity())
+                    }
+                    (ScriptValue::List(list), "push") => {
+                        // This is the Copy on Write feature of the language in play.
+                        // Can we avoid copy, if we see that the original will not be used again?
+                        let mut res = list.clone();
+                        for value in &arguments.args {
+                            res.push(Arc::clone(value));
+                        }
+                        Arc::new(ScriptValue::List(res))
+                    }
+                    (ScriptValue::Rec { rec, values }, "with") => {
+                        let mut new_values = values.clone();
+
+                        // XXX Should be possible to use "apply" here as well
+
+                        for (param, v) in rec.params.iter().zip(new_values.iter_mut()) {
+                            if let Some((_, value)) =
+                                arguments.kwargs.iter().find(|(k, _)| *k == param.name)
+                            {
+                                *v = Arc::clone(value);
+                            }
+                        }
+
+                        Arc::new(ScriptValue::Rec {
+                            rec: Arc::clone(rec),
+                            values: new_values,
+                        })
+                    }
+                    _ => panic!("Unknown method: {key} on {subject:?}"),
+                }
+            }
+            _ => panic!("Call on something that's not a ref"),
+        }
+    }
+
+    fn eval_args(&self, arguments: &Arguments, scope: &Scope) -> EvaluatedArguments {
+        let args: Vec<_> = arguments
             .args
             .iter()
             .map(|a| self.eval_expr(a, scope))
             .collect();
 
-        for param in &params[arguments.args.len()..] {
+        let kwargs: Vec<_> = arguments
+            .kwargs
+            .iter()
+            .map(|(k, a)| (Arc::clone(k), self.eval_expr(a, scope)))
+            .collect();
+
+        EvaluatedArguments { args, kwargs }
+    }
+
+    fn apply_args_to_params(
+        &self,
+        params: &[Parameter],
+        arguments: EvaluatedArguments,
+    ) -> Vec<Arc<ScriptValue>> {
+        let mut values = arguments.args;
+        for param in &params[values.len()..] {
             if let Some((_, value)) = arguments
                 .kwargs
                 .iter()
                 .find(|(name, _)| *name == param.name)
             {
-                values.push(self.eval_expr(value, scope));
+                values.push(Arc::clone(value));
             } else {
                 panic!("Missing argument: {}", param.name);
             }
