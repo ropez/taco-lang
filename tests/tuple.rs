@@ -75,3 +75,58 @@ fn test_discarded_value_not_assigned() {
         Err(err) => assert_eq!(err.message, "Expected identifier"),
     };
 }
+
+#[test]
+fn test_named_tuple() {
+    let src = r#"
+        pos = (lat: 23, lon: 69)
+        println("$pos")
+        (lat, lon) = pos
+        println("$lat / $lon")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "(lat: 23, lon: 69)\n23 / 69\n"),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_named_tuple_destruction() {
+    let src = r#"
+        fun foo(tup: (name: str, age: int)) {
+            (name, age) = tup
+            print("name: $name, age: $age")
+        }
+
+        # tup = (age: 25, name: "Erling")
+        tup = ("Erling", 25)
+        foo(tup, foo: tup)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "name: Erling, age: 25"),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_type_checking_formal_to_formal() {
+    let src = r#"
+        fun foo(tup: (str, name: str, age: int, more: str)): str {
+            (_, name, _, _) = tup
+            return name
+        }
+
+        fun bar(tup: (str, str, age: int, str)): str {
+            foo(tup)
+        }
+
+        print(bar(("", "ok", 42, "")))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "ok"),
+        Err(err) => panic!("{err}"),
+    };
+}

@@ -102,3 +102,21 @@ fn test_record_with_method() {
 
     assert_eq!("per\nfoo@bar.com\nper\nnew@email.com\n", out);
 }
+
+#[test]
+fn test_record_with_unnamed_params() {
+    // Not so useful atm, but later with patterm-matching, destructuring etc
+    let src = r#"
+        rec Person(str, str)
+
+        per = Person("foo@bar.com", "per")
+
+        print("$per")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "Person(foo@bar.com, per)"),
+        Err(err) => panic!("{err}"),
+    };
+
+}

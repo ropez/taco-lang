@@ -1,17 +1,21 @@
-use std::{collections::HashMap, fs, sync::Arc};
+use std::{collections::HashMap, fs};
 
-use crate::{eval::ScriptValue, extensions::ExtensionFunction, validate::ScriptType};
+use crate::{
+    eval::{ArgumentValues, ScriptValue},
+    extensions::ExtensionFunction,
+    validate::{FormalArgument, FormalArguments, ScriptType},
+};
 
 pub fn create() -> HashMap<String, ExtensionFunction> {
+    let mut ext = HashMap::new();
+
     let read_type = ScriptType::Function {
-        params: vec![("_".into(), ScriptType::Str)],
+        params: FormalArguments::from(vec![FormalArgument::unnamed(ScriptType::Str)]),
         ret: Box::new(ScriptType::Str),
     };
 
-    let mut ext = HashMap::new();
-
-    let read_fn = move |args: &[Arc<ScriptValue>]| {
-        let Some(name) = args.first() else {
+    let read_fn = move |arguments: ArgumentValues| {
+        let Some(name) = arguments.args.first() else {
             todo!("Return errors from extensions")
         };
 
@@ -31,6 +35,51 @@ pub fn create() -> HashMap<String, ExtensionFunction> {
         ExtensionFunction {
             script_type: read_type.clone(),
             func: Box::new(read_fn),
+        },
+    );
+
+    // We need "json" to be a method, so that it can handle different types of data.
+    // Maybe extenstions need to "plug in" to the type system/analyzer.
+
+    let json_type = ScriptType::Function {
+        params: FormalArguments::from(vec![FormalArgument::unnamed(ScriptType::List(
+            ScriptType::Str.into(),
+        ))]),
+        ret: Box::new(ScriptType::Str),
+    };
+
+    let json_fn = move |arguments: ArgumentValues| {
+        let Some(value) = arguments.args.first() else {
+            todo!("Return errors from extensions")
+        };
+
+        match value.as_ref() {
+            ScriptValue::List(list) => {
+                let mut s = String::new();
+
+                s.push_str("[");
+                let mut iter = list.iter();
+                if let Some(val) = iter.next() {
+                    match val.as_ref() {
+                        ScriptValue::String(v) => s.push_str(v),
+                        _ => todo!("Serialize {val:?}"),
+                    }
+                }
+                s.push_str("]");
+
+                ScriptValue::String(s.into())
+            }
+            _ => {
+                todo!("Return errors from extensions")
+            }
+        }
+    };
+
+    ext.insert(
+        "json".into(),
+        ExtensionFunction {
+            script_type: json_type.clone(),
+            func: Box::new(json_fn),
         },
     );
 

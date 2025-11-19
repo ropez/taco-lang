@@ -9,7 +9,7 @@ use crate::{
     },
 };
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ScriptType {
     Bool,
     Int,
@@ -17,15 +17,15 @@ pub enum ScriptType {
     Str,
     EmptyList,
     List(Box<ScriptType>),
-    Tuple(Vec<ScriptType>),
+    Tuple(FormalArguments),
     Enum(Arc<str>),
     Function {
-        params: Vec<(Arc<str>, ScriptType)>,
+        params: FormalArguments,
         ret: Box<ScriptType>,
     },
     Rec {
         name: Arc<str>,
-        params: Vec<(Arc<str>, ScriptType)>,
+        params: FormalArguments,
     },
     State(Box<ScriptType>),
 }
@@ -36,7 +36,7 @@ pub enum ScriptType {
 impl ScriptType {
     // Use () to represent nothing, like Rust
     pub const fn identity() -> Self {
-        Self::Tuple(Vec::new())
+        Self::Tuple(FormalArguments::empty())
     }
 
     fn accepts(&self, other: &ScriptType) -> bool {
@@ -44,9 +44,7 @@ impl ScriptType {
             (ScriptType::State(_), _) => false,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
-            (ScriptType::Tuple(l), ScriptType::Tuple(r)) => {
-                l.len() == r.len() && l.iter().zip(r).all(|(l, r)| l.accepts(r))
-            }
+            (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
             _ => *self == *other,
         }
     }
@@ -61,7 +59,7 @@ impl Display for ScriptType {
             Self::Enum(name) => write!(f, "{name}"),
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => write!(f, "[{inner}]"),
-            Self::Tuple(inner) => fmt_tuple(f, inner),
+            Self::Tuple(arguments) => write!(f, "{arguments}"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -71,7 +69,7 @@ impl Display for ScriptType {
 pub enum TypeDefinition {
     RecDefinition {
         name: Arc<str>,
-        params: Vec<(Arc<str>, ScriptType)>,
+        params: FormalArguments,
     },
     EnumDefinition(Arc<EnumDefinition>),
 }
@@ -85,7 +83,118 @@ pub struct EnumDefinition {
 #[derive(Debug)]
 struct EnumVariant {
     name: Arc<str>,
-    params: Vec<ScriptType>,
+    params: FormalArguments,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormalArgument {
+    name: Option<Arc<str>>,
+    typ: ScriptType,
+}
+
+impl FormalArgument {
+    pub fn new(name: Option<Arc<str>>, typ: ScriptType) -> Self {
+        Self { name, typ }
+    }
+
+    pub fn named(name: Arc<str>, typ: ScriptType) -> Self {
+        Self::new(Some(name), typ)
+    }
+
+    pub fn unnamed(typ: ScriptType) -> Self {
+        Self::new(None, typ)
+    }
+}
+
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct FormalArguments(Vec<FormalArgument>);
+
+impl From<Vec<FormalArgument>> for FormalArguments {
+    fn from(args: Vec<FormalArgument>) -> Self {
+        FormalArguments(args)
+    }
+}
+
+impl FormalArguments {
+    const fn empty() -> Self {
+        FormalArguments(Vec::new())
+    }
+
+    fn accepts(&self, other: &FormalArguments) -> bool {
+        // Check params by strict position:
+        // - Types must match
+        // - If left has no name, right must have no name
+        // - If left has name, right must have no name, or the same name
+
+        for (l, r) in self.0.iter().zip(&other.0) {
+            match (&l.name, &r.name) {
+                (None, Some(_)) => return false,
+                (Some(l), Some(r)) if *l != *r => return false,
+                _ => {
+                    if !l.typ.accepts(&r.typ) {
+                        return false;
+                    }
+                }
+            }
+        }
+
+        true
+    }
+}
+
+impl Display for FormalArguments {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // XXX FIXME Ineffective
+        let items: Vec<_> = self
+            .0
+            .iter()
+            .map(|a| match (&a.name, &a.typ) {
+                (Some(name), t) => format!("{name}: {t}"),
+                (None, t) => format!("{t}"),
+            })
+            .collect();
+        fmt_tuple(f, &items)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EvaluatedType(ScriptType, Range<usize>);
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AppliedArguments {
+    pub(crate) args: Vec<EvaluatedType>,
+    pub(crate) kwargs: Vec<(Arc<str>, EvaluatedType)>,
+    pub(crate) loc: Range<usize>,
+}
+
+impl AppliedArguments {
+    fn into_formal(self) -> FormalArguments {
+        let args = self
+            .args
+            .into_iter()
+            .map(|t| FormalArgument::unnamed(t.0))
+            .chain(
+                self.kwargs
+                    .into_iter()
+                    .map(|(n, t)| FormalArgument::named(n, t.0)),
+            )
+            .collect();
+
+        FormalArguments(args)
+    }
+}
+
+impl Display for AppliedArguments {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // XXX FIXME Ineffective
+        let items: Vec<_> = self
+            .args
+            .iter()
+            .map(|a| format!("{}", a.0))
+            .chain(self.kwargs.iter().map(|(n, a)| format!("{n}: {}", a.0)))
+            .collect();
+        fmt_tuple(f, &items)
+    }
 }
 
 #[derive(Default, Clone)]
@@ -162,10 +271,11 @@ impl<'a> Validator<'a> {
     }
 
     pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
-        self.validate_block(ast, Scope::with_globals(&self.globals))
+        self.validate_block(ast, Scope::with_globals(&self.globals))?;
+        Ok(())
     }
 
-    fn validate_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<()> {
+    fn validate_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<Scope> {
         for node in ast {
             match node {
                 AstNode::Assignment { assignee, value } => match assignee {
@@ -175,10 +285,16 @@ impl<'a> Validator<'a> {
                     }
                     Assignmee::Destructure(names) => {
                         let typ = self.validate_expr(value, &scope)?;
-                        if let ScriptType::Tuple(types) = typ {
+
+                        if let ScriptType::Tuple(params) = typ {
+                            // XXX Support named formal args (lhs pattern)
+                            // This should be the same as applying args when calling a function
+
+                            let types: Vec<_> = params.0.iter().map(|a| a.typ.clone()).collect();
+
                             if names.len() == types.len() {
                                 for (n, t) in names.iter().zip(types) {
-                                    scope.set_local(Arc::clone(n), t);
+                                    scope.set_local(Arc::clone(n), t.clone());
                                 }
                             } else {
                                 return Err(self.fail(
@@ -205,11 +321,13 @@ impl<'a> Validator<'a> {
                         .transpose()?;
 
                     let mut inner = scope.clone();
-                    for (name, typ) in &params {
-                        inner.set_local(Arc::clone(name), typ.clone());
+                    for arg in &params.0 {
+                        if let Some(name) = &arg.name {
+                            inner.set_local(Arc::clone(name), arg.typ.clone());
+                        }
                     }
                     inner.ret = declared_type.clone();
-                    self.validate_block(&fun.body, inner.clone())?;
+                    let inner = self.validate_block(&fun.body, inner.clone())?;
 
                     let found_ret_type = self.eval_return_type(&fun.body, &inner)?;
                     let found_type = found_ret_type
@@ -265,11 +383,7 @@ impl<'a> Validator<'a> {
                             .variants
                             .iter()
                             .map(|v| {
-                                let params = v
-                                    .type_exprs
-                                    .iter()
-                                    .map(|expr| self.eval_type_expr(expr, &scope))
-                                    .collect::<Result<Vec<ScriptType>>>()?;
+                                let params = self.eval_params(&v.params, &scope)?;
                                 Ok(EnumVariant {
                                     name: Arc::clone(&v.name),
                                     params,
@@ -344,7 +458,7 @@ impl<'a> Validator<'a> {
             }
         }
 
-        Ok(())
+        Ok(scope)
     }
 
     fn eval_return_type(&self, ast: &[AstNode], scope: &Scope) -> Result<Option<ReturnType>> {
@@ -373,14 +487,14 @@ impl<'a> Validator<'a> {
                     match (ret, else_ret) {
                         (Some(l), Some(r)) => {
                             let types = vec![
-                                (l.typ.clone(), l.loc.clone()),
-                                (r.typ.clone(), r.loc.clone()),
+                                EvaluatedType(l.typ.clone(), l.loc.clone()),
+                                EvaluatedType(r.typ.clone(), r.loc.clone()),
                             ];
                             let typ = self
                                 .most_specific_type(&types)?
-                                .unwrap_or((ScriptType::identity(), 0..0));
+                                .unwrap_or(EvaluatedType(ScriptType::identity(), 0..0));
                             if l.is_explicit && r.is_explicit {
-                                Some(ReturnType::explicit(typ.0, typ.1)) // XXX Use loc of most_specific
+                                Some(ReturnType::explicit(typ.0, typ.1))
                             } else if ast.len() == 1 {
                                 Some(ReturnType::implicit(typ.0, typ.1))
                             } else {
@@ -399,18 +513,20 @@ impl<'a> Validator<'a> {
         Ok(typ)
     }
 
-    fn eval_params(
-        &self,
-        params: &[Parameter],
-        scope: &Scope,
-    ) -> Result<Vec<(Arc<str>, ScriptType)>> {
-        params
-            .iter()
-            .map(|p| {
-                let typ = self.eval_type_expr(&p.type_expr, scope)?;
-                Ok((Arc::clone(&p.name), typ))
-            })
-            .collect()
+    fn eval_params(&self, params: &[Parameter], scope: &Scope) -> Result<FormalArguments> {
+        let mut res = FormalArguments::empty();
+
+        for param in params {
+            let typ = self.eval_type_expr(&param.type_expr, scope)?;
+            res.0.push(FormalArgument::new(param.name.clone(), typ))
+        }
+
+        Ok(res)
+    }
+
+    fn eval_expr(&self, expr: &Expression, scope: &Scope) -> Result<EvaluatedType> {
+        let typ = self.validate_expr(expr, scope)?;
+        Ok(EvaluatedType(typ, expr.loc.clone()))
     }
 
     fn validate_expr(&self, expr: &Expression, scope: &Scope) -> Result<ScriptType> {
@@ -432,8 +548,11 @@ impl<'a> Validator<'a> {
             ExpressionKind::List(expressions) => {
                 let types = expressions
                     .iter()
-                    .map(|i| self.validate_expr(i, scope).map(|t| (t, i.loc.clone())))
-                    .collect::<Result<Vec<(ScriptType, Range<usize>)>>>()?;
+                    .map(|i| {
+                        self.validate_expr(i, scope)
+                            .map(|t| EvaluatedType(t, i.loc.clone()))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
 
                 if let Some(inner_type) = self.most_specific_type(&types)? {
                     Ok(ScriptType::List(inner_type.0.into()))
@@ -441,13 +560,10 @@ impl<'a> Validator<'a> {
                     Ok(ScriptType::EmptyList)
                 }
             }
-            ExpressionKind::Tuple(expressions) => {
-                let types = expressions
-                    .iter()
-                    .map(|i| self.validate_expr(i, scope))
-                    .collect::<Result<Vec<ScriptType>>>()?;
+            ExpressionKind::Tuple(args) => {
+                let applied = self.eval_args(args, scope)?;
 
-                Ok(ScriptType::Tuple(types))
+                Ok(ScriptType::Tuple(applied.into_formal()))
             }
             ExpressionKind::Ref(ident) => match scope.get_local(ident) {
                 None => Err(self.fail(format!("Undefined reference: {ident}"), &expr.loc)),
@@ -471,8 +587,8 @@ impl<'a> Validator<'a> {
                 let subject_typ = self.validate_expr(subject, scope)?;
                 match &subject_typ {
                     ScriptType::Rec { params, .. } => {
-                        match params.iter().find(|(k, _)| *k == *key) {
-                            Some((_, typ)) => Ok(typ.clone()),
+                        match params.0.iter().find(|a| a.name.as_ref() == Some(key)) {
+                            Some(a) => Ok(a.typ.clone()),
                             None => Err(self.fail(
                                 format!("Unknown attribute: {key} on {subject_typ}"),
                                 &expr.loc,
@@ -545,7 +661,8 @@ impl<'a> Validator<'a> {
                     }
                     _ => match scope.get_local(name) {
                         Some(ScriptType::Function { params, ret }) => {
-                            self.validate_args(params, arguments, scope, &expr.loc)?;
+                            let arguments = self.eval_args(arguments, scope)?;
+                            self.validate_args(params, &arguments)?;
 
                             Ok(*ret.clone())
                         }
@@ -554,16 +671,18 @@ impl<'a> Validator<'a> {
                         }
                         None => match scope.types.get(name) {
                             Some(TypeDefinition::RecDefinition { params, name }) => {
-                                self.validate_args(params, arguments, scope, &expr.loc)?;
+                                let arguments = self.eval_args(arguments, scope)?;
+                                self.validate_args(params, &arguments)?;
 
                                 Ok(ScriptType::Rec {
                                     params: params.clone(),
                                     name: Arc::clone(name),
                                 })
                             }
-                            Some(TypeDefinition::EnumDefinition(_)) => {
-                                todo!("call on enum variant")
-                            }
+                            Some(TypeDefinition::EnumDefinition(_)) => Err(self.fail(
+                                format!("Expected a callable, found enum {name}"),
+                                &subject.loc,
+                            )),
                             None => {
                                 Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
                             }
@@ -572,27 +691,17 @@ impl<'a> Validator<'a> {
                 },
                 ExpressionKind::PrefixedName(prefix, name) => {
                     match scope.types.get(prefix) {
-                        Some(TypeDefinition::RecDefinition { .. }) => todo!("rec call"),
+                        Some(TypeDefinition::RecDefinition { name: rec_name, .. }) => {
+                            // TODO Associated methods like Record::foo()
+                            Err(self.fail(
+                                format!("Method not found: '{name}' for {rec_name}"),
+                                &expr.loc,
+                            ))
+                        }
                         Some(TypeDefinition::EnumDefinition(def)) => {
                             if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
-                                // XXX Need to get rid of kwargs here. Maybe this shouldn't be a Call expression, but something like the literal Tuple expression
-                                // XXX Feels like we're re-implementing everything from Tuple
-                                let expected_type = &var.params;
-                                let actual_type = arguments
-                                    .args
-                                    .iter()
-                                    .map(|expr| self.validate_expr(expr, scope))
-                                    .collect::<Result<Vec<ScriptType>>>()?;
-
-                                if *expected_type != actual_type {
-                                    return Err(self.fail(
-                                        format!(
-                                            "Expected {expected_type:?}, found {actual_type:?}"
-                                        ),
-                                        &expr.loc,
-                                    ));
-                                }
-
+                                let arguments = self.eval_args(arguments, scope)?;
+                                self.validate_args(&var.params, &arguments)?;
                                 Ok(ScriptType::Enum(Arc::clone(prefix)))
                             } else {
                                 Err(self.fail(
@@ -607,11 +716,17 @@ impl<'a> Validator<'a> {
                 ExpressionKind::Access { subject, key } => {
                     let subject_typ = self.validate_expr(subject, scope)?;
                     match (&subject_typ, key.as_ref()) {
-                        (ScriptType::State(typ), "get") => Ok(*typ.clone()),
+                        (ScriptType::State(typ), "get") => {
+                            let arguments = self.eval_args(arguments, scope)?;
+                            self.validate_args(&FormalArguments::empty(), &arguments)?;
+                            Ok(*typ.clone())
+                        }
                         (ScriptType::State(typ), "set") => {
                             // Simulate normal function call
-                            let params = vec![("".into(), *typ.clone())];
-                            self.validate_args(&params, arguments, scope, &expr.loc)?;
+                            let formal =
+                                FormalArguments(vec![FormalArgument::unnamed(*typ.clone())]);
+                            let arguments = self.eval_args(arguments, scope)?;
+                            self.validate_args(&formal, &arguments)?;
                             Ok(ScriptType::identity())
                         }
                         (ScriptType::EmptyList, "push") => {
@@ -623,8 +738,10 @@ impl<'a> Validator<'a> {
                                 .transpose()?
                             {
                                 // XXX Variadic args not supported (but allowed in runtime)
-                                let params = vec![("".into(), typ.clone())];
-                                self.validate_args(&params, arguments, scope, &expr.loc)?;
+                                let formal =
+                                    FormalArguments(vec![FormalArgument::unnamed(typ.clone())]);
+                                let arguments = self.eval_args(arguments, scope)?;
+                                self.validate_args(&formal, &arguments)?;
                                 Ok(ScriptType::List(typ.into()))
                             } else {
                                 Ok(ScriptType::EmptyList)
@@ -632,13 +749,17 @@ impl<'a> Validator<'a> {
                         }
                         (ScriptType::List(typ), "push") => {
                             // XXX Variadic args not supported (but allowed in runtime)
-                            let params = vec![("".into(), *typ.clone())];
-                            self.validate_args(&params, arguments, scope, &expr.loc)?;
+                            let formal =
+                                FormalArguments(vec![FormalArgument::unnamed(*typ.clone())]);
+                            let arguments = self.eval_args(arguments, scope)?;
+                            self.validate_args(&formal, &arguments)?;
                             Ok(ScriptType::List(typ.clone()))
                         }
                         (ScriptType::Rec { params, .. }, "with") => {
-                            // TODO: Check that args is empty
-                            self.validate_kwargs(params, &arguments.kwargs, scope)?;
+                            let args = self.eval_args(arguments, scope)?;
+
+                            // XXX FIXME Non-mandatory args:
+                            // self.validate_applied_args(params, &args)?;
 
                             Ok(subject_typ.clone())
                         }
@@ -672,70 +793,60 @@ impl<'a> Validator<'a> {
         Ok(ScriptType::Int)
     }
 
-    fn validate_args(
-        &self,
-        params: &[(Arc<str>, ScriptType)],
-        arguments: &Arguments,
-        scope: &Scope,
-        loc: &Range<usize>,
-    ) -> Result<()> {
-        // Check positional arguments
-        for ((_, param_typ), expr) in params.iter().zip(&arguments.args) {
-            let typ = self.validate_expr(expr, scope)?;
-            if !param_typ.accepts(&typ) {
-                let msg = format!("Expected {param_typ}, found {typ}");
-                return Err(self.fail(msg, &expr.loc));
-            }
-        }
+    fn eval_args(&self, arguments: &Arguments, scope: &Scope) -> Result<AppliedArguments> {
+        let args = arguments
+            .args
+            .iter()
+            .map(|a| self.eval_expr(a, scope))
+            .collect::<Result<Vec<_>>>()?;
 
-        // Check number of positional args
-        if arguments.args.len() > params.len() {
-            return Err(self.fail(
-                format!(
-                    "Too many positional arguments: {} found, {} expected",
-                    arguments.args.len(),
-                    params.len()
-                ),
-                loc,
-            ));
-        }
+        let kwargs = arguments
+            .kwargs
+            .iter()
+            .map(|(k, a)| {
+                let typ = self.eval_expr(a, scope)?;
+                Ok((Arc::clone(k), typ))
+            })
+            .collect::<Result<Vec<_>>>()?;
 
-        // Check kwargs against remaining params
-        self.validate_kwargs(&params[arguments.args.len()..], &arguments.kwargs, scope)?;
-
-        // Check that all params are given
-        for (name, _) in &params[arguments.args.len()..] {
-            if !arguments.kwargs.iter().any(|(n, _)| *n == *name) {
-                return Err(self.fail(format!("Missing argument: {}", name), loc));
-            }
-        }
-
-        Ok(())
+        Ok(AppliedArguments {
+            args,
+            kwargs,
+            loc: arguments.loc.clone(),
+        })
     }
 
-    fn validate_kwargs(
-        &self,
-        params: &[(Arc<str>, ScriptType)],
-        kwargs: &[(Arc<str>, Expression)],
-        scope: &Scope,
-    ) -> Result<()> {
-        let mut found = Vec::new();
-
-        for (name, expr) in kwargs {
-            if found.contains(name) {
-                return Err(self.fail(format!("Duplicate keyword argument: {name}"), &expr.loc));
-            }
-            found.push(Arc::clone(name));
-
-            if let Some((_, param_typ)) = params.iter().find(|(n, _)| *n == *name) {
-                let typ = self.validate_expr(expr, scope)?;
-                if !param_typ.accepts(&typ) {
-                    return Err(self.fail(format!("Expected {param_typ}, found {typ}"), &expr.loc));
+    fn validate_args(&self, formal: &FormalArguments, other: &AppliedArguments) -> Result<()> {
+        for (i, formal_arg) in formal.0.iter().enumerate() {
+            if let Some(arg) = other.args.get(i) {
+                if !formal_arg.typ.accepts(&arg.0) {
+                    return Err(
+                        self.fail(format!("Expected {} got {}", formal_arg.typ, arg.0), &arg.1)
+                    );
+                }
+            } else if let Some(name) = &formal_arg.name {
+                // Assuming formal args have unique names
+                if let Some((_, arg)) = other.kwargs.iter().find(|(n, _)| *n == *name) {
+                    if !formal_arg.typ.accepts(&arg.0) {
+                        return Err(
+                            self.fail(format!("Expected {} got {}", formal_arg.typ, arg.0), &arg.1)
+                        );
+                    }
+                } else {
+                    return Err(self.fail(
+                        format!("Missing argument {name}, expected {formal} got {other}"),
+                        &other.loc,
+                    ));
                 }
             } else {
-                return Err(self.fail(format!("Argument not found, {name}"), &expr.loc));
+                return Err(self.fail(
+                    format!("Missing positional argument {i}, expected {formal} got {other}"),
+                    &other.loc,
+                ));
             }
         }
+
+        // XXX Fail if there are additional kwargs?
 
         Ok(())
     }
@@ -757,11 +868,8 @@ impl<'a> Validator<'a> {
                     None => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
                 },
             },
-            TypeExpressionKind::Tuple(types) => {
-                let types = types
-                    .iter()
-                    .map(|typ| self.eval_type_expr(typ, scope))
-                    .collect::<Result<Vec<ScriptType>>>()?;
+            TypeExpressionKind::Tuple(params) => {
+                let types = self.eval_params(params, scope)?;
                 Ok(ScriptType::Tuple(types))
             }
             TypeExpressionKind::List(inner) => {
@@ -776,10 +884,7 @@ impl<'a> Validator<'a> {
     // the element type that such a list would have.
     // Locations are included for error formatting. The returned tuple contains
     // the location of the first found element with the returned type.
-    fn most_specific_type(
-        &self,
-        types: &[(ScriptType, Range<usize>)],
-    ) -> Result<Option<(ScriptType, Range<usize>)>> {
+    fn most_specific_type(&self, types: &[EvaluatedType]) -> Result<Option<EvaluatedType>> {
         let mut iter = types.iter();
         if let Some(first) = iter.next() {
             let mut typ = first;
