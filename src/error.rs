@@ -1,11 +1,14 @@
 use std::{
-    error, fmt::{self, Write}, ops::Range, result
+    cmp, error,
+    fmt::{self, Write},
+    ops::Range,
+    result,
 };
 
 #[derive(Debug, Clone)]
 pub struct Error {
     pub message: String,
-    details: String,
+    details: Vec<String>,
 }
 
 impl Error {
@@ -18,7 +21,11 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f)?;
-        writeln!(f, "{}", self.details)?;
+        for line in &self.details {
+            write!(f, "{}", line)?;
+        }
+
+        writeln!(f)?;
         writeln!(f, "\x1b[31m  ERROR {}\x1b[0m", self.message)?;
         Ok(())
     }
@@ -28,25 +35,52 @@ impl error::Error for Error {}
 
 pub type Result<T> = result::Result<T, Error>;
 
-fn format_error_details(source: &str, loc: &Range<usize>) -> result::Result<String, fmt::Error> {
-    let mut buf = String::new();
+fn format_error_details(
+    source: &str,
+    loc: &Range<usize>,
+) -> result::Result<Vec<String>, fmt::Error> {
+    let mut ret = Vec::new();
 
-    let mut pos = loc.start;
-    let len = loc.end - loc.start;
+    let first_line = source[..loc.start].lines().count();
+    let last_line = source[..loc.end].lines().count();
 
+    let mut pos = 0;
     for (n, line) in source.lines().enumerate() {
-        write!(buf, "\x1b[36m")?;
-        write!(buf, "{:-5} | ", n + 1)?;
+        if n + 10 < first_line {
+            pos = pos + line.len() + 1;
+            continue;
+        }
+        if n >= last_line + 5 {
+            break;
+        }
+
+        let mut buf = String::new();
+
+        if loc.start <= pos + line.len() && loc.end >= pos {
+            write!(buf, "\x1b[33m")?;
+            write!(buf, "{:-5} > ", n + 1)?;
+        } else {
+            write!(buf, "\x1b[36m")?;
+            write!(buf, "{:-5} | ", n + 1)?;
+        }
         write!(buf, "\x1b[0m")?;
         writeln!(buf, "{line}")?;
-        if pos <= line.len() {
-            write!(buf, "      | ")?;
+        if loc.start >= pos && loc.start <= pos + line.len() && loc.end <= pos + line.len() {
             write!(buf, "\x1b[33m")?;
-            writeln!(buf, "{}{} here", " ".repeat(pos), "^".repeat(len))?;
+            write!(buf, "        ")?;
+            writeln!(
+                buf,
+                "{}{} here",
+                " ".repeat(loc.start - pos),
+                "^".repeat(loc.end - loc.start)
+            )?;
             write!(buf, "\x1b[0m")?;
         }
-        pos = pos.wrapping_sub(line.len() + 1);
+
+        ret.push(buf);
+
+        pos = pos + line.len() + 1;
     }
 
-    Ok(buf)
+    Ok(ret)
 }
