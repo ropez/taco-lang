@@ -17,26 +17,23 @@ pub enum ScriptType {
     Str,
     EmptyList,
     List(Box<ScriptType>),
-    Tuple(FormalArguments),
+    Tuple(TupleType),
     Enum(Arc<str>),
     Function {
-        params: FormalArguments,
+        params: TupleType,
         ret: Box<ScriptType>,
     },
     Rec {
         name: Arc<str>,
-        params: FormalArguments,
+        params: TupleType,
     },
     State(Box<ScriptType>),
 }
 
-// TODO Validate that all branches in non-void functions return something
-// TODO Validate unreachable code?
-
 impl ScriptType {
     // Use () to represent nothing, like Rust
     pub const fn identity() -> Self {
-        Self::Tuple(FormalArguments::empty())
+        Self::Tuple(TupleType::identity())
     }
 
     fn accepts(&self, other: &ScriptType) -> bool {
@@ -45,6 +42,7 @@ impl ScriptType {
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
+            (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
             _ => *self == *other,
         }
     }
@@ -60,6 +58,7 @@ impl Display for ScriptType {
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => write!(f, "[{inner}]"),
             Self::Tuple(arguments) => write!(f, "{arguments}"),
+            Self::Rec { name, params } => write!(f, "{name}{params}"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -67,10 +66,7 @@ impl Display for ScriptType {
 
 #[derive(Debug, Clone)]
 pub enum TypeDefinition {
-    RecDefinition {
-        name: Arc<str>,
-        params: FormalArguments,
-    },
+    RecDefinition { name: Arc<str>, params: TupleType },
     EnumDefinition(Arc<EnumDefinition>),
 }
 
@@ -83,16 +79,16 @@ pub struct EnumDefinition {
 #[derive(Debug)]
 struct EnumVariant {
     name: Arc<str>,
-    params: FormalArguments,
+    params: TupleType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct FormalArgument {
+pub struct TupleParameter {
     name: Option<Arc<str>>,
     typ: ScriptType,
 }
 
-impl FormalArgument {
+impl TupleParameter {
     pub fn new(name: Option<Arc<str>>, typ: ScriptType) -> Self {
         Self { name, typ }
     }
@@ -107,93 +103,94 @@ impl FormalArgument {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-pub struct FormalArguments(Vec<FormalArgument>);
+pub struct TupleType(Vec<TupleParameter>);
 
-impl From<Vec<FormalArgument>> for FormalArguments {
-    fn from(args: Vec<FormalArgument>) -> Self {
-        FormalArguments(args)
+impl From<Vec<TupleParameter>> for TupleType {
+    fn from(args: Vec<TupleParameter>) -> Self {
+        TupleType(args)
     }
 }
 
-impl FormalArguments {
-    const fn empty() -> Self {
-        FormalArguments(Vec::new())
+impl TupleType {
+    const fn identity() -> Self {
+        Self(Vec::new())
     }
 
-    fn accepts(&self, other: &FormalArguments) -> bool {
-        // Check params by strict position:
-        // - Types must match
-        // - If left has no name, right must have no name
-        // - If left has name, right must have no name, or the same name
+    fn accepts(&self, other: &TupleType) -> bool {
+        // Exact same algorithm as validate_args, but returning boolean
+        // instead of Result with code reference.
 
-        for (l, r) in self.0.iter().zip(&other.0) {
-            match (&l.name, &r.name) {
-                (None, Some(_)) => return false,
-                (Some(l), Some(r)) if *l != *r => return false,
-                _ => {
-                    if !l.typ.accepts(&r.typ) {
+        let mut positional = other.0.iter().filter(|arg| arg.name.is_none());
+        for par in self.0.iter() {
+            if let Some(name) = &par.name {
+                if let Some(arg) = other.0.iter().find(|a| a.name.as_ref() == Some(name)) {
+                    if !par.typ.accepts(&arg.typ) {
                         return false;
                     }
+                } else if let Some(arg) = positional.next() {
+                    if !par.typ.accepts(&arg.typ) {
+                        return false;
+                    }
+                } else {
+                    return false;
                 }
+            } else if let Some(arg) = positional.next() {
+                if !par.typ.accepts(&arg.typ) {
+                    return false;
+                }
+            } else {
+                return false;
             }
         }
 
-        true
+        // All positional must be consumed
+        positional.next().is_none()
     }
 }
 
-impl Display for FormalArguments {
+impl Display for TupleType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // XXX FIXME Ineffective
-        let items: Vec<_> = self
-            .0
-            .iter()
-            .map(|a| match (&a.name, &a.typ) {
-                (Some(name), t) => format!("{name}: {t}"),
-                (None, t) => format!("{t}"),
-            })
-            .collect();
-        fmt_tuple(f, &items)
+        fmt_tuple(f, self.0.iter().map(|a| (a.name.clone(), &a.typ)))
     }
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct EvaluatedType(ScriptType, Range<usize>);
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
+pub struct EvaluatedArg {
+    name: Option<Arc<str>>,
+    typ: ScriptType,
+    loc: Range<usize>,
+}
+
+impl EvaluatedArg {
+    fn into_formal(self) -> TupleParameter {
+        if let Some(name) = self.name {
+            TupleParameter::named(name, self.typ)
+        } else {
+            TupleParameter::unnamed(self.typ)
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct AppliedArguments {
-    pub(crate) args: Vec<EvaluatedType>,
-    pub(crate) kwargs: Vec<(Arc<str>, EvaluatedType)>,
+    pub(crate) args: Vec<EvaluatedArg>,
     pub(crate) loc: Range<usize>,
 }
 
 impl AppliedArguments {
-    fn into_formal(self) -> FormalArguments {
-        let args = self
-            .args
-            .into_iter()
-            .map(|t| FormalArgument::unnamed(t.0))
-            .chain(
-                self.kwargs
-                    .into_iter()
-                    .map(|(n, t)| FormalArgument::named(n, t.0)),
-            )
-            .collect();
+    fn into_formal(self) -> TupleType {
+        let args = self.args.into_iter().map(|a| a.into_formal()).collect();
 
-        FormalArguments(args)
+        TupleType(args)
     }
 }
 
 impl Display for AppliedArguments {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // XXX FIXME Ineffective
-        let items: Vec<_> = self
-            .args
-            .iter()
-            .map(|a| format!("{}", a.0))
-            .chain(self.kwargs.iter().map(|(n, a)| format!("{n}: {}", a.0)))
-            .collect();
-        fmt_tuple(f, &items)
+        fmt_tuple(f, self.args.iter().map(|a| (a.name.clone(), &a.typ)))
     }
 }
 
@@ -202,6 +199,7 @@ struct Scope {
     locals: HashMap<Arc<str>, ScriptType>,
     types: HashMap<Arc<str>, TypeDefinition>,
     ret: Option<ScriptType>,
+    arguments: TupleType,
 }
 
 impl Scope {
@@ -211,6 +209,7 @@ impl Scope {
             locals,
             types: Default::default(),
             ret: None,
+            arguments: TupleType::identity(),
         }
     }
 
@@ -253,6 +252,7 @@ impl ReturnType {
 
 pub struct Validator<'a> {
     src: &'a str,
+    offset: usize,
     globals: HashMap<Arc<str>, ScriptType>,
 }
 
@@ -260,6 +260,7 @@ impl<'a> Validator<'a> {
     pub fn new(src: &'a str) -> Self {
         Self {
             src,
+            offset: 0,
             globals: Default::default(),
         }
     }
@@ -273,6 +274,14 @@ impl<'a> Validator<'a> {
     pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
         self.validate_block(ast, Scope::with_globals(&self.globals))?;
         Ok(())
+    }
+
+    fn with_offset(src: &'a str, offset: usize) -> Self {
+        Self {
+            src,
+            offset,
+            globals: Default::default(),
+        }
     }
 
     fn validate_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<Scope> {
@@ -326,6 +335,7 @@ impl<'a> Validator<'a> {
                             inner.set_local(Arc::clone(name), arg.typ.clone());
                         }
                     }
+                    inner.arguments = params.clone();
                     inner.ret = declared_type.clone();
                     let inner = self.validate_block(&fun.body, inner.clone())?;
 
@@ -513,12 +523,12 @@ impl<'a> Validator<'a> {
         Ok(typ)
     }
 
-    fn eval_params(&self, params: &[Parameter], scope: &Scope) -> Result<FormalArguments> {
-        let mut res = FormalArguments::empty();
+    fn eval_params(&self, params: &[Parameter], scope: &Scope) -> Result<TupleType> {
+        let mut res = TupleType::identity();
 
         for param in params {
             let typ = self.eval_type_expr(&param.type_expr, scope)?;
-            res.0.push(FormalArgument::new(param.name.clone(), typ))
+            res.0.push(TupleParameter::new(param.name.clone(), typ))
         }
 
         Ok(res)
@@ -535,23 +545,18 @@ impl<'a> Validator<'a> {
             ExpressionKind::String(_) => Ok(ScriptType::Str),
             ExpressionKind::True => Ok(ScriptType::Bool),
             ExpressionKind::False => Ok(ScriptType::Bool),
+            ExpressionKind::Arguments => Ok(ScriptType::Tuple(scope.arguments.clone())),
             ExpressionKind::StringInterpolate(parts) => {
-                // TODO Validate internal expressions
+                for (part, offset) in parts {
+                    let inner = Self::with_offset(self.src, *offset);
+                    let _typ = inner.validate_expr(part, scope)?;
+                }
                 Ok(ScriptType::Str)
-                // let mut builder = String::new();
-                // for expr in parts {
-                //     let val = self.eval_expr(expr, scope);
-                //     write!(builder, "{val}").unwrap();
-                // }
-                // Arc::new(ScriptValue::String(builder.into()))
             }
             ExpressionKind::List(expressions) => {
                 let types = expressions
                     .iter()
-                    .map(|i| {
-                        self.validate_expr(i, scope)
-                            .map(|t| EvaluatedType(t, i.loc.clone()))
-                    })
+                    .map(|i| self.eval_expr(i, scope))
                     .collect::<Result<Vec<_>>>()?;
 
                 if let Some(inner_type) = self.most_specific_type(&types)? {
@@ -655,7 +660,7 @@ impl<'a> Validator<'a> {
                             ));
                         }
                         let arg = arguments.args.first().expect("state arg");
-                        let typ = self.validate_expr(arg, scope)?;
+                        let typ = self.validate_expr(&arg.expr, scope)?;
 
                         Ok(ScriptType::State(typ.into()))
                     }
@@ -718,13 +723,12 @@ impl<'a> Validator<'a> {
                     match (&subject_typ, key.as_ref()) {
                         (ScriptType::State(typ), "get") => {
                             let arguments = self.eval_args(arguments, scope)?;
-                            self.validate_args(&FormalArguments::empty(), &arguments)?;
+                            self.validate_args(&TupleType::identity(), &arguments)?;
                             Ok(*typ.clone())
                         }
                         (ScriptType::State(typ), "set") => {
                             // Simulate normal function call
-                            let formal =
-                                FormalArguments(vec![FormalArgument::unnamed(*typ.clone())]);
+                            let formal = TupleType(vec![TupleParameter::unnamed(*typ.clone())]);
                             let arguments = self.eval_args(arguments, scope)?;
                             self.validate_args(&formal, &arguments)?;
                             Ok(ScriptType::identity())
@@ -734,12 +738,11 @@ impl<'a> Validator<'a> {
                             if let Some(typ) = arguments
                                 .args
                                 .first()
-                                .map(|i| self.validate_expr(i, scope))
+                                .map(|arg| self.validate_expr(&arg.expr, scope))
                                 .transpose()?
                             {
                                 // XXX Variadic args not supported (but allowed in runtime)
-                                let formal =
-                                    FormalArguments(vec![FormalArgument::unnamed(typ.clone())]);
+                                let formal = TupleType(vec![TupleParameter::unnamed(typ.clone())]);
                                 let arguments = self.eval_args(arguments, scope)?;
                                 self.validate_args(&formal, &arguments)?;
                                 Ok(ScriptType::List(typ.into()))
@@ -749,8 +752,7 @@ impl<'a> Validator<'a> {
                         }
                         (ScriptType::List(typ), "push") => {
                             // XXX Variadic args not supported (but allowed in runtime)
-                            let formal =
-                                FormalArguments(vec![FormalArgument::unnamed(*typ.clone())]);
+                            let formal = TupleType(vec![TupleParameter::unnamed(*typ.clone())]);
                             let arguments = self.eval_args(arguments, scope)?;
                             self.validate_args(&formal, &arguments)?;
                             Ok(ScriptType::List(typ.clone()))
@@ -797,39 +799,38 @@ impl<'a> Validator<'a> {
         let args = arguments
             .args
             .iter()
-            .map(|a| self.eval_expr(a, scope))
-            .collect::<Result<Vec<_>>>()?;
-
-        let kwargs = arguments
-            .kwargs
-            .iter()
-            .map(|(k, a)| {
-                let typ = self.eval_expr(a, scope)?;
-                Ok((Arc::clone(k), typ))
+            .map(|arg| {
+                let typ = self.eval_expr(&arg.expr, scope)?;
+                Ok(EvaluatedArg {
+                    name: arg.name.clone(),
+                    typ: typ.0,
+                    loc: typ.1,
+                })
             })
             .collect::<Result<Vec<_>>>()?;
 
         Ok(AppliedArguments {
             args,
-            kwargs,
             loc: arguments.loc.clone(),
         })
     }
 
-    fn validate_args(&self, formal: &FormalArguments, other: &AppliedArguments) -> Result<()> {
-        for (i, formal_arg) in formal.0.iter().enumerate() {
-            if let Some(arg) = other.args.get(i) {
-                if !formal_arg.typ.accepts(&arg.0) {
-                    return Err(
-                        self.fail(format!("Expected {} got {}", formal_arg.typ, arg.0), &arg.1)
-                    );
-                }
-            } else if let Some(name) = &formal_arg.name {
-                // Assuming formal args have unique names
-                if let Some((_, arg)) = other.kwargs.iter().find(|(n, _)| *n == *name) {
-                    if !formal_arg.typ.accepts(&arg.0) {
+    fn validate_args(&self, formal: &TupleType, other: &AppliedArguments) -> Result<()> {
+        // For each formal: If args contain named, take it, else take next unnamed
+        let mut positional = other.args.iter().filter(|arg| arg.name.is_none());
+
+        for par in formal.0.iter() {
+            if let Some(name) = &par.name {
+                if let Some(arg) = other.args.iter().find(|a| a.name.as_ref() == Some(name)) {
+                    if !par.typ.accepts(&arg.typ) {
                         return Err(
-                            self.fail(format!("Expected {} got {}", formal_arg.typ, arg.0), &arg.1)
+                            self.fail(format!("Expected {} got {}", par.typ, arg.typ), &arg.loc)
+                        );
+                    }
+                } else if let Some(arg) = positional.next() {
+                    if !par.typ.accepts(&arg.typ) {
+                        return Err(
+                            self.fail(format!("Expected {} got {}", par.typ, arg.typ), &arg.loc)
                         );
                     }
                 } else {
@@ -838,15 +839,26 @@ impl<'a> Validator<'a> {
                         &other.loc,
                     ));
                 }
+            } else if let Some(arg) = positional.next() {
+                if !par.typ.accepts(&arg.typ) {
+                    return Err(
+                        self.fail(format!("Expected {} got {}", par.typ, arg.typ), &arg.loc)
+                    );
+                }
             } else {
                 return Err(self.fail(
-                    format!("Missing positional argument {i}, expected {formal} got {other}"),
+                    format!("Missing positional argument, expected {formal} got {other}"),
                     &other.loc,
                 ));
             }
         }
 
-        // XXX Fail if there are additional kwargs?
+        if let Some(arg) = positional.next() {
+            return Err(self.fail(
+                format!("Expected no arguments here, found {}", arg.typ),
+                &arg.loc,
+            ));
+        }
 
         Ok(())
     }
@@ -905,6 +917,10 @@ impl<'a> Validator<'a> {
     }
 
     fn fail(&self, msg: String, loc: &Range<usize>) -> Error {
-        Error::new(msg, self.src, loc)
+        Error::new(msg, self.src, &shift_location(loc, self.offset))
     }
+}
+
+fn shift_location(loc: &Range<usize>, offset: usize) -> Range<usize> {
+    (loc.start + offset)..(loc.end + offset)
 }

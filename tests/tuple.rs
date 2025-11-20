@@ -51,6 +51,39 @@ fn test_three_tuple_as_function_argument() {
 }
 
 #[test]
+fn test_named_tuple_as_function_argument() {
+    let src = r#"
+        fun show(arg: (a: int, b: int, c: int)) {
+            print("$arg")
+        }
+
+        show(arg: (1, 2, 3))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("(a: 1, b: 2, c: 3)", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_call_with_named_tuple_args() {
+    let src = r#"
+        fun show(arg: (a: int, b: int, c: int)) {
+            (a, b, c) = arg
+            print("$a $b $c")
+        }
+
+        show((1, c: 3, b: 2))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("1 2 3", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
 fn test_destructure_discard_value() {
     let src = r#"
         (_, fruit, _) = (99, "banana", false)

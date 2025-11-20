@@ -5,9 +5,9 @@ use std::{
 };
 
 use crate::{
-    eval::{ArgumentValues, ScriptValue},
+    eval::{ScriptValue, Tuple},
     extensions::ExtensionFunction,
-    validate::{FormalArgument, FormalArguments, ScriptType},
+    validate::{TupleParameter, TupleType, ScriptType},
 };
 
 pub fn create<O>(out: Arc<Mutex<O>>) -> HashMap<String, ExtensionFunction>
@@ -15,15 +15,15 @@ where
     O: io::Write + 'static,
 {
     let print_type = ScriptType::Function {
-        params: FormalArguments::from(vec![FormalArgument::unnamed(ScriptType::Str)]),
+        params: TupleType::from(vec![TupleParameter::unnamed(ScriptType::Str)]),
         ret: Box::new(ScriptType::identity()),
     };
 
     let mut ext = HashMap::new();
 
     let print_out = out.clone();
-    let print_fn = move |arguments: ArgumentValues| {
-        if let Some(arg) = arguments.args.first() {
+    let print_fn = move |arguments: Tuple| {
+        if let Some(arg) = arguments.at(0) {
             let mut out = print_out.lock().unwrap();
             write!(out, "{arg}").unwrap();
         }
@@ -39,8 +39,8 @@ where
     );
 
     let println_out = out.clone();
-    let println_fn = move |arguments: ArgumentValues| {
-        if let Some(arg) = arguments.args.first() {
+    let println_fn = move |arguments: Tuple| {
+        if let Some(arg) = arguments.at(0) {
             let mut out = println_out.lock().unwrap();
             writeln!(out, "{arg}").unwrap();
         }

@@ -1,21 +1,21 @@
 use std::{collections::HashMap, fs};
 
 use crate::{
-    eval::{ArgumentValues, ScriptValue},
+    eval::{ScriptValue, Tuple},
     extensions::ExtensionFunction,
-    validate::{FormalArgument, FormalArguments, ScriptType},
+    validate::{TupleParameter, TupleType, ScriptType},
 };
 
 pub fn create() -> HashMap<String, ExtensionFunction> {
     let mut ext = HashMap::new();
 
     let read_type = ScriptType::Function {
-        params: FormalArguments::from(vec![FormalArgument::unnamed(ScriptType::Str)]),
+        params: TupleType::from(vec![TupleParameter::unnamed(ScriptType::Str)]),
         ret: Box::new(ScriptType::Str),
     };
 
-    let read_fn = move |arguments: ArgumentValues| {
-        let Some(name) = arguments.args.first() else {
+    let read_fn = move |arguments: Tuple| {
+        let Some(name) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };
 
@@ -42,14 +42,14 @@ pub fn create() -> HashMap<String, ExtensionFunction> {
     // Maybe extenstions need to "plug in" to the type system/analyzer.
 
     let json_type = ScriptType::Function {
-        params: FormalArguments::from(vec![FormalArgument::unnamed(ScriptType::List(
+        params: TupleType::from(vec![TupleParameter::unnamed(ScriptType::List(
             ScriptType::Str.into(),
         ))]),
         ret: Box::new(ScriptType::Str),
     };
 
-    let json_fn = move |arguments: ArgumentValues| {
-        let Some(value) = arguments.args.first() else {
+    let json_fn = move |arguments: Tuple| {
+        let Some(value) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };
 

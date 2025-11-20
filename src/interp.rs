@@ -1,60 +1,91 @@
 #![allow(unused)]
 
+use std::ops::Range;
+
+use crate::lexer::is_ident_char;
+
 #[derive(Debug, PartialEq)]
-pub enum StringToken<'a> {
-    Str(&'a str),
-    Expr(&'a str),
+pub enum StringTokenKind {
+    Str,
+    Expr,
+}
+
+#[derive(Debug, PartialEq)]
+pub struct StringToken<'a> {
+    pub(crate) kind: StringTokenKind,
+    pub(crate) src: &'a str,
+    pub(crate) offset: usize,
+}
+
+impl<'a> StringToken<'a> {
+    fn string(src: &'a str, offset: usize) -> Self {
+        Self {
+            kind: StringTokenKind::Str,
+            src,
+            offset,
+        }
+    }
+
+    fn expr(src: &'a str, offset: usize) -> Self {
+        Self {
+            kind: StringTokenKind::Expr,
+            src,
+            offset,
+        }
+    }
 }
 
 pub fn tokenise_string<'a>(src: &'a str) -> Vec<StringToken<'a>> {
     let mut tokens = Vec::new();
 
-    let mut cur = src;
-    while !cur.is_empty() {
-        if let Some((l, h)) = cur.split_once('$') {
-            if !l.is_empty() {
-                tokens.push(StringToken::Str(l));
+    let mut pos = 0;
+    while pos < src.len() {
+        let cur = &src[pos..];
+        if let Some(p) = cur.find('$') {
+            if p > 0 {
+                tokens.push(StringToken::string(&cur[..p], pos));
             }
 
-            cur = h;
+            pos += p + 1;
+            let cur = &cur[p + 1..];
 
             match cur.chars().next() {
                 None => panic!("Unexpected end of string"),
                 Some('A'..='Z' | 'a'..='z') => {
-                    if let Some(pos) = cur.find(|ch: char| !ch.is_ascii_alphanumeric()) {
-                        let (l, h) = cur.split_at(pos);
-                        tokens.push(StringToken::Expr(l));
+                    if let Some(p) = cur.find(|ch: char| !is_ident_char(ch)) {
+                        let (l, h) = cur.split_at(p);
+                        tokens.push(StringToken::expr(l, pos));
 
-                        cur = h;
+                        pos += p;
                     } else {
-                        tokens.push(StringToken::Expr(cur));
+                        tokens.push(StringToken::expr(cur, pos));
                         break;
                     }
                 }
                 Some('{') => {
                     // XXX Support nested blocks
-                    if let Some(pos) = cur.find('}') {
-                        let (l, h) = cur.split_at(pos + 1);
-                        tokens.push(StringToken::Expr(l.trim_matches(['{', '}'])));
+                    if let Some(p) = cur.find('}') {
+                        let (l, h) = cur.split_at(p + 1);
+                        tokens.push(StringToken::expr(l.trim_matches(['{', '}']), pos + 1));
 
-                        cur = h;
+                        pos += p + 1;
                     } else {
                         panic!("Unterminated block in string")
                     }
                 }
                 Some('$') => {
                     if let Some(p) = cur[1..].find('$') {
-                        tokens.push(StringToken::Str(&cur[..p + 1]));
-                        cur = &cur[p + 1..];
+                        tokens.push(StringToken::string(&cur[..p + 1], pos - 1));
+                        pos += p + 1
                     } else {
-                        tokens.push(StringToken::Str(cur));
+                        tokens.push(StringToken::string(cur, pos - 1));
                         break;
                     }
                 }
                 Some(_) => panic!("Unespected character after $"),
             }
         } else {
-            tokens.push(StringToken::Str(cur));
+            tokens.push(StringToken::string(cur, pos));
             break;
         }
     }
@@ -77,25 +108,28 @@ mod tests {
     fn test_returns_whole_string() {
         let res = tokenise_string("foobar");
 
-        assert_eq!(res, vec![StringToken::Str("foobar")]);
+        assert_eq!(res, vec![StringToken::string("foobar", 0)]);
     }
 
     #[test]
     fn test_returns_string_with_dollar_signs() {
         let res = tokenise_string("$$foo$$bar$$");
 
-        assert_eq!(res, vec![
-            StringToken::Str("$foo"),
-            StringToken::Str("$bar"),
-            StringToken::Str("$"),
-        ]);
+        assert_eq!(
+            res,
+            vec![
+                StringToken::string("$foo", 0),
+                StringToken::string("$bar", 5),
+                StringToken::string("$", 10),
+            ]
+        );
     }
 
     #[test]
     fn test_returns_single_expression() {
         let res = tokenise_string("$foobar");
 
-        assert_eq!(res, vec![StringToken::Expr("foobar")]);
+        assert_eq!(res, vec![StringToken::expr("foobar", 1)]);
     }
 
     #[test]
@@ -104,7 +138,7 @@ mod tests {
 
         assert_eq!(
             res,
-            vec![StringToken::Expr("foo"), StringToken::Expr("bar")]
+            vec![StringToken::expr("foo", 1), StringToken::expr("bar", 5)]
         );
     }
 
@@ -114,7 +148,10 @@ mod tests {
 
         assert_eq!(
             res,
-            vec![StringToken::Str("√ Item: "), StringToken::Expr("foo")]
+            vec![
+                StringToken::string("√ Item: ", 0),
+                StringToken::expr("foo", 11)
+            ]
         );
     }
 
@@ -124,7 +161,10 @@ mod tests {
 
         assert_eq!(
             res,
-            vec![StringToken::Expr("foo"), StringToken::Str(" is the item √")]
+            vec![
+                StringToken::expr("foo", 1),
+                StringToken::string(" is the item √", 4)
+            ]
         );
     }
 
@@ -135,22 +175,36 @@ mod tests {
         assert_eq!(
             res,
             vec![
-                StringToken::Expr("foo"),
-                StringToken::Str(", said the troll"),
+                StringToken::expr("foo", 1),
+                StringToken::string(", said the troll", 4),
             ]
         );
     }
 
     #[test]
     fn test_returns_expression_inside_braces() {
+        let res = tokenise_string("foo${koko + foo.item()}bar");
+
+        assert_eq!(
+            res,
+            vec![
+                StringToken::string("foo", 0),
+                StringToken::expr("koko + foo.item()", 5),
+                StringToken::string("bar", 23),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_returns_expression_inside_braces_with_non_ascii() {
         let res = tokenise_string("√ Item: ${foo.item()}--√");
 
         assert_eq!(
             res,
             vec![
-                StringToken::Str("√ Item: "),
-                StringToken::Expr("foo.item()"),
-                StringToken::Str("--√"),
+                StringToken::string("√ Item: ", 0),
+                StringToken::expr("foo.item()", 12),
+                StringToken::string("--√", 23),
             ]
         );
     }

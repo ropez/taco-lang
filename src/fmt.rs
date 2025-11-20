@@ -1,12 +1,7 @@
-use std::fmt::{Display, Formatter, Result};
-
-
-pub(crate) fn fmt_tuple(f: &mut Formatter<'_>, values: &[impl Display]) -> Result {
-    write!(f, "(")?;
-    fmt_inner_list(f, values)?;
-    write!(f, ")")?;
-    Ok(())
-}
+use std::{
+    fmt::{Display, Formatter, Result},
+    sync::Arc,
+};
 
 pub(crate) fn fmt_inner_list(f: &mut Formatter<'_>, values: &[impl Display]) -> Result {
     let mut iter = values.iter();
@@ -17,5 +12,34 @@ pub(crate) fn fmt_inner_list(f: &mut Formatter<'_>, values: &[impl Display]) -> 
         }
     }
     Ok(())
+}
+
+pub(crate) fn fmt_tuple<V, I>(f: &mut Formatter<'_>, mut items: I) -> Result
+where
+    V: Display,
+    I: Iterator<Item = (Option<Arc<str>>, V)>,
+{
+    write!(f, "(")?;
+
+    if let Some(first) = items.next() {
+        fmt_item(f, first)?;
+        for val in items {
+            write!(f, ", ")?;
+            fmt_item(f, val)?;
+        }
+    }
+
+    write!(f, ")")?;
+    Ok(())
+}
+
+fn fmt_item<V>(f: &mut Formatter<'_>, o: (Option<Arc<str>>, V)) -> Result
+where
+    V: Display,
+{
+    match o {
+        (Some(name), t) => write!(f, "{name}: {t}"),
+        (None, t) => write!(f, "{t}"),
+    }
 }
 

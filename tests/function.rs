@@ -70,21 +70,21 @@ fn test_discard_arg_with_underscore() {
     };
 }
 
-// #[test]
-// fn test_discard_unnamed_arg() {
-//     let src = r#"
-//         fun args(first: str, [str]) {
-//             print("$first")
-//         }
-//
-//         args("foo", [""])
-//     "#;
-//
-//     match check_output(src) {
-//         Ok(out) => assert_eq!("foo", out),
-//         Err(err) => panic!("{err}"),
-//     };
-// }
+#[test]
+fn test_discard_unnamed_arg() {
+    let src = r#"
+        fun args(first: str, [str]) {
+            print("$first")
+        }
+
+        args("foo", [""])
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("foo", out),
+        Err(err) => panic!("{err}"),
+    };
+}
 
 #[test]
 fn test_discarded_arg_not_assigned() {
@@ -429,34 +429,45 @@ fn test_return_implicit_tuple() {
     }
 }
 
-// Three cases:
-//
-// Formal arguments:
-// fun foo(int, a: bool, b: str)
-// rec Blah(f: [(k: str)])
-// enum Poop {
-//   Stink(str)
-// }
-// (foo: int, bar: int) = (foo: 12, bar: 13)  -- (lhs)
-//
-// Applied arguments:
-// foo(12, false, b: "foo")
-// (foo: int, bar: int) = (foo: 12, bar: 13)  -- (rhs)
-// (a: int, b: int) = (foo: 12, bar: 13)  -- (rhs)
-//
-// Destruction/pattern:
-// match poop {
-//   Stink(foo) { }
-// }
-//
-// args always go before kwargs!
-//
-// formal args can be unnamed (unusual in functions, but useful in tuples)
-// kwargs can never be _applied_ to unnamed formal args
-//
-// arguments are _applied_ in order:
-// all _unnamed_ formal args applied from positinal args
-// remaining positional args applied to named formal args, in order
-// kwargs applied to remaining formal args by name
-//
-// Tuples must ba able to hold named values (and recs will be tuples)
+#[test]
+fn test_manually_destruct_arguments() {
+    let src = r#"
+        fun foo(str, int, int) {
+            (fruit, count, _) = arguments
+            print("$fruit $count")
+        }
+
+        foo("banana", 42, 100)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("banana 42", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_apply_params() {
+    let src = r#"
+        fun foo(a: int, b: int, c: int, d: int) {
+            println("$a$b$c$d")
+        }
+
+        # All must print "1234"
+        foo(1, 2, 3, 4)
+        foo(1, 2, 3, d: 4)
+        foo(1, 2, d: 4, c: 3)
+        foo(1, d: 4, c: 3, b: 2)
+        foo(c: 3, d: 4, a: 1, b: 2)
+        foo(b: 2, c: 3, d: 4, 1)
+        foo(b: 2, 1, c: 3, d: 4)
+        foo(d: 4, 1, c: 3, 2)
+        foo(1, d: 4, 2, 3)
+        foo(1, c: 3, 2, 4)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("1234\n".repeat(10), out),
+        Err(err) => panic!("{err}"),
+    }
+}

@@ -77,3 +77,18 @@ fn test_interpolation_call() {
 
     assert_eq!("call: '-- apple'", out);
 }
+
+#[test]
+fn test_variable_names() {
+    let src = r#"
+        foo_bar_123 = "ok"
+
+        print("$foo_bar_123")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("ok", out),
+        Err(err) => panic!("{err}"),
+    };
+
+}

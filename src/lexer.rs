@@ -31,6 +31,7 @@ pub enum TokenKind {
     // Keywords
     Fun,
     Return,
+    Arguments,
     True,
     False,
     If,
@@ -126,6 +127,7 @@ impl<'a> Tokenizer<'a> {
                     match s.as_ref() {
                         "fun" => Some(self.produce(TokenKind::Fun)),
                         "return" => Some(self.produce(TokenKind::Return)),
+                        "arguments" => Some(self.produce(TokenKind::Arguments)),
                         "true" => Some(self.produce(TokenKind::True)),
                         "false" => Some(self.produce(TokenKind::False)),
                         "if" => Some(self.produce(TokenKind::If)),
@@ -202,7 +204,6 @@ impl<'a> Tokenizer<'a> {
         self.loc = self.loc.end..self.loc.end;
         Token {
             kind,
-            // src,
             loc,
         }
     }
@@ -213,6 +214,7 @@ impl<'a> Tokenizer<'a> {
 
     fn find_str(&mut self) -> Result<Arc<str>> {
         // FIXME Inefficient
+        // FIXME Interpolated strings can contain nested strings
         let mut s = String::new();
         loop {
             match self.read_char() {
@@ -228,41 +230,27 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn find_ident(&mut self) -> Arc<str> {
-        // FIXME Inefficient
-        let mut s = String::new();
-        loop {
-            match self.peek() {
-                None => break,
-                Some(c) => match c {
-                    'A'..='Z' | 'a'..='z' | '_' => {
-                        s.push(c);
-                        self.read_char();
-                    }
-                    _ => break,
-                },
-            }
-        }
-
-        s.into()
+        self.take_until(|ch| !is_ident_char(ch))
     }
 
     fn find_number(&mut self) -> Result<i64> {
-        // FIXME Inefficient
-        let mut s = String::new();
-        loop {
-            match self.peek() {
-                None => break,
-                Some(c) => match c {
-                    '0'..='9' => {
-                        s.push(c);
-                        self.read_char();
-                    }
-                    _ => break,
-                },
-            }
-        }
+        let s = self.take_until(|ch| !ch.is_numeric());
 
         s.parse().map_err(|_| self.fail("Invalid number"))
+    }
+
+    fn take_until<P>(&mut self, pattern: P) -> Arc<str>
+    where
+        P: FnMut(char) -> bool,
+    {
+        let cur = &self.src[self.loc.start..];
+        if let Some(p) = cur.find(pattern) {
+            self.loc.end = self.loc.start + p;
+            cur[..p].into()
+        } else {
+            self.loc.end = self.src.len();
+            cur[..].into()
+        }
     }
 }
 
@@ -281,4 +269,8 @@ pub fn tokenize(src: &str) -> Result<Vec<Token>> {
     }
 
     Ok(r)
+}
+
+pub(crate) fn is_ident_char(ch: char) -> bool {
+    ch.is_ascii_alphanumeric() || ch == '_'
 }

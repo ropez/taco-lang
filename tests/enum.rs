@@ -89,4 +89,33 @@ fn test_enum_with_value() {
     };
 }
 
+#[test]
+fn test_apply_params() {
+    let src = r#"
+        enum Enum(
+            Bar
+            Foo(a: int, b: int, c: int, d: int)
+        )
+
+        fun dump(foo: Enum) {
+            println("$foo")
+        }
+
+        dump(Enum::Foo(1, 2, 3, 4))
+        dump(Enum::Foo(1, 2, 3, d: 4))
+        dump(Enum::Foo(1, 2, d: 4, c: 3))
+        dump(Enum::Foo(1, d: 4, c: 3, b: 2))
+        dump(Enum::Foo(c: 3, d: 4, a: 1, b: 2))
+        dump(Enum::Foo(b: 2, c: 3, d: 4, 1))
+        dump(Enum::Foo(b: 2, 1, c: 3, d: 4))
+        dump(Enum::Foo(d: 4, 1, c: 3, 2))
+        dump(Enum::Foo(1, d: 4, 2, 3))
+        dump(Enum::Foo(1, c: 3, 2, 4))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("Foo(a: 1, b: 2, c: 3, d: 4)\n".repeat(10), out),
+        Err(err) => panic!("{err}"),
+    }
+}
 

@@ -8,7 +8,7 @@ use std::{
 
 use crate::{
     error::{Error, Result},
-    interp::{self, StringToken},
+    interp::{self, StringTokenKind},
     lexer::{self, Token, TokenKind},
 };
 
@@ -62,10 +62,11 @@ pub(crate) enum ExpressionKind {
     Ref(Arc<str>),
     PrefixedName(Arc<str>, Arc<str>),
     String(Arc<str>),
-    StringInterpolate(Vec<Expression>),
+    StringInterpolate(Vec<(Expression, usize)>),
     Number(i64),
     True,
     False,
+    Arguments,
     List(Vec<Expression>),
     Tuple(Arguments), // Should probably be (Option(name), expr)
     Not(Box<Expression>),
@@ -87,9 +88,28 @@ pub(crate) enum ExpressionKind {
 }
 
 #[derive(Debug)]
+pub struct Argument {
+    pub(crate) name: Option<Arc<str>>,
+    pub(crate) expr: Expression,
+}
+
+impl Argument {
+    pub fn new(name: Option<Arc<str>>, expr: Expression) -> Self {
+        Self { name, expr }
+    }
+
+    pub fn named(name: Arc<str>, expr: Expression) -> Self {
+        Self::new(Some(name), expr)
+    }
+
+    pub fn unnamed(expr: Expression) -> Self {
+        Self::new(None, expr)
+    }
+}
+
+#[derive(Debug)]
 pub struct Arguments {
-    pub(crate) args: Vec<Expression>,
-    pub(crate) kwargs: Vec<(Arc<str>, Expression)>,
+    pub(crate) args: Vec<Argument>,
     pub(crate) loc: Range<usize>,
 }
 
@@ -339,6 +359,10 @@ impl<'a> Parser<'a> {
             }
             TokenKind::False => {
                 let e = Expression::new(ExpressionKind::False, token.loc);
+                self.parse_continuation(e, bp)?
+            }
+            TokenKind::Arguments => {
+                let e = Expression::new(ExpressionKind::Arguments, token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::LeftSquare => {
@@ -612,7 +636,6 @@ impl<'a> Parser<'a> {
 
     fn parse_args(&mut self, start_loc: &Range<usize>) -> Result<Arguments> {
         let mut args = Vec::new();
-        let mut kwargs = Vec::new();
 
         loop {
             self.consume_whitespace();
@@ -626,28 +649,15 @@ impl<'a> Parser<'a> {
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let value = self.parse_expression(0)?;
-                    kwargs.push((name, value));
+                    args.push(Argument::named(Arc::clone(&name), value));
                 } else {
                     let expr = self.handle_identifier_expr(name, t.loc, 0)?;
 
-                    if !kwargs.is_empty() {
-                        return Err(self.fail(
-                            "Unexpected positional argument after keyword argument",
-                            &expr.loc,
-                        ));
-                    }
-
-                    args.push(expr);
+                    args.push(Argument::unnamed(expr));
                 }
             } else {
                 let expr = self.parse_expression(0)?;
-                if !kwargs.is_empty() {
-                    return Err(self.fail(
-                        "Unexpected positional argument after keyword argument",
-                        &expr.loc,
-                    ));
-                }
-                args.push(expr);
+                args.push(Argument::unnamed(expr));
             }
 
             let kind = self.peek_kind();
@@ -666,7 +676,7 @@ impl<'a> Parser<'a> {
 
         let end = self.expect_kind(TokenKind::RightParen)?;
         let loc = wrap_locations(start_loc, &end.loc);
-        Ok(Arguments { args, kwargs, loc })
+        Ok(Arguments { args, loc })
     }
 
     fn parse_type_expr(&mut self) -> Result<TypeExpression> {
@@ -791,24 +801,23 @@ impl<'a> Parser<'a> {
 fn parse_string(src: Arc<str>, loc: Range<usize>) -> Result<Expression> {
     let parts = interp::tokenise_string(src.as_ref());
 
-    // XXX Fix inner locations
-
     if parts.is_empty() {
         return Ok(Expression::new(ExpressionKind::String("".into()), loc));
     }
 
     let mut res = Vec::new();
 
+    let start_offset = loc.start + 1;
     for part in parts {
-        let expr = match part {
-            StringToken::Str(s) => Expression::new(ExpressionKind::String(s.into()), loc.clone()),
-            StringToken::Expr(s) => {
-                let tokens = lexer::tokenize(s)?;
-                Parser::new(s, tokens).parse_expression(0)?
+        let expr = match &part.kind {
+            StringTokenKind::Str => Expression::new(ExpressionKind::String(part.src.into()), 0..part.src.len()),
+            StringTokenKind::Expr => {
+                let tokens = lexer::tokenize(part.src)?;
+                Parser::new(part.src, tokens).parse_expression(0)?
             }
         };
 
-        res.push(expr)
+        res.push((expr, start_offset + part.offset));
     }
 
     Ok(Expression::new(ExpressionKind::StringInterpolate(res), loc))
