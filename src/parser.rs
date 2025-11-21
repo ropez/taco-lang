@@ -79,7 +79,7 @@ pub(crate) enum ExpressionKind {
     Division(Box<Expression>, Box<Expression>),
     Call {
         subject: Box<Expression>,
-        arguments: Arguments,
+        arguments: Box<ArgumentsKind>,
     },
     Access {
         subject: Box<Expression>,
@@ -111,6 +111,13 @@ impl Argument {
 pub struct Arguments {
     pub(crate) args: Vec<Argument>,
     pub(crate) loc: Range<usize>,
+}
+
+#[derive(Debug)]
+pub enum ArgumentsKind {
+    Inline(Arguments),
+    Destructure(Expression),
+    DestructureImplicit(Range<usize>),
 }
 
 #[derive(Debug)]
@@ -521,19 +528,46 @@ impl<'a> Parser<'a> {
                         lhs
                     } else {
                         let t = self.expect_token()?;
-                        let arguments = self.parse_args(&t.loc)?;
 
-                        let loc = wrap_locations(&lhs.loc, &arguments.loc);
+                        if let Some(a) = self.next_if_kind(&TokenKind::Assign) {
+                            if let Some(t) = self.next_if_kind(&TokenKind::RightParen) {
+                                let loc = wrap_locations(&lhs.loc, &t.loc);
+                                let expr = Expression::new(
+                                    ExpressionKind::Call {
+                                        subject: lhs.into(),
+                                        arguments: ArgumentsKind::DestructureImplicit(a.loc).into(),
+                                    },
+                                    loc,
+                                );
+                                self.parse_continuation(expr, bp)?
+                            } else {
+                                let expr = self.parse_expression(0)?;
+                                let t = self.expect_kind(TokenKind::RightParen)?;
+                                let loc = wrap_locations(&lhs.loc, &t.loc);
+                                let expr = Expression::new(
+                                    ExpressionKind::Call {
+                                        subject: lhs.into(),
+                                        arguments: ArgumentsKind::Destructure(expr).into(),
+                                    },
+                                    loc,
+                                );
+                                self.parse_continuation(expr, bp)?
+                            }
+                        } else {
+                            let arguments = self.parse_args(&t.loc)?;
 
-                        let expr = Expression::new(
-                            ExpressionKind::Call {
-                                subject: lhs.into(),
-                                arguments,
-                            },
-                            loc,
-                        );
+                            let loc = wrap_locations(&lhs.loc, &arguments.loc);
 
-                        self.parse_continuation(expr, bp)?
+                            let expr = Expression::new(
+                                ExpressionKind::Call {
+                                    subject: lhs.into(),
+                                    arguments: ArgumentsKind::Inline(arguments).into(),
+                                },
+                                loc,
+                            );
+
+                            self.parse_continuation(expr, bp)?
+                        }
                     }
                 }
                 _ => lhs,
@@ -810,7 +844,9 @@ fn parse_string(src: Arc<str>, loc: Range<usize>) -> Result<Expression> {
     let start_offset = loc.start + 1;
     for part in parts {
         let expr = match &part.kind {
-            StringTokenKind::Str => Expression::new(ExpressionKind::String(part.src.into()), 0..part.src.len()),
+            StringTokenKind::Str => {
+                Expression::new(ExpressionKind::String(part.src.into()), 0..part.src.len())
+            }
             StringTokenKind::Expr => {
                 let tokens = lexer::tokenize(part.src)?;
                 Parser::new(part.src, tokens).parse_expression(0)?

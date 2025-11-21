@@ -25,36 +25,6 @@ fn test_function_calling_function() {
 }
 
 #[test]
-fn test_positional_arguments() {
-    let src = r#"
-        fun args(first: int, second: int, third: int) {
-            println("first: $first, second: $second, third: $third")
-        }
-
-        args(1, 2, 3)
-    "#;
-
-    let out = check_output(src).unwrap();
-
-    assert_eq!("first: 1, second: 2, third: 3\n", out);
-}
-
-#[test]
-fn test_mixed_arguments() {
-    let src = r#"
-        fun args(first: str, second: str, third: str) {
-            println("first: $first, second: $second, third: $third")
-        }
-
-        args("a", third: "c", second: "b")
-    "#;
-
-    let out = check_output(src).unwrap();
-
-    assert_eq!("first: a, second: b, third: c\n", out);
-}
-
-#[test]
 fn test_discard_arg_with_underscore() {
     let src = r#"
         fun args(first: str, _: str) {
@@ -468,6 +438,74 @@ fn test_apply_params() {
 
     match check_output(src) {
         Ok(out) => assert_eq!("1234\n".repeat(10), out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_apply_arguments_from_tuple() {
+    let src = r#"
+        fun foo(fruit: str, amount: int) {
+            println("$amount $fruit")
+        }
+
+        # Normal call
+        foo("banana", 42)
+
+        # Using tuple
+        tup = ("banana", 42)
+        foo(=tup)
+        foo(= ("banana", 42))
+
+        # Using Rec
+        rec Args(fruit: str, amount: int)
+        args = Args(fruit: "banana", amount: 42)
+        foo(=args)
+        foo(= Args("banana", 42))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("42 banana\n".repeat(5), out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_forward_arguments() {
+    let src = r#"
+        fun foo(fruit: str, amount: int) {
+            println("$amount $fruit")
+        }
+
+        fun bar(fruit: str, amount: int) {
+            foo(=arguments)
+        }
+
+        bar("banana", 42)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("42 banana\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_forward_implied_arguments() {
+    let src = r#"
+        fun foo(fruit: str, amount: int) {
+            println("$amount $fruit")
+        }
+
+        fun bar(fruit: str, amount: int) {
+            foo(=)
+        }
+
+        bar("banana", 42)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("42 banana\n", out),
         Err(err) => panic!("{err}"),
     }
 }

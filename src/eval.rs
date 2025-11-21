@@ -8,8 +8,8 @@ use std::{
 use crate::{
     fmt::{fmt_inner_list, fmt_tuple},
     parser::{
-        Arguments, Assignmee, AstNode, Enumeration, Expression, ExpressionKind, Function,
-        Parameter, Record, TypeExpressionKind,
+        Arguments, ArgumentsKind, Assignmee, AstNode, Enumeration, Expression, ExpressionKind,
+        Function, Parameter, Record, TypeExpressionKind,
     },
 };
 
@@ -460,7 +460,7 @@ impl Engine {
     fn eval_call(
         &self,
         subject: &Expression,
-        arguments: &Arguments,
+        arguments: &ArgumentsKind,
         scope: &Scope,
     ) -> Arc<ScriptValue> {
         let arguments = self.eval_args(arguments, scope);
@@ -570,14 +570,29 @@ impl Engine {
         }
     }
 
-    fn eval_args(&self, arguments: &Arguments, scope: &Scope) -> Tuple {
-        let items: Vec<_> = arguments
-            .args
-            .iter()
-            .map(|a| TupleItem::new(a.name.clone(), self.eval_expr(&a.expr, scope)))
-            .collect();
+    fn eval_args(&self, arguments: &ArgumentsKind, scope: &Scope) -> Tuple {
+        match arguments {
+            ArgumentsKind::Inline(arguments) => {
+                let items: Vec<_> = arguments
+                    .args
+                    .iter()
+                    .map(|a| TupleItem::new(a.name.clone(), self.eval_expr(&a.expr, scope)))
+                    .collect();
 
-        Tuple(items)
+                Tuple(items)
+            }
+            ArgumentsKind::Destructure(expr) => {
+                let arg = self.eval_expr(expr, scope);
+                match arg.as_ref() {
+                    ScriptValue::Tuple(tuple) => tuple.clone(),
+                    ScriptValue::Rec { values, .. } => values.clone(),
+                    _ => panic!("Expected a tuple, found {arg}"),
+                }
+            }
+            ArgumentsKind::DestructureImplicit(_) => {
+                scope.arguments.clone()
+            }
+        }
     }
 }
 
