@@ -1,7 +1,6 @@
-use std::{
-    fmt::{Display, Formatter, Result},
-    sync::Arc,
-};
+use std::fmt::{Display, Formatter, Result};
+
+use crate::ident::Ident;
 
 pub(crate) fn fmt_inner_list(f: &mut Formatter<'_>, values: &[impl Display]) -> Result {
     let mut iter = values.iter();
@@ -17,7 +16,7 @@ pub(crate) fn fmt_inner_list(f: &mut Formatter<'_>, values: &[impl Display]) -> 
 pub(crate) fn fmt_tuple<V, I>(f: &mut Formatter<'_>, mut items: I) -> Result
 where
     V: Display,
-    I: Iterator<Item = (Option<Arc<str>>, V)>,
+    I: Iterator<Item = (Option<Ident>, V)>,
 {
     write!(f, "(")?;
 
@@ -33,7 +32,7 @@ where
     Ok(())
 }
 
-fn fmt_item<V>(f: &mut Formatter<'_>, o: (Option<Arc<str>>, V)) -> Result
+fn fmt_item<V>(f: &mut Formatter<'_>, o: (Option<Ident>, V)) -> Result
 where
     V: Display,
 {
@@ -42,4 +41,3 @@ where
         (None, t) => write!(f, "{t}"),
     }
 }
-

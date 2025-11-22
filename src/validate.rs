@@ -1,12 +1,10 @@
 use std::{collections::HashMap, fmt::Display, ops::Range, sync::Arc};
 
 use crate::{
-    error::{Error, Result},
-    fmt::fmt_tuple,
-    parser::{
+    error::{Error, Result}, fmt::fmt_tuple, ident::Ident, parser::{
         Arguments, ArgumentsKind, Assignee, AstNode, Expression, ExpressionKind, Located,
         Parameter, TypeExpression, TypeExpressionKind,
-    },
+    }
 };
 
 #[derive(Debug, Clone, PartialEq)]
@@ -18,13 +16,13 @@ pub enum ScriptType {
     EmptyList,
     List(Box<ScriptType>),
     Tuple(TupleType),
-    Enum(Arc<str>),
+    Enum(Ident),
     Function {
         params: TupleType,
         ret: Box<ScriptType>,
     },
     Rec {
-        name: Arc<str>,
+        name: Ident,
         params: TupleType,
     },
     State(Box<ScriptType>),
@@ -66,34 +64,34 @@ impl Display for ScriptType {
 
 #[derive(Debug, Clone)]
 pub enum TypeDefinition {
-    RecDefinition { name: Arc<str>, params: TupleType },
+    RecDefinition { name: Ident, params: TupleType },
     EnumDefinition(Arc<EnumDefinition>),
 }
 
 #[derive(Debug)]
 pub struct EnumDefinition {
-    name: Arc<str>,
+    name: Ident,
     variants: Vec<EnumVariant>,
 }
 
 #[derive(Debug)]
 struct EnumVariant {
-    name: Arc<str>,
+    name: Ident,
     params: TupleType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TupleParameter {
-    name: Option<Arc<str>>,
+    name: Option<Ident>,
     typ: ScriptType,
 }
 
 impl TupleParameter {
-    pub fn new(name: Option<Arc<str>>, typ: ScriptType) -> Self {
+    pub fn new(name: Option<Ident>, typ: ScriptType) -> Self {
         Self { name, typ }
     }
 
-    pub fn named(name: Arc<str>, typ: ScriptType) -> Self {
+    pub fn named(name: Ident, typ: ScriptType) -> Self {
         Self::new(Some(name), typ)
     }
 
@@ -159,7 +157,7 @@ pub struct EvaluatedType(ScriptType, Range<usize>);
 
 #[derive(Debug, Clone)]
 pub struct EvaluatedArg {
-    name: Option<Arc<str>>,
+    name: Option<Ident>,
     typ: ScriptType,
     loc: Range<usize>,
 }
@@ -196,14 +194,14 @@ impl Display for AppliedArguments {
 
 #[derive(Default, Clone)]
 struct Scope {
-    locals: HashMap<Arc<str>, ScriptType>,
-    types: HashMap<Arc<str>, TypeDefinition>,
+    locals: HashMap<Ident, ScriptType>,
+    types: HashMap<Ident, TypeDefinition>,
     ret: Option<ScriptType>,
     arguments: TupleType,
 }
 
 impl Scope {
-    fn with_globals(globals: &HashMap<Arc<str>, ScriptType>) -> Self {
+    fn with_globals(globals: &HashMap<Ident, ScriptType>) -> Self {
         let locals = globals.clone();
         Self {
             locals,
@@ -213,13 +211,13 @@ impl Scope {
         }
     }
 
-    fn get_local(&self, name: &str) -> Option<&ScriptType> {
+    fn get_local(&self, name: &Ident) -> Option<&ScriptType> {
         self.locals.get(name)
     }
 
-    fn set_local(&mut self, name: Arc<str>, value: ScriptType) {
+    fn set_local(&mut self, name: Ident, value: ScriptType) {
         // Make sure we never assign a type to '_'
-        if name.as_ref() != "_" {
+        if name.as_str() != "_" {
             self.locals.insert(name, value);
         }
     }
@@ -253,7 +251,7 @@ impl ReturnType {
 pub struct Validator<'a> {
     src: &'a str,
     offset: usize,
-    globals: HashMap<Arc<str>, ScriptType>,
+    globals: HashMap<Ident, ScriptType>,
 }
 
 impl<'a> Validator<'a> {
@@ -265,7 +263,7 @@ impl<'a> Validator<'a> {
         }
     }
 
-    pub fn with_global(self, name: impl Into<Arc<str>>, typ: ScriptType) -> Self {
+    pub fn with_global(self, name: impl Into<Ident>, typ: ScriptType) -> Self {
         let mut globals = self.globals;
         globals.insert(name.into(), typ);
         Self { globals, ..self }
@@ -303,7 +301,7 @@ impl<'a> Validator<'a> {
                     let mut inner = scope.clone();
                     for arg in &params.0 {
                         if let Some(name) = &arg.name {
-                            inner.set_local(Arc::clone(name), arg.typ.clone());
+                            inner.set_local(name.clone(), arg.typ.clone());
                         }
                     }
                     inner.arguments = params.clone();
@@ -339,7 +337,7 @@ impl<'a> Validator<'a> {
                     };
 
                     scope.set_local(
-                        Arc::clone(name),
+                        name.clone(),
                         ScriptType::Function {
                             params,
                             ret: ret.into(),
@@ -350,30 +348,30 @@ impl<'a> Validator<'a> {
                     let params = self.eval_params(&rec.params, &scope)?;
 
                     scope.types.insert(
-                        Arc::clone(&rec.name),
+                        rec.name.clone(),
                         TypeDefinition::RecDefinition {
                             params,
-                            name: Arc::clone(&rec.name),
+                            name: rec.name.clone(),
                         },
                     );
                 }
                 AstNode::Enum(rec) => {
                     let def = EnumDefinition {
-                        name: Arc::clone(&rec.name),
+                        name: rec.name.clone(),
                         variants: rec
                             .variants
                             .iter()
                             .map(|v| {
                                 let params = self.eval_params(&v.params, &scope)?;
                                 Ok(EnumVariant {
-                                    name: Arc::clone(&v.name),
+                                    name: v.name.clone(),
                                     params,
                                 })
                             })
                             .collect::<Result<Vec<EnumVariant>>>()?,
                     };
                     scope.types.insert(
-                        Arc::clone(&rec.name),
+                        rec.name.clone(),
                         TypeDefinition::EnumDefinition(def.into()),
                     );
                 }
@@ -390,12 +388,12 @@ impl<'a> Validator<'a> {
                         }
                         ScriptType::List(inner) => {
                             let mut inner_scope = scope.clone();
-                            inner_scope.set_local(Arc::clone(ident), *inner);
+                            inner_scope.set_local(ident.clone(), *inner);
                             self.validate_block(body, inner_scope)?;
                         }
                         ScriptType::Range => {
                             let mut inner_scope = scope.clone();
-                            inner_scope.set_local(Arc::clone(ident), ScriptType::Int);
+                            inner_scope.set_local(ident.clone(), ScriptType::Int);
                             self.validate_block(body, inner_scope)?;
                         }
                         _ => {
@@ -549,7 +547,7 @@ impl<'a> Validator<'a> {
                 Some(TypeDefinition::RecDefinition { .. }) => todo!("rec access"),
                 Some(TypeDefinition::EnumDefinition(def)) => {
                     if def.variants.iter().any(|v| v.name == *name) {
-                        Ok(ScriptType::Enum(Arc::clone(prefix)))
+                        Ok(ScriptType::Enum(prefix.clone()))
                     } else {
                         Err(self.fail(
                             format!("Variant not found: {name} in {}", def.name),
@@ -622,7 +620,7 @@ impl<'a> Validator<'a> {
             ExpressionKind::Multiplication(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
             ExpressionKind::Division(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
             ExpressionKind::Call { subject, arguments } => match &subject.kind {
-                ExpressionKind::Ref(name) => match name.as_ref() {
+                ExpressionKind::Ref(name) => match name.as_str() {
                     "state" => {
                         if let ArgumentsKind::Inline(arguments) = arguments.as_ref() {
                             if arguments.args.len() != 1 {
@@ -654,7 +652,7 @@ impl<'a> Validator<'a> {
 
                                 Ok(ScriptType::Rec {
                                     params: params.clone(),
-                                    name: Arc::clone(name),
+                                    name: name.clone(),
                                 })
                             }
                             Some(TypeDefinition::EnumDefinition(_)) => Err(self.fail(
@@ -679,7 +677,7 @@ impl<'a> Validator<'a> {
                         Some(TypeDefinition::EnumDefinition(def)) => {
                             if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
                                 self.validate_arguments(&var.params, arguments, scope)?;
-                                Ok(ScriptType::Enum(Arc::clone(prefix)))
+                                Ok(ScriptType::Enum(prefix.clone()))
                             } else {
                                 Err(self.fail(
                                     format!("Variant not found: {name} in {}", def.name),
@@ -692,7 +690,7 @@ impl<'a> Validator<'a> {
                 }
                 ExpressionKind::Access { subject, key } => {
                     let subject_typ = self.validate_expr(subject, scope)?;
-                    match (&subject_typ, key.as_ref()) {
+                    match (&subject_typ, key.as_str()) {
                         (ScriptType::State(typ), "get") => {
                             self.validate_arguments(&TupleType::identity(), arguments, scope)?;
                             Ok(*typ.clone())
@@ -866,19 +864,19 @@ impl<'a> Validator<'a> {
 
     fn eval_type_expr(&self, type_expr: &TypeExpression, scope: &Scope) -> Result<ScriptType> {
         match &type_expr.kind {
-            TypeExpressionKind::Scalar(ident) => match ident.as_ref() {
+            TypeExpressionKind::Scalar(ident) => match ident.as_str() {
                 "str" => Ok(ScriptType::Str),
                 "int" => Ok(ScriptType::Int),
                 "bool" => Ok(ScriptType::Bool),
-                e => match scope.types.get(e) {
+                _ => match scope.types.get(ident) {
                     Some(TypeDefinition::RecDefinition { name, params }) => Ok(ScriptType::Rec {
                         params: params.clone(),
-                        name: Arc::clone(name),
+                        name: name.clone(),
                     }),
                     Some(TypeDefinition::EnumDefinition(def)) => {
-                        Ok(ScriptType::Enum(Arc::clone(&def.name)))
+                        Ok(ScriptType::Enum(def.name.clone()))
                     }
-                    None => Err(self.fail(format!("Unknown type: {e}"), &type_expr.loc)),
+                    None => Err(self.fail(format!("Unknown type: {ident}"), &type_expr.loc)),
                 },
             },
             TypeExpressionKind::Tuple(params) => {
@@ -928,7 +926,7 @@ impl<'a> Validator<'a> {
     ) -> Result<()> {
         match (&lhs.expr.name, &lhs.expr.pattern) {
             (None, None) => {}
-            (Some(name), None) => scope.set_local(Arc::clone(name), other.clone()),
+            (Some(name), None) => scope.set_local(name.clone(), other.clone()),
             (_, Some(pattern)) => match other {
                 ScriptType::Tuple(tuple) => self.eval_destruction(pattern, tuple, scope)?,
                 ScriptType::Rec { params, .. } => self.eval_destruction(pattern, params, scope)?,

@@ -1,6 +1,6 @@
 use std::{ops::Range, sync::Arc};
 
-use crate::error::{Error, Result};
+use crate::{error::{Error, Result}, ident::Ident};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -23,7 +23,7 @@ pub enum TokenKind {
     Minus,
     Multiply,
     Divide,
-    Identifier(Arc<str>),
+    Identifier(Ident),
     String(Arc<str>),
     Number(i64),
     NewLine,
@@ -124,7 +124,7 @@ impl<'a> Tokenizer<'a> {
                 'A'..='Z' | 'a'..='z' | '_' => {
                     self.untake();
                     let s = self.find_ident();
-                    match s.as_ref() {
+                    match s.as_str() {
                         "fun" => Some(self.produce(TokenKind::Fun)),
                         "return" => Some(self.produce(TokenKind::Return)),
                         "arguments" => Some(self.produce(TokenKind::Arguments)),
@@ -229,8 +229,8 @@ impl<'a> Tokenizer<'a> {
         Ok(s.into())
     }
 
-    fn find_ident(&mut self) -> Arc<str> {
-        self.take_until(|ch| !is_ident_char(ch))
+    fn find_ident(&mut self) -> Ident {
+        self.take_until(|ch| !is_ident_char(ch)).into()
     }
 
     fn find_number(&mut self) -> Result<i64> {
@@ -239,17 +239,17 @@ impl<'a> Tokenizer<'a> {
         s.parse().map_err(|_| self.fail("Invalid number"))
     }
 
-    fn take_until<P>(&mut self, pattern: P) -> Arc<str>
+    fn take_until<P>(&mut self, pattern: P) -> &str
     where
         P: FnMut(char) -> bool,
     {
         let cur = &self.src[self.loc.start..];
         if let Some(p) = cur.find(pattern) {
             self.loc.end = self.loc.start + p;
-            cur[..p].into()
+            &cur[..p]
         } else {
             self.loc.end = self.src.len();
-            cur[..].into()
+            &cur[..]
         }
     }
 }

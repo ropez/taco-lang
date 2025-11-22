@@ -9,6 +9,7 @@ use multipeek::{IteratorExt, MultiPeek};
 
 use crate::{
     error::{Error, Result},
+    ident::Ident,
     interp::{self, StringTokenKind},
     lexer::{self, Token, TokenKind},
 };
@@ -23,12 +24,12 @@ pub enum AstNode {
     // Are functions expressions?
     // Is this just an assignment?
     Function {
-        name: Arc<str>,
+        name: Ident,
         fun: Arc<Function>,
     },
 
     Iteration {
-        ident: Arc<str>,
+        ident: Ident,
         iterable: Expression,
         body: Vec<AstNode>,
     },
@@ -60,8 +61,8 @@ impl Expression {
 
 #[derive(Debug)]
 pub(crate) enum ExpressionKind {
-    Ref(Arc<str>),
-    PrefixedName(Arc<str>, Arc<str>),
+    Ref(Ident),
+    PrefixedName(Ident, Ident),
     String(Arc<str>),
     StringInterpolate(Vec<(Expression, usize)>),
     Number(i64),
@@ -84,22 +85,22 @@ pub(crate) enum ExpressionKind {
     },
     Access {
         subject: Box<Expression>,
-        key: Arc<str>,
+        key: Ident,
     },
 }
 
 #[derive(Debug)]
 pub struct Argument {
-    pub(crate) name: Option<Arc<str>>,
+    pub(crate) name: Option<Ident>,
     pub(crate) expr: Expression,
 }
 
 impl Argument {
-    pub fn new(name: Option<Arc<str>>, expr: Expression) -> Self {
+    pub fn new(name: Option<Ident>, expr: Expression) -> Self {
         Self { name, expr }
     }
 
-    pub fn named(name: Arc<str>, expr: Expression) -> Self {
+    pub fn named(name: Ident, expr: Expression) -> Self {
         Self::new(Some(name), expr)
     }
 
@@ -129,7 +130,7 @@ pub struct TypeExpression {
 
 #[derive(Debug)]
 pub enum TypeExpressionKind {
-    Scalar(Arc<str>),
+    Scalar(Ident),
     List(Box<TypeExpression>),
     Tuple(Vec<Parameter>),
 }
@@ -143,41 +144,47 @@ pub struct Function {
 
 #[derive(Debug)]
 pub struct Record {
-    pub(crate) name: Arc<str>,
+    pub(crate) name: Ident,
     pub(crate) params: Vec<Parameter>,
 }
 
 #[derive(Debug)]
 pub struct Parameter {
-    pub(crate) name: Option<Arc<str>>,
+    pub(crate) name: Option<Ident>,
     pub(crate) type_expr: TypeExpression,
 }
 
 #[derive(Debug)]
 pub struct Enumeration {
-    pub(crate) name: Arc<str>,
+    pub(crate) name: Ident,
     pub(crate) variants: Vec<Variant>,
 }
 
 #[derive(Debug)]
 pub struct Variant {
-    pub(crate) name: Arc<str>,
+    pub(crate) name: Ident,
     pub(crate) params: Vec<Parameter>,
 }
 
 #[derive(Debug)]
 pub struct Assignee {
-    pub(crate) name: Option<Arc<str>>,
+    pub(crate) name: Option<Ident>,
     pub(crate) pattern: Option<Vec<Located<Assignee>>>,
 }
 
 impl Assignee {
-    fn scalar(name: Arc<str>) -> Self {
-        Self { name: Some(name), pattern: None }
+    fn scalar(name: Ident) -> Self {
+        Self {
+            name: Some(name),
+            pattern: None,
+        }
     }
 
-    fn destructure(name: Option<Arc<str>>, pattern: Vec<Located<Assignee>>) -> Self {
-        Self { name, pattern: Some(pattern) }
+    fn destructure(name: Option<Ident>, pattern: Vec<Located<Assignee>>) -> Self {
+        Self {
+            name,
+            pattern: Some(pattern),
+        }
     }
 }
 
@@ -337,27 +344,21 @@ impl<'a> Parser<'a> {
                     });
                 }
                 TokenKind::Rec => {
-                    let (ident, _) = self.expect_ident()?;
+                    let (name, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
                     let r = self.expect_kind(TokenKind::RightParen)?;
 
-                    let rec = Arc::new(Record {
-                        name: ident,
-                        params,
-                    });
+                    let rec = Arc::new(Record { name, params });
                     ast.push(AstNode::Rec(rec));
                 }
                 TokenKind::Enum => {
-                    let (ident, _) = self.expect_ident()?;
+                    let (name, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftParen)?;
                     let variants = self.parse_variants()?;
                     self.expect_kind(TokenKind::RightParen)?;
 
-                    let rec = Arc::new(Enumeration {
-                        name: ident,
-                        variants,
-                    });
+                    let rec = Arc::new(Enumeration { name, variants });
                     ast.push(AstNode::Enum(rec));
                 }
                 _ => {
@@ -421,20 +422,20 @@ impl<'a> Parser<'a> {
 
     fn handle_identifier_expr(
         &mut self,
-        s: Arc<str>,
+        ident: Ident,
         loc: Range<usize>,
         bp: u32,
     ) -> Result<Expression> {
-        if s.as_ref() == "_" {
+        if ident.as_str() == "_" {
             return Err(self.fail("Expected identifier", &loc));
         }
         if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
             let (name, l) = self.expect_ident()?;
             let loc = wrap_locations(&loc, &l);
-            let expr = Expression::new(ExpressionKind::PrefixedName(s, name), loc);
+            let expr = Expression::new(ExpressionKind::PrefixedName(ident, name), loc);
             self.parse_continuation(expr, bp)
         } else {
-            let expr = Expression::new(ExpressionKind::Ref(s), loc);
+            let expr = Expression::new(ExpressionKind::Ref(ident), loc);
             self.parse_continuation(expr, bp)
         }
     }
@@ -620,7 +621,7 @@ impl<'a> Parser<'a> {
             // Or change TypedArguments/EvaluatedArguments to maintain position
 
             if let Some(TokenKind::Identifier(name)) = self.peek_kind() {
-                let name = Arc::clone(name);
+                let name = name.clone();
                 let t = self.expect_token()?;
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
@@ -670,7 +671,11 @@ impl<'a> Parser<'a> {
         self.parse_list(until, |p| p.parse_expression(0))
     }
 
-    fn parse_destructuring_pattern(&mut self, name: Option<Arc<str>>, token: &Token) -> Result<Located<Assignee>> {
+    fn parse_destructuring_pattern(
+        &mut self,
+        name: Option<Ident>,
+        token: &Token,
+    ) -> Result<Located<Assignee>> {
         let pattern = self.parse_list(TokenKind::RightParen, |p| {
             if let Some(TokenKind::LeftParen) = p.peek_kind() {
                 let t = p.expect_token()?;
@@ -724,14 +729,14 @@ impl<'a> Parser<'a> {
             }
 
             if let Some(TokenKind::Identifier(name)) = self.peek_kind() {
-                let name = Arc::clone(name);
+                let name = name.clone();
                 let t = self.expect_token()?;
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let value = self.parse_expression(0)?;
-                    args.push(Argument::named(Arc::clone(&name), value));
+                    args.push(Argument::named(name.clone(), value));
                 } else {
-                    let expr = self.handle_identifier_expr(name, t.loc, 0)?;
+                    let expr = self.handle_identifier_expr(name.clone(), t.loc, 0)?;
 
                     args.push(Argument::unnamed(expr));
                 }
@@ -846,7 +851,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn expect_ident(&mut self) -> Result<(Arc<str>, Range<usize>)> {
+    fn expect_ident(&mut self) -> Result<(Ident, Range<usize>)> {
         let token = self.expect_token()?;
         match token.kind {
             TokenKind::Identifier(name) => Ok((name, token.loc)),

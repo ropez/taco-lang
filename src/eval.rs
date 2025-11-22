@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     fmt::{fmt_inner_list, fmt_tuple},
+    ident::Ident,
     parser::{
         ArgumentsKind, Assignee, AstNode, Enumeration, Expression, ExpressionKind, Function,
         Located, Parameter, Record, TypeExpressionKind,
@@ -100,16 +101,16 @@ impl Display for ScriptValue {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TupleItem {
-    name: Option<Arc<str>>,
+    name: Option<Ident>,
     value: Arc<ScriptValue>,
 }
 
 impl TupleItem {
-    pub fn new(name: Option<Arc<str>>, value: Arc<ScriptValue>) -> Self {
+    pub fn new(name: Option<Ident>, value: Arc<ScriptValue>) -> Self {
         Self { name, value }
     }
 
-    pub fn named(name: Arc<str>, value: Arc<ScriptValue>) -> Self {
+    pub fn named(name: Ident, value: Arc<ScriptValue>) -> Self {
         Self::new(Some(name), value)
     }
 
@@ -134,7 +135,7 @@ impl Tuple {
         self.0.first().map(|item| Arc::clone(&item.value))
     }
 
-    pub fn get(&self, key: &Arc<str>) -> Option<Arc<ScriptValue>> {
+    pub fn get(&self, key: &Ident) -> Option<Arc<ScriptValue>> {
         self.0
             .iter()
             .find(|i| i.name.as_ref() == Some(key))
@@ -163,12 +164,12 @@ pub enum Completion {
 struct Scope {
     // XXX Try to remove Arc, so that the scope _owns_ the value
     // Don't clone the scope, but create something like a stack of scopes?
-    locals: HashMap<Arc<str>, Arc<ScriptValue>>,
+    locals: HashMap<Ident, Arc<ScriptValue>>,
 
     // XXX functions, records could all be script values in locals
-    functions: HashMap<Arc<str>, (Arc<Function>, Scope)>,
-    records: HashMap<Arc<str>, Arc<Record>>,
-    enums: HashMap<Arc<str>, Arc<Enumeration>>,
+    functions: HashMap<Ident, (Arc<Function>, Scope)>,
+    records: HashMap<Ident, Arc<Record>>,
+    enums: HashMap<Ident, Arc<Enumeration>>,
 
     arguments: Tuple,
 }
@@ -177,9 +178,9 @@ pub trait NativeFn: FnMut(Tuple) -> ScriptValue {}
 impl<T: FnMut(Tuple) -> ScriptValue> NativeFn for T {}
 
 impl Scope {
-    fn set_local(&mut self, name: Arc<str>, value: Arc<ScriptValue>) {
+    fn set_local(&mut self, name: Ident, value: Arc<ScriptValue>) {
         // Make sure we never assign a value to '_'
-        if name.as_ref() != "_" {
+        if name.as_str() != "_" {
             self.locals.insert(name, value);
         }
     }
@@ -187,11 +188,11 @@ impl Scope {
 
 #[derive(Default)]
 pub struct Engine {
-    globals: HashMap<Arc<str>, Mutex<Box<dyn NativeFn>>>,
+    globals: HashMap<Ident, Mutex<Box<dyn NativeFn>>>,
 }
 
 impl Engine {
-    pub fn with_global<F>(self, name: impl Into<Arc<str>>, val: F) -> Self
+    pub fn with_global<F>(self, name: impl Into<Ident>, val: F) -> Self
     where
         F: NativeFn + 'static,
     {
@@ -214,13 +215,13 @@ impl Engine {
                 AstNode::Function { name, fun, .. } => {
                     scope
                         .functions
-                        .insert(Arc::clone(name), (Arc::clone(fun), scope.clone()));
+                        .insert(name.clone(), (Arc::clone(fun), scope.clone()));
                 }
                 AstNode::Rec(rec) => {
-                    scope.records.insert(Arc::clone(&rec.name), Arc::clone(rec));
+                    scope.records.insert(rec.name.clone(), Arc::clone(rec));
                 }
                 AstNode::Enum(rec) => {
-                    scope.enums.insert(Arc::clone(&rec.name), Arc::clone(rec));
+                    scope.enums.insert(rec.name.clone(), Arc::clone(rec));
                 }
                 AstNode::Iteration {
                     ident,
@@ -232,7 +233,7 @@ impl Engine {
                         ScriptValue::List(ref items) => {
                             for item in items {
                                 let mut scope = scope.clone();
-                                scope.set_local(Arc::clone(ident), Arc::clone(item));
+                                scope.set_local(ident.clone(), Arc::clone(item));
                                 if let Completion::ExplicitReturn(val) =
                                     self.eval_block(body, scope)
                                 {
@@ -243,8 +244,7 @@ impl Engine {
                         ScriptValue::Range(lhs, rhs) => {
                             for v in lhs..=rhs {
                                 let mut scope = scope.clone();
-                                scope
-                                    .set_local(Arc::clone(ident), Arc::new(ScriptValue::Number(v)));
+                                scope.set_local(ident.clone(), Arc::new(ScriptValue::Number(v)));
                                 if let Completion::ExplicitReturn(val) =
                                     self.eval_block(body, scope)
                                 {
@@ -453,7 +453,7 @@ impl Engine {
     ) -> Arc<ScriptValue> {
         let arguments = self.eval_args(arguments, scope);
         match &subject.kind {
-            ExpressionKind::Ref(name) => match name.as_ref() {
+            ExpressionKind::Ref(name) => match name.as_str() {
                 "state" => {
                     let arg = Arc::clone(&arguments.0.first().expect("state arg").value);
                     Arc::new(ScriptValue::State(RwLock::new(arg)))
@@ -465,7 +465,7 @@ impl Engine {
                         let values = transform_args(&fun.params, arguments);
                         for item in &values.0 {
                             if let Some(name) = &item.name {
-                                inner_scope.set_local(Arc::clone(name), Arc::clone(&item.value));
+                                inner_scope.set_local(name.clone(), Arc::clone(&item.value));
                             }
                         }
                         inner_scope.arguments = values;
@@ -512,7 +512,7 @@ impl Engine {
             }
             ExpressionKind::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
-                match (subject.as_ref(), key.as_ref()) {
+                match (subject.as_ref(), key.as_str()) {
                     (ScriptValue::State(state), "get") => {
                         let v = state.read().unwrap();
                         Arc::clone(v.deref())
@@ -637,7 +637,7 @@ fn transform_args(params: &[Parameter], args: Tuple) -> Tuple {
 fn eval_assignment(lhs: &Located<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope) {
     match (&lhs.expr.name, &lhs.expr.pattern) {
         (None, None) => {}
-        (Some(name), None) => scope.set_local(Arc::clone(name), rhs),
+        (Some(name), None) => scope.set_local(name.clone(), rhs),
         (_, Some(pattern)) => match rhs.as_ref() {
             ScriptValue::Tuple(values) => eval_destructure(pattern, values, scope),
             ScriptValue::Rec { values, .. } => eval_destructure(pattern, values, scope),

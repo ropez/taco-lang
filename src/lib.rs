@@ -11,6 +11,7 @@ mod interp;
 pub mod lexer;
 pub mod parser;
 pub mod validate;
+pub mod ident;
 mod extensions;
 mod fmt;
 
@@ -37,15 +38,15 @@ where
     let mut engine = Engine::default();
 
     for (name, f) in extensions::fs::create() {
-        let name = name.into();
-        validator = validator.with_global(Arc::clone(&name), f.script_type);
-        engine = engine.with_global(Arc::clone(&name), f.func);
+        let name = name.as_str();
+        validator = validator.with_global(name, f.script_type);
+        engine = engine.with_global(name, f.func);
     }
 
     for (name, f) in extensions::print::create(out) {
-        let name = name.into();
-        validator = validator.with_global(Arc::clone(&name), f.script_type);
-        engine = engine.with_global(Arc::clone(&name), f.func);
+        let name = name.as_str();
+        validator = validator.with_global(name, f.script_type);
+        engine = engine.with_global(name, f.func);
     }
 
     validator.validate(&ast)?;
