@@ -57,6 +57,7 @@ pub enum TokenKind {
     String(Arc<str>),
     Number(i64),
     NewLine,
+    Comment(Arc<str>),
 
     // Keywords
     Fun,
@@ -91,12 +92,8 @@ impl<'a> Tokenizer<'a> {
             None => None,
             Some(c) => match c {
                 '#' => {
-                    // Consume until newline
-                    let p = self.remaining().find('\n').expect("end of line");
-                    self.skip(p);
-
-                    // FIXME Commenting out thousands of lines results in stack overflow
-                    self.next_token()?
+                    let s = self.take_until(|c| c == '\n').into();
+                    Some(self.produce(TokenKind::Comment(s)))
                 }
                 '=' => {
                     if self.take_if_eq('=') {

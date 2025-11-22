@@ -206,6 +206,7 @@ impl<'a> Parser<'a> {
 
             match token.as_ref() {
                 TokenKind::NewLine => {} // Ignore
+                TokenKind::Comment(_) => {}
                 TokenKind::RightBrace if !root => break,
                 TokenKind::Fun => {
                     let (name, _) = self.expect_ident()?;
@@ -240,7 +241,7 @@ impl<'a> Parser<'a> {
                         let assignee = Loc::new(assignee, token.loc);
                         let value = self.parse_expression(0)?;
                         ast.push(AstNode::Assignment { assignee, value });
-                        self.expect_kind(TokenKind::NewLine)?;
+                        self.expect_end_of_line()?;
                     } else {
                         let expr = Loc::new(Expression::Ref(name.clone()), token.loc);
                         let expr = self.parse_continuation(expr, 0)?;
@@ -269,7 +270,7 @@ impl<'a> Parser<'a> {
                         self.expect_kind(TokenKind::Assign)?;
                         let value = self.parse_expression(0)?;
                         ast.push(AstNode::Assignment { assignee, value });
-                        self.expect_kind(TokenKind::NewLine)?;
+                        self.expect_end_of_line()?;
                     } else {
                         let args = self.parse_args(&token.loc)?;
                         let loc = args.loc.clone();
@@ -413,6 +414,7 @@ impl<'a> Parser<'a> {
         let expr = match self.peek_kind() {
             None => lhs,
             Some(token) => match token {
+                TokenKind::Comment(_) => lhs,
                 TokenKind::Equal => {
                     if bp >= BP_EQUAL {
                         lhs
@@ -777,11 +779,27 @@ impl<'a> Parser<'a> {
             match self.peek_kind() {
                 None => break,
                 Some(TokenKind::NewLine) => {}
+                Some(TokenKind::Comment(_)) => {}
                 Some(_) => break,
             }
 
             self.iter.next();
         }
+    }
+
+    fn expect_end_of_line(&mut self) -> Result<()> {
+        loop {
+            match self.iter.next() {
+                None => break,
+                Some(token) => match token.as_ref() {
+                    TokenKind::NewLine => break,
+                    TokenKind::Comment(_) => {}
+                    _ => return Err(self.fail_at("Unexpected token", &token)),
+                },
+            }
+        }
+
+        Ok(())
     }
 
     fn expect_token(&mut self) -> Result<Token> {
