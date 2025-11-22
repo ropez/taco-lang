@@ -8,9 +8,10 @@ use std::{
 use crate::{
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
+    lexer::Loc,
     parser::{
-        ArgumentsKind, Assignee, AstNode, Enumeration, Expression, ExpressionKind, Function,
-        Located, Parameter, Record, TypeExpressionKind,
+        ArgumentsKind, Assignee, AstNode, Enumeration, Expression, Function, Parameter, Record,
+        TypeExpression,
     },
 };
 
@@ -297,10 +298,10 @@ impl Engine {
         Completion::EndOfBlock
     }
 
-    fn eval_expr(&self, expr: &Expression, scope: &Scope) -> Arc<ScriptValue> {
-        match &expr.kind {
-            ExpressionKind::String(s) => Arc::new(ScriptValue::String(Arc::clone(s))),
-            ExpressionKind::StringInterpolate(parts) => {
+    fn eval_expr(&self, expr: &Loc<Expression>, scope: &Scope) -> Arc<ScriptValue> {
+        match expr.as_ref() {
+            Expression::String(s) => Arc::new(ScriptValue::String(Arc::clone(s))),
+            Expression::StringInterpolate(parts) => {
                 // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
                 let mut builder = String::new();
                 for (expr, _) in parts {
@@ -309,14 +310,14 @@ impl Engine {
                 }
                 Arc::new(ScriptValue::String(builder.into()))
             }
-            ExpressionKind::Number(n) => Arc::new(ScriptValue::Number(*n)),
-            ExpressionKind::True => Arc::new(ScriptValue::Boolean(true)),
-            ExpressionKind::False => Arc::new(ScriptValue::Boolean(false)),
-            ExpressionKind::Arguments => Arc::new(ScriptValue::Tuple(scope.arguments.clone())),
-            ExpressionKind::List(s) => Arc::new(ScriptValue::List(
+            Expression::Number(n) => Arc::new(ScriptValue::Number(*n)),
+            Expression::True => Arc::new(ScriptValue::Boolean(true)),
+            Expression::False => Arc::new(ScriptValue::Boolean(false)),
+            Expression::Arguments => Arc::new(ScriptValue::Tuple(scope.arguments.clone())),
+            Expression::List(s) => Arc::new(ScriptValue::List(
                 s.iter().map(|i| self.eval_expr(i, scope)).collect(),
             )),
-            ExpressionKind::Tuple(s) => {
+            Expression::Tuple(s) => {
                 let items = s
                     .args
                     .iter()
@@ -328,11 +329,11 @@ impl Engine {
 
                 Arc::new(ScriptValue::Tuple(Tuple(items)))
             }
-            ExpressionKind::Ref(ident) => match scope.locals.get(ident) {
+            Expression::Ref(ident) => match scope.locals.get(ident) {
                 None => panic!("Undefined reference: {ident}"),
                 Some(value) => Arc::clone(value),
             },
-            ExpressionKind::PrefixedName(prefix, name) => match scope.enums.get(prefix) {
+            Expression::PrefixedName(prefix, name) => match scope.enums.get(prefix) {
                 Some(v) => {
                     if let Some((index, _variant)) =
                         v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
@@ -348,7 +349,7 @@ impl Engine {
                 }
                 None => panic!("Enum not found: {prefix}"),
             },
-            ExpressionKind::Access { subject, key } => {
+            Expression::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
                 match subject.as_ref() {
                     ScriptValue::Rec { rec, values } => {
@@ -364,7 +365,7 @@ impl Engine {
                     _ => panic!("Unexpected property access on {subject:?}"),
                 }
             }
-            ExpressionKind::Not(expr) => {
+            Expression::Not(expr) => {
                 let val = self.eval_expr(expr, scope);
                 if let ScriptValue::Boolean(b) = *val {
                     Arc::new(ScriptValue::Boolean(!b))
@@ -372,19 +373,19 @@ impl Engine {
                     panic!("Not a boolean")
                 }
             }
-            ExpressionKind::Equal(lhs, rhs) => {
+            Expression::Equal(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
                 Arc::new(ScriptValue::Boolean(lhs.eq(&rhs)))
             }
-            ExpressionKind::NotEqual(lhs, rhs) => {
+            Expression::NotEqual(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
                 Arc::new(ScriptValue::Boolean(!lhs.eq(&rhs)))
             }
-            ExpressionKind::Range(lhs, rhs) => {
+            Expression::Range(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -395,7 +396,7 @@ impl Engine {
                     _ => panic!("Expected numbers in range"),
                 }
             }
-            ExpressionKind::Addition(lhs, rhs) => {
+            Expression::Addition(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -406,7 +407,7 @@ impl Engine {
                     _ => panic!("Expected numbers"),
                 }
             }
-            ExpressionKind::Subtraction(lhs, rhs) => {
+            Expression::Subtraction(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -417,7 +418,7 @@ impl Engine {
                     _ => panic!("Expected numbers"),
                 }
             }
-            ExpressionKind::Multiplication(lhs, rhs) => {
+            Expression::Multiplication(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -428,7 +429,7 @@ impl Engine {
                     _ => panic!("Expected numbers"),
                 }
             }
-            ExpressionKind::Division(lhs, rhs) => {
+            Expression::Division(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope);
                 let rhs = self.eval_expr(rhs, scope);
 
@@ -439,21 +440,19 @@ impl Engine {
                     _ => panic!("Expected numbers"),
                 }
             }
-            ExpressionKind::Call { subject, arguments } => {
-                self.eval_call(subject, arguments, scope)
-            }
+            Expression::Call { subject, arguments } => self.eval_call(subject, arguments, scope),
         }
     }
 
     fn eval_call(
         &self,
-        subject: &Expression,
+        subject: &Loc<Expression>,
         arguments: &ArgumentsKind,
         scope: &Scope,
     ) -> Arc<ScriptValue> {
         let arguments = self.eval_args(arguments, scope);
-        match &subject.kind {
-            ExpressionKind::Ref(name) => match name.as_str() {
+        match subject.as_ref() {
+            Expression::Ref(name) => match name.as_str() {
                 "state" => {
                     let arg = Arc::clone(&arguments.0.first().expect("state arg").value);
                     Arc::new(ScriptValue::State(RwLock::new(arg)))
@@ -492,7 +491,7 @@ impl Engine {
                     }
                 }
             },
-            ExpressionKind::PrefixedName(prefix, name) => {
+            Expression::PrefixedName(prefix, name) => {
                 if let Some(v) = scope.enums.get(prefix) {
                     if let Some((index, variant)) =
                         v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
@@ -510,7 +509,7 @@ impl Engine {
                     panic!("Enum not found: {prefix}")
                 }
             }
-            ExpressionKind::Access { subject, key } => {
+            Expression::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
                 match (subject.as_ref(), key.as_str()) {
                     (ScriptValue::State(state), "get") => {
@@ -618,12 +617,12 @@ fn transform_args(params: &[Parameter], args: Tuple) -> Tuple {
     }
 
     fn transform_value(par: &Parameter, arg: &TupleItem) -> Arc<ScriptValue> {
-        match (&par.type_expr.kind, arg.value.as_ref()) {
-            (TypeExpressionKind::Tuple(t), ScriptValue::Tuple(tup)) => {
+        match (par.type_expr.as_ref(), arg.value.as_ref()) {
+            (TypeExpression::Tuple(t), ScriptValue::Tuple(tup)) => {
                 let applied = transform_args(t, tup.clone());
                 Arc::new(ScriptValue::Tuple(applied))
             }
-            (TypeExpressionKind::Tuple(t), ScriptValue::Rec { values, .. }) => {
+            (TypeExpression::Tuple(t), ScriptValue::Rec { values, .. }) => {
                 let applied = transform_args(t, values.clone());
                 Arc::new(ScriptValue::Tuple(applied))
             }
@@ -634,8 +633,9 @@ fn transform_args(params: &[Parameter], args: Tuple) -> Tuple {
     Tuple(items)
 }
 
-fn eval_assignment(lhs: &Located<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope) {
-    match (&lhs.expr.name, &lhs.expr.pattern) {
+fn eval_assignment(lhs: &Loc<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope) {
+    let lhs = lhs.as_ref();
+    match (&lhs.name, &lhs.pattern) {
         (None, None) => {}
         (Some(name), None) => scope.set_local(name.clone(), rhs),
         (_, Some(pattern)) => match rhs.as_ref() {
@@ -646,10 +646,10 @@ fn eval_assignment(lhs: &Located<Assignee>, rhs: Arc<ScriptValue>, scope: &mut S
     }
 }
 
-fn eval_destructure(lhs: &[Located<Assignee>], rhs: &Tuple, scope: &mut Scope) {
+fn eval_destructure(lhs: &[Loc<Assignee>], rhs: &Tuple, scope: &mut Scope) {
     let mut positional = rhs.0.iter().filter(|arg| arg.name.is_none());
     for par in lhs.iter() {
-        if let Some(name) = &par.expr.name {
+        if let Some(name) = &par.as_ref().name {
             if let Some(arg) = rhs.0.iter().find(|a| a.name.as_ref() == Some(name)) {
                 eval_assignment(par, Arc::clone(&arg.value), scope);
             } else if let Some(arg) = positional.next() {

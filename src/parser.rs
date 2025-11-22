@@ -1,6 +1,6 @@
 use std::{
     cmp::{self},
-    ops::Range,
+    ops::{self, Deref, Range},
     sync::Arc,
     vec::IntoIter,
 };
@@ -11,14 +11,14 @@ use crate::{
     error::{Error, Result},
     ident::Ident,
     interp::{self, StringTokenKind},
-    lexer::{self, Token, TokenKind},
+    lexer::{self, Loc, Token, TokenKind},
 };
 
 #[derive(Debug)]
 pub enum AstNode {
     Assignment {
-        assignee: Located<Assignee>,
-        value: Expression,
+        assignee: Loc<Assignee>,
+        value: Loc<Expression>,
     },
 
     // Are functions expressions?
@@ -30,12 +30,12 @@ pub enum AstNode {
 
     Iteration {
         ident: Ident,
-        iterable: Expression,
+        iterable: Loc<Expression>,
         body: Vec<AstNode>,
     },
 
     Condition {
-        cond: Expression,
+        cond: Loc<Expression>,
         body: Vec<AstNode>,
         else_body: Option<Vec<AstNode>>,
     },
@@ -43,48 +43,36 @@ pub enum AstNode {
     Rec(Arc<Record>),
     Enum(Arc<Enumeration>),
 
-    Expression(Expression),
-    Return(Expression),
+    Expression(Loc<Expression>),
+    Return(Loc<Expression>),
 }
 
 #[derive(Debug)]
-pub struct Expression {
-    pub(crate) kind: ExpressionKind,
-    pub(crate) loc: Range<usize>,
-}
-
-impl Expression {
-    fn new(kind: ExpressionKind, loc: Range<usize>) -> Self {
-        Self { kind, loc }
-    }
-}
-
-#[derive(Debug)]
-pub(crate) enum ExpressionKind {
+pub enum Expression {
     Ref(Ident),
     PrefixedName(Ident, Ident),
     String(Arc<str>),
-    StringInterpolate(Vec<(Expression, usize)>),
+    StringInterpolate(Vec<(Loc<Expression>, usize)>),
     Number(i64),
     True,
     False,
     Arguments,
-    List(Vec<Expression>),
+    List(Vec<Loc<Expression>>),
     Tuple(Arguments), // Should probably be (Option(name), expr)
-    Not(Box<Expression>),
-    Equal(Box<Expression>, Box<Expression>),
-    NotEqual(Box<Expression>, Box<Expression>),
-    Range(Box<Expression>, Box<Expression>),
-    Addition(Box<Expression>, Box<Expression>),
-    Subtraction(Box<Expression>, Box<Expression>),
-    Multiplication(Box<Expression>, Box<Expression>),
-    Division(Box<Expression>, Box<Expression>),
+    Not(Box<Loc<Expression>>),
+    Equal(Box<Loc<Expression>>, Box<Loc<Expression>>),
+    NotEqual(Box<Loc<Expression>>, Box<Loc<Expression>>),
+    Range(Box<Loc<Expression>>, Box<Loc<Expression>>),
+    Addition(Box<Loc<Expression>>, Box<Loc<Expression>>),
+    Subtraction(Box<Loc<Expression>>, Box<Loc<Expression>>),
+    Multiplication(Box<Loc<Expression>>, Box<Loc<Expression>>),
+    Division(Box<Loc<Expression>>, Box<Loc<Expression>>),
     Call {
-        subject: Box<Expression>,
+        subject: Box<Loc<Expression>>,
         arguments: Box<ArgumentsKind>,
     },
     Access {
-        subject: Box<Expression>,
+        subject: Box<Loc<Expression>>,
         key: Ident,
     },
 }
@@ -92,19 +80,19 @@ pub(crate) enum ExpressionKind {
 #[derive(Debug)]
 pub struct Argument {
     pub(crate) name: Option<Ident>,
-    pub(crate) expr: Expression,
+    pub(crate) expr: Loc<Expression>,
 }
 
 impl Argument {
-    pub fn new(name: Option<Ident>, expr: Expression) -> Self {
+    pub fn new(name: Option<Ident>, expr: Loc<Expression>) -> Self {
         Self { name, expr }
     }
 
-    pub fn named(name: Ident, expr: Expression) -> Self {
+    pub fn named(name: Ident, expr: Loc<Expression>) -> Self {
         Self::new(Some(name), expr)
     }
 
-    pub fn unnamed(expr: Expression) -> Self {
+    pub fn unnamed(expr: Loc<Expression>) -> Self {
         Self::new(None, expr)
     }
 }
@@ -118,27 +106,21 @@ pub struct Arguments {
 #[derive(Debug)]
 pub enum ArgumentsKind {
     Inline(Arguments),
-    Destructure(Expression),
+    Destructure(Loc<Expression>),
     DestructureImplicit(Range<usize>),
 }
 
 #[derive(Debug)]
-pub struct TypeExpression {
-    pub(crate) kind: TypeExpressionKind,
-    pub(crate) loc: Range<usize>,
-}
-
-#[derive(Debug)]
-pub enum TypeExpressionKind {
+pub enum TypeExpression {
     Scalar(Ident),
-    List(Box<TypeExpression>),
+    List(Box<Loc<TypeExpression>>),
     Tuple(Vec<Parameter>),
 }
 
 #[derive(Debug)]
 pub struct Function {
     pub(crate) params: Vec<Parameter>,
-    pub(crate) type_expr: Option<TypeExpression>,
+    pub(crate) type_expr: Option<Loc<TypeExpression>>,
     pub(crate) body: Vec<AstNode>,
 }
 
@@ -151,7 +133,7 @@ pub struct Record {
 #[derive(Debug)]
 pub struct Parameter {
     pub(crate) name: Option<Ident>,
-    pub(crate) type_expr: TypeExpression,
+    pub(crate) type_expr: Loc<TypeExpression>,
 }
 
 #[derive(Debug)]
@@ -169,7 +151,7 @@ pub struct Variant {
 #[derive(Debug)]
 pub struct Assignee {
     pub(crate) name: Option<Ident>,
-    pub(crate) pattern: Option<Vec<Located<Assignee>>>,
+    pub(crate) pattern: Option<Vec<Loc<Assignee>>>,
 }
 
 impl Assignee {
@@ -180,25 +162,10 @@ impl Assignee {
         }
     }
 
-    fn destructure(name: Option<Ident>, pattern: Vec<Located<Assignee>>) -> Self {
+    fn destructure(name: Option<Ident>, pattern: Vec<Loc<Assignee>>) -> Self {
         Self {
             name,
             pattern: Some(pattern),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct Located<T> {
-    pub(crate) expr: T,
-    pub(crate) loc: Range<usize>,
-}
-
-impl<T> Located<T> {
-    fn new(expr: T, loc: &Range<usize>) -> Self {
-        Self {
-            expr,
-            loc: loc.clone(),
         }
     }
 }
@@ -237,7 +204,7 @@ impl<'a> Parser<'a> {
         loop {
             let Some(token) = self.iter.next() else { break };
 
-            match token.kind {
+            match token.as_ref() {
                 TokenKind::NewLine => {} // Ignore
                 TokenKind::RightBrace if !root => break,
                 TokenKind::Fun => {
@@ -269,19 +236,19 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Identifier(name) => {
                     if self.next_if_kind(&TokenKind::Assign).is_some() {
-                        let assignee = Assignee::scalar(name);
-                        let assignee = Located::new(assignee, &token.loc);
+                        let assignee = Assignee::scalar(name.clone());
+                        let assignee = Loc::new(assignee, token.loc);
                         let value = self.parse_expression(0)?;
                         ast.push(AstNode::Assignment { assignee, value });
                         self.expect_kind(TokenKind::NewLine)?;
                     } else {
-                        let expr = Expression::new(ExpressionKind::Ref(name), token.loc);
+                        let expr = Loc::new(Expression::Ref(name.clone()), token.loc);
                         let expr = self.parse_continuation(expr, 0)?;
                         ast.push(AstNode::Expression(expr));
                     }
                 }
                 TokenKind::String(s) => {
-                    let expr = parse_string(s, token.loc)?;
+                    let expr = parse_string(s.as_ref(), token.loc.clone())?;
                     let expr = self.parse_continuation(expr, 0)?;
                     ast.push(AstNode::Expression(expr));
                 }
@@ -290,7 +257,7 @@ impl<'a> Parser<'a> {
                     let end = self.expect_kind(TokenKind::RightSquare)?;
                     let loc = wrap_locations(&token.loc, &end.loc);
 
-                    let expr = Expression::new(ExpressionKind::List(list), loc);
+                    let expr = Loc::new(Expression::List(list), loc);
                     let expr = self.parse_continuation(expr, 0)?;
                     ast.push(AstNode::Expression(expr))
                 }
@@ -306,7 +273,7 @@ impl<'a> Parser<'a> {
                     } else {
                         let args = self.parse_args(&token.loc)?;
                         let loc = args.loc.clone();
-                        let expr = Expression::new(ExpressionKind::Tuple(args), loc);
+                        let expr = Loc::new(Expression::Tuple(args), loc);
                         let expr = self.parse_continuation(expr, 0)?;
                         ast.push(AstNode::Expression(expr));
                     }
@@ -370,34 +337,34 @@ impl<'a> Parser<'a> {
         Ok(ast)
     }
 
-    fn parse_expression(&mut self, bp: u32) -> Result<Expression> {
+    fn parse_expression(&mut self, bp: u32) -> Result<Loc<Expression>> {
         let token = self.expect_token()?;
 
-        let expr = match token.kind {
-            TokenKind::Identifier(s) => self.handle_identifier_expr(s, token.loc, bp)?,
+        let expr = match token.as_ref() {
+            TokenKind::Identifier(s) => self.handle_identifier_expr(s.clone(), token.loc, bp)?,
             TokenKind::Not => {
                 let expr = self.parse_expression(bp)?;
                 let loc = wrap_locations(&token.loc, &expr.loc);
-                Expression::new(ExpressionKind::Not(expr.into()), loc)
+                Loc::new(Expression::Not(expr.into()), loc)
             }
             TokenKind::String(s) => {
-                let expr = parse_string(s, token.loc)?;
+                let expr = parse_string(s, token.loc.clone())?;
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::Number(n) => {
-                let e = Expression::new(ExpressionKind::Number(n), token.loc);
+                let e = Loc::new(Expression::Number(*n), token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::True => {
-                let e = Expression::new(ExpressionKind::True, token.loc);
+                let e = Loc::new(Expression::True, token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::False => {
-                let e = Expression::new(ExpressionKind::False, token.loc);
+                let e = Loc::new(Expression::False, token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::Arguments => {
-                let e = Expression::new(ExpressionKind::Arguments, token.loc);
+                let e = Loc::new(Expression::Arguments, token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::LeftSquare => {
@@ -405,13 +372,13 @@ impl<'a> Parser<'a> {
                 let end = self.expect_kind(TokenKind::RightSquare)?;
                 let loc = wrap_locations(&token.loc, &end.loc);
 
-                let expr = Expression::new(ExpressionKind::List(list), loc);
+                let expr = Loc::new(Expression::List(list), loc);
                 self.parse_continuation(expr, 0)?
             }
             TokenKind::LeftParen => {
                 let list = self.parse_args(&token.loc)?;
                 let loc = list.loc.clone();
-                let expr = Expression::new(ExpressionKind::Tuple(list), loc);
+                let expr = Loc::new(Expression::Tuple(list), loc);
                 self.parse_continuation(expr, 0)?
             }
             _ => return Err(self.fail_at("unexpected token", &token)),
@@ -425,22 +392,22 @@ impl<'a> Parser<'a> {
         ident: Ident,
         loc: Range<usize>,
         bp: u32,
-    ) -> Result<Expression> {
+    ) -> Result<Loc<Expression>> {
         if ident.as_str() == "_" {
             return Err(self.fail("Expected identifier", &loc));
         }
         if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
             let (name, l) = self.expect_ident()?;
             let loc = wrap_locations(&loc, &l);
-            let expr = Expression::new(ExpressionKind::PrefixedName(ident, name), loc);
+            let expr = Loc::new(Expression::PrefixedName(ident, name), loc);
             self.parse_continuation(expr, bp)
         } else {
-            let expr = Expression::new(ExpressionKind::Ref(ident), loc);
+            let expr = Loc::new(Expression::Ref(ident), loc);
             self.parse_continuation(expr, bp)
         }
     }
 
-    fn parse_continuation(&mut self, lhs: Expression, bp: u32) -> Result<Expression> {
+    fn parse_continuation(&mut self, lhs: Loc<Expression>, bp: u32) -> Result<Loc<Expression>> {
         use constants::*;
 
         let expr = match self.peek_kind() {
@@ -453,8 +420,7 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_EQUAL)?;
                         let loc = wrap_locations(&lhs.loc, &rhs.loc);
-                        let expr =
-                            Expression::new(ExpressionKind::Equal(lhs.into(), rhs.into()), loc);
+                        let expr = Loc::new(Expression::Equal(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -465,8 +431,7 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_EQUAL)?;
                         let loc = wrap_locations(&lhs.loc, &rhs.loc);
-                        let expr =
-                            Expression::new(ExpressionKind::NotEqual(lhs.into(), rhs.into()), loc);
+                        let expr = Loc::new(Expression::NotEqual(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -477,8 +442,8 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let (key, loc) = self.expect_ident()?;
                         let loc = wrap_locations(&lhs.loc, &loc);
-                        let expr = Expression::new(
-                            ExpressionKind::Access {
+                        let expr = Loc::new(
+                            Expression::Access {
                                 subject: lhs.into(),
                                 key,
                             },
@@ -494,8 +459,7 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_SPREAD)?;
                         let loc = wrap_locations(&lhs.loc, &rhs.loc);
-                        let expr =
-                            Expression::new(ExpressionKind::Range(lhs.into(), rhs.into()), loc);
+                        let expr = Loc::new(Expression::Range(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -506,8 +470,7 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_PLUS)?;
                         let loc = wrap_locations(&lhs.loc, &rhs.loc);
-                        let expr =
-                            Expression::new(ExpressionKind::Addition(lhs.into(), rhs.into()), loc);
+                        let expr = Loc::new(Expression::Addition(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -518,10 +481,7 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_MINUS)?;
                         let loc = wrap_locations(&lhs.loc, &rhs.loc);
-                        let expr = Expression::new(
-                            ExpressionKind::Subtraction(lhs.into(), rhs.into()),
-                            loc,
-                        );
+                        let expr = Loc::new(Expression::Subtraction(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -532,10 +492,8 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_MULT)?;
                         let loc = wrap_locations(&lhs.loc, &rhs.loc);
-                        let expr = Expression::new(
-                            ExpressionKind::Multiplication(lhs.into(), rhs.into()),
-                            loc,
-                        );
+                        let expr =
+                            Loc::new(Expression::Multiplication(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -546,8 +504,7 @@ impl<'a> Parser<'a> {
                         self.iter.next();
                         let rhs = self.parse_expression(BP_DIV)?;
                         let loc = wrap_locations(&lhs.loc, &rhs.loc);
-                        let expr =
-                            Expression::new(ExpressionKind::Division(lhs.into(), rhs.into()), loc);
+                        let expr = Loc::new(Expression::Division(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -560,8 +517,8 @@ impl<'a> Parser<'a> {
                         if let Some(a) = self.next_if_kind(&TokenKind::Assign) {
                             if let Some(t) = self.next_if_kind(&TokenKind::RightParen) {
                                 let loc = wrap_locations(&lhs.loc, &t.loc);
-                                let expr = Expression::new(
-                                    ExpressionKind::Call {
+                                let expr = Loc::new(
+                                    Expression::Call {
                                         subject: lhs.into(),
                                         arguments: ArgumentsKind::DestructureImplicit(a.loc).into(),
                                     },
@@ -572,8 +529,8 @@ impl<'a> Parser<'a> {
                                 let expr = self.parse_expression(0)?;
                                 let t = self.expect_kind(TokenKind::RightParen)?;
                                 let loc = wrap_locations(&lhs.loc, &t.loc);
-                                let expr = Expression::new(
-                                    ExpressionKind::Call {
+                                let expr = Loc::new(
+                                    Expression::Call {
                                         subject: lhs.into(),
                                         arguments: ArgumentsKind::Destructure(expr).into(),
                                     },
@@ -586,8 +543,8 @@ impl<'a> Parser<'a> {
 
                             let loc = wrap_locations(&lhs.loc, &arguments.loc);
 
-                            let expr = Expression::new(
-                                ExpressionKind::Call {
+                            let expr = Loc::new(
+                                Expression::Call {
                                     subject: lhs.into(),
                                     arguments: ArgumentsKind::Inline(arguments).into(),
                                 },
@@ -613,7 +570,7 @@ impl<'a> Parser<'a> {
             let Some(next) = self.iter.peek() else {
                 return Err(self.fail_at_end("Unexpected end of input"));
             };
-            if next.kind == until {
+            if *next.as_ref() == until {
                 break;
             }
 
@@ -632,10 +589,7 @@ impl<'a> Parser<'a> {
                     });
                 } else {
                     // XXX Resume parsing
-                    let type_expr = TypeExpression {
-                        kind: TypeExpressionKind::Scalar(name),
-                        loc: t.loc,
-                    };
+                    let type_expr = Loc::new(TypeExpression::Scalar(name), t.loc);
 
                     params.push(Parameter {
                         name: None,
@@ -667,7 +621,7 @@ impl<'a> Parser<'a> {
         Ok(params)
     }
 
-    fn parse_expressions(&mut self, until: TokenKind) -> Result<Vec<Expression>> {
+    fn parse_expressions(&mut self, until: TokenKind) -> Result<Vec<Loc<Expression>>> {
         self.parse_list(until, |p| p.parse_expression(0))
     }
 
@@ -675,7 +629,7 @@ impl<'a> Parser<'a> {
         &mut self,
         name: Option<Ident>,
         token: &Token,
-    ) -> Result<Located<Assignee>> {
+    ) -> Result<Loc<Assignee>> {
         let pattern = self.parse_list(TokenKind::RightParen, |p| {
             if let Some(TokenKind::LeftParen) = p.peek_kind() {
                 let t = p.expect_token()?;
@@ -689,7 +643,7 @@ impl<'a> Parser<'a> {
                     Ok(assignee)
                 } else {
                     let assignee = Assignee::scalar(ident); // Discard if '_'
-                    let assignee = Located::new(assignee, &loc);
+                    let assignee = Loc::new(assignee, loc);
                     Ok(assignee)
                 }
             }
@@ -698,7 +652,7 @@ impl<'a> Parser<'a> {
         let t = self.expect_kind(TokenKind::RightParen)?;
         let loc = wrap_locations(&token.loc, &t.loc);
         let assignee = Assignee::destructure(name, pattern);
-        Ok(Located::new(assignee, &loc))
+        Ok(Loc::new(assignee, loc))
     }
 
     fn parse_variants(&mut self) -> Result<Vec<Variant>> {
@@ -764,29 +718,23 @@ impl<'a> Parser<'a> {
         Ok(Arguments { args, loc })
     }
 
-    fn parse_type_expr(&mut self) -> Result<TypeExpression> {
+    fn parse_type_expr(&mut self) -> Result<Loc<TypeExpression>> {
         if let Some(l) = self.next_if_kind(&TokenKind::LeftSquare) {
             let inner = self.parse_type_expr()?;
             let r = self.expect_kind(TokenKind::RightSquare)?;
 
-            let kind = TypeExpressionKind::List(inner.into());
-            Ok(TypeExpression {
-                kind,
-                loc: wrap_locations(&l.loc, &r.loc),
-            })
+            let kind = TypeExpression::List(inner.into());
+            Ok(Loc::new(kind, wrap_locations(&l.loc, &r.loc)))
         } else if let Some(l) = self.next_if_kind(&TokenKind::LeftParen) {
             let params = self.parse_params(TokenKind::RightParen)?;
             let r = self.expect_kind(TokenKind::RightParen)?;
 
-            let kind = TypeExpressionKind::Tuple(params);
-            Ok(TypeExpression {
-                kind,
-                loc: wrap_locations(&l.loc, &r.loc),
-            })
+            let kind = TypeExpression::Tuple(params);
+            Ok(Loc::new(kind, wrap_locations(&l.loc, &r.loc)))
         } else {
             let (raw, loc) = self.expect_ident()?;
-            let kind = TypeExpressionKind::Scalar(raw);
-            Ok(TypeExpression { kind, loc })
+            let kind = TypeExpression::Scalar(raw);
+            Ok(Loc::new(kind, loc))
         }
     }
 
@@ -801,7 +749,7 @@ impl<'a> Parser<'a> {
             let Some(next) = self.iter.peek() else {
                 return Err(self.fail_at_end("Unexpected end of input"));
             };
-            if next.kind == until {
+            if *next.as_ref() == until {
                 break;
             }
 
@@ -844,7 +792,7 @@ impl<'a> Parser<'a> {
 
     fn expect_kind(&mut self, kind: TokenKind) -> Result<Token> {
         let token = self.expect_token()?;
-        if token.kind == kind {
+        if *token.as_ref() == kind {
             Ok(token)
         } else {
             Err(self.fail_at(&format!("Expected to find {kind:?} here"), &token))
@@ -853,14 +801,14 @@ impl<'a> Parser<'a> {
 
     fn expect_ident(&mut self) -> Result<(Ident, Range<usize>)> {
         let token = self.expect_token()?;
-        match token.kind {
-            TokenKind::Identifier(name) => Ok((name, token.loc)),
+        match token.as_ref() {
+            TokenKind::Identifier(name) => Ok((name.clone(), token.loc)),
             _ => Err(self.fail_at("Expected identifier", &token)),
         }
     }
 
     fn next_if_kind(&mut self, kind: &TokenKind) -> Option<Token> {
-        if self.iter.peek().filter(|t| t.kind == *kind).is_some() {
+        if self.iter.peek().filter(|t| *t.as_ref() == *kind).is_some() {
             self.iter.next()
         } else {
             None
@@ -868,7 +816,7 @@ impl<'a> Parser<'a> {
     }
 
     fn peek_kind(&mut self) -> Option<&TokenKind> {
-        self.iter.peek().map(|t| &t.kind)
+        self.iter.peek().map(|t| t.as_ref())
     }
 
     fn peek_after_paren(&mut self) -> Option<&TokenKind> {
@@ -876,12 +824,12 @@ impl<'a> Parser<'a> {
         for n in 0.. {
             let token = self.iter.peek_nth(n)?;
 
-            match &token.kind {
+            match token.as_ref() {
                 TokenKind::LeftParen => d += 1,
                 TokenKind::RightParen => {
                     d -= 1;
                     if d == 0 {
-                        return self.iter.peek_nth(n + 1).map(|t| &t.kind);
+                        return self.iter.peek_nth(n + 1).map(|t| t.as_ref());
                     }
                 }
                 _ => {}
@@ -901,17 +849,17 @@ impl<'a> Parser<'a> {
     }
 
     fn fail(&self, msg: &str, loc: &Range<usize>) -> Error {
-        // use std::backtrace::Backtrace;
-        // println!("Custom backtrace: {}", Backtrace::force_capture());
+        use std::backtrace::Backtrace;
+        println!("{}", Backtrace::force_capture());
         Error::new(msg.into(), self.src, loc)
     }
 }
 
-fn parse_string(src: Arc<str>, loc: Range<usize>) -> Result<Expression> {
-    let parts = interp::tokenise_string(src.as_ref());
+fn parse_string(src: &str, loc: Range<usize>) -> Result<Loc<Expression>> {
+    let parts = interp::tokenise_string(src);
 
     if parts.is_empty() {
-        return Ok(Expression::new(ExpressionKind::String("".into()), loc));
+        return Ok(Loc::new(Expression::String("".into()), loc));
     }
 
     let mut res = Vec::new();
@@ -920,7 +868,7 @@ fn parse_string(src: Arc<str>, loc: Range<usize>) -> Result<Expression> {
     for part in parts {
         let expr = match &part.kind {
             StringTokenKind::Str => {
-                Expression::new(ExpressionKind::String(part.src.into()), 0..part.src.len())
+                Loc::new(Expression::String(part.src.into()), 0..part.src.len())
             }
             StringTokenKind::Expr => {
                 let tokens = lexer::tokenize(part.src)?;
@@ -931,7 +879,7 @@ fn parse_string(src: Arc<str>, loc: Range<usize>) -> Result<Expression> {
         res.push((expr, start_offset + part.offset));
     }
 
-    Ok(Expression::new(ExpressionKind::StringInterpolate(res), loc))
+    Ok(Loc::new(Expression::StringInterpolate(res), loc))
 }
 
 fn wrap_locations(start: &Range<usize>, end: &Range<usize>) -> Range<usize> {

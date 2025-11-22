@@ -3,7 +3,7 @@ use std::{collections::HashMap, fs};
 use crate::{
     eval::{ScriptValue, Tuple},
     extensions::ExtensionFunction,
-    validate::{TupleParameter, TupleType, ScriptType},
+    validate::{ScriptType, TupleParameter, TupleType},
 };
 
 pub fn create() -> HashMap<String, ExtensionFunction> {

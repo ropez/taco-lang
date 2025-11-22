@@ -1,7 +1,4 @@
-use crate::{
-    eval::NativeFn,
-    validate::ScriptType,
-};
+use crate::{eval::NativeFn, validate::ScriptType};
 
 pub(crate) mod fs;
 pub(crate) mod print;
@@ -12,4 +9,3 @@ pub struct ExtensionFunction {
     pub script_type: ScriptType,
     pub func: Box<dyn NativeFn>,
 }
-

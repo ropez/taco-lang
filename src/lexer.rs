@@ -1,6 +1,36 @@
 use std::{ops::Range, sync::Arc};
 
-use crate::{error::{Error, Result}, ident::Ident};
+use crate::{
+    error::{Error, Result},
+    ident::Ident,
+};
+
+#[derive(Debug, Clone)]
+pub struct Loc<T> {
+    inner: T,
+    pub(crate) loc: Range<usize>,
+}
+
+impl<T> Loc<T>
+where
+    T: Clone,
+{
+    pub fn cloned(&self) -> T {
+        self.inner.clone()
+    }
+}
+
+impl<T> Loc<T> {
+    pub(crate) fn new(expr: T, loc: Range<usize>) -> Self {
+        Self { inner: expr, loc }
+    }
+}
+
+impl<T> AsRef<T> for Loc<T> {
+    fn as_ref(&self) -> &T {
+        &self.inner
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
@@ -42,11 +72,7 @@ pub enum TokenKind {
     Enum,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct Token {
-    pub(crate) kind: TokenKind,
-    pub(crate) loc: Range<usize>,
-}
+pub type Token = Loc<TokenKind>;
 
 struct Tokenizer<'a> {
     src: &'a str,
@@ -202,10 +228,7 @@ impl<'a> Tokenizer<'a> {
     fn produce(&mut self, kind: TokenKind) -> Token {
         let loc = self.loc.clone();
         self.loc = self.loc.end..self.loc.end;
-        Token {
-            kind,
-            loc,
-        }
+        Token { inner: kind, loc }
     }
 
     fn fail(&self, msg: &str) -> Error {
@@ -249,7 +272,7 @@ impl<'a> Tokenizer<'a> {
             &cur[..p]
         } else {
             self.loc.end = self.src.len();
-            &cur[..]
+            cur
         }
     }
 }

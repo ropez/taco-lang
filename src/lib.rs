@@ -1,5 +1,5 @@
 use std::{
-    io::{pipe, Read, Write},
+    io::{Read, Write, pipe},
     sync::{Arc, Mutex},
 };
 
@@ -7,13 +7,13 @@ use crate::{error::Result, eval::Engine, parser::Parser, validate::Validator};
 
 pub mod error;
 pub mod eval;
+mod extensions;
+mod fmt;
+pub mod ident;
 mod interp;
 pub mod lexer;
 pub mod parser;
 pub mod validate;
-pub mod ident;
-mod extensions;
-mod fmt;
 
 pub fn check_output(src: &str) -> Result<String> {
     let (mut reader, writer) = pipe().expect("create pipe");

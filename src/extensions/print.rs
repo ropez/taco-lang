@@ -7,7 +7,7 @@ use std::{
 use crate::{
     eval::{ScriptValue, Tuple},
     extensions::ExtensionFunction,
-    validate::{TupleParameter, TupleType, ScriptType},
+    validate::{ScriptType, TupleParameter, TupleType},
 };
 
 pub fn create<O>(out: Arc<Mutex<O>>) -> HashMap<String, ExtensionFunction>

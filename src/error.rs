@@ -1,5 +1,5 @@
 use std::{
-    cmp, error,
+    error,
     fmt::{self, Write},
     ops::Range,
     result,
