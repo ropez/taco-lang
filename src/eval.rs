@@ -8,8 +8,8 @@ use std::{
 use crate::{
     fmt::{fmt_inner_list, fmt_tuple},
     parser::{
-        Arguments, ArgumentsKind, Assignmee, AstNode, Enumeration, Expression, ExpressionKind,
-        Function, Parameter, Record, TypeExpressionKind,
+        ArgumentsKind, Assignee, AstNode, Enumeration, Expression, ExpressionKind, Function,
+        Located, Parameter, Record, TypeExpressionKind,
     },
 };
 
@@ -207,22 +207,10 @@ impl Engine {
     fn eval_block(&self, ast: &[AstNode], mut scope: Scope) -> Completion {
         for node in ast {
             match node {
-                AstNode::Assignment { assignee, value } => match assignee {
-                    Assignmee::Scalar(name) => {
-                        scope.set_local(Arc::clone(name), self.eval_expr(value, &scope));
-                    }
-                    Assignmee::Destructure(names) => {
-                        let rhs = self.eval_expr(value, &scope);
-                        if let ScriptValue::Tuple(values) = rhs.as_ref() {
-                            assert_eq!(names.len(), values.0.len());
-                            for (n, v) in names.iter().zip(&values.0) {
-                                scope.set_local(Arc::clone(n), Arc::clone(&v.value));
-                            }
-                        } else {
-                            panic!("Expected tuple, found: {rhs}");
-                        }
-                    }
-                },
+                AstNode::Assignment { assignee, value } => {
+                    let rhs = self.eval_expr(value, &scope);
+                    eval_assignment(assignee, rhs, &mut scope);
+                }
                 AstNode::Function { name, fun, .. } => {
                     scope
                         .functions
@@ -589,9 +577,7 @@ impl Engine {
                     _ => panic!("Expected a tuple, found {arg}"),
                 }
             }
-            ArgumentsKind::DestructureImplicit(_) => {
-                scope.arguments.clone()
-            }
+            ArgumentsKind::DestructureImplicit(_) => scope.arguments.clone(),
         }
     }
 }
@@ -646,4 +632,35 @@ fn transform_args(params: &[Parameter], args: Tuple) -> Tuple {
     }
 
     Tuple(items)
+}
+
+fn eval_assignment(lhs: &Located<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope) {
+    match &lhs.expr {
+        Assignee::Discard => {}
+        Assignee::Scalar(name) => scope.set_local(Arc::clone(name), rhs),
+        Assignee::Destructure(names) => match rhs.as_ref() {
+            ScriptValue::Tuple(values) => eval_destructure(names, values, scope),
+            ScriptValue::Rec { values, .. } => eval_destructure(names, values, scope),
+            _ => panic!("Expected tuple, found: {rhs}"),
+        },
+    }
+}
+
+fn eval_destructure(lhs: &[Located<Assignee>], rhs: &Tuple, scope: &mut Scope) {
+    let mut positional = rhs.0.iter().filter(|arg| arg.name.is_none());
+    for par in lhs.iter() {
+        if let Some(name) = par.expr.name() {
+            if let Some(arg) = rhs.0.iter().find(|a| a.name.as_ref() == Some(&name)) {
+                eval_assignment(par, Arc::clone(&arg.value), scope);
+            } else if let Some(arg) = positional.next() {
+                eval_assignment(par, Arc::clone(&arg.value), scope);
+            } else {
+                panic!("Missing argument {name}");
+            }
+        } else if let Some(arg) = positional.next() {
+            eval_assignment(par, Arc::clone(&arg.value), scope);
+        } else {
+            panic!("Missing positional argument");
+        }
+    }
 }

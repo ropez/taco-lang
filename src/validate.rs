@@ -4,8 +4,8 @@ use crate::{
     error::{Error, Result},
     fmt::fmt_tuple,
     parser::{
-        Arguments, ArgumentsKind, Assignmee, AstNode, Expression, ExpressionKind, Parameter,
-        TypeExpression, TypeExpressionKind,
+        Arguments, ArgumentsKind, Assignee, AstNode, Expression, ExpressionKind, Located,
+        Parameter, TypeExpression, TypeExpressionKind,
     },
 };
 
@@ -287,41 +287,10 @@ impl<'a> Validator<'a> {
     fn validate_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<Scope> {
         for node in ast {
             match node {
-                AstNode::Assignment { assignee, value } => match assignee {
-                    Assignmee::Scalar(name) => {
-                        let typ = self.validate_expr(value, &scope)?;
-                        scope.set_local(Arc::clone(name), typ);
-                    }
-                    Assignmee::Destructure(names) => {
-                        let typ = self.validate_expr(value, &scope)?;
-
-                        if let ScriptType::Tuple(params) = typ {
-                            // XXX Support named formal args (lhs pattern)
-                            // This should be the same as applying args when calling a function
-
-                            let types: Vec<_> = params.0.iter().map(|a| a.typ.clone()).collect();
-
-                            if names.len() == types.len() {
-                                for (n, t) in names.iter().zip(types) {
-                                    scope.set_local(Arc::clone(n), t.clone());
-                                }
-                            } else {
-                                return Err(self.fail(
-                                    format!(
-                                        "Expected tuple with length {}, found {}",
-                                        names.len(),
-                                        types.len()
-                                    ),
-                                    &value.loc,
-                                ));
-                            }
-                        } else {
-                            return Err(
-                                self.fail(format!("Expected tuple, found {typ}"), &value.loc)
-                            );
-                        }
-                    }
-                },
+                AstNode::Assignment { assignee, value } => {
+                    let typ = self.validate_expr(value, &scope)?;
+                    self.eval_assignment(assignee, &typ, &mut scope)?;
+                }
                 AstNode::Function { name, fun } => {
                     let params = self.eval_params(&fun.params, &scope)?;
 
@@ -946,6 +915,71 @@ impl<'a> Validator<'a> {
         } else {
             Ok(None)
         }
+    }
+
+    // This must recursively traverse patterns like `(a, (b, (c, d))) = foo`
+    // For tuple-to-tuple checking, like function calls, this recursion happens in
+    // ScriptType::accepts
+    fn eval_assignment(
+        &self,
+        lhs: &Located<Assignee>,
+        other: &ScriptType,
+        scope: &mut Scope,
+    ) -> Result<()> {
+        match &lhs.expr {
+            Assignee::Discard => {}
+            Assignee::Scalar(name) => scope.set_local(Arc::clone(name), other.clone()),
+            Assignee::Destructure(inner) => {
+                match other {
+                    ScriptType::Tuple(tuple) => self.eval_destruction(inner, tuple, scope)?,
+                    ScriptType::Rec { params, .. } => {
+                        self.eval_destruction(inner, params, scope)?
+                    }
+                    _ => {
+                        return Err(
+                            // Show error on lhs
+                            self.fail(format!("Expected tuple, found ..."), &lhs.loc),
+                        );
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn eval_destruction(
+        &self,
+        lhs: &[Located<Assignee>],
+        other: &TupleType,
+        scope: &mut Scope,
+    ) -> Result<()> {
+        let mut positional = other.0.iter().filter(|arg| arg.name.is_none());
+
+        for assignee in lhs.iter() {
+            if let Some(name) = assignee.expr.name() {
+                if let Some(item) = other.0.iter().find(|a| a.name.as_ref() == Some(&name)) {
+                    self.eval_assignment(assignee, &item.typ, scope)?;
+                } else if let Some(item) = positional.next() {
+                    self.eval_assignment(assignee, &item.typ, scope)?;
+                } else {
+                    return Err(self.fail(format!("Element '{name}' not found in {other}"), &assignee.loc));
+                }
+            } else if let Some(item) = positional.next() {
+                self.eval_assignment(assignee, &item.typ, scope)?;
+            } else {
+                return Err(self.fail(format!("Missing positional argument in {other}"), &assignee.loc));
+            }
+        }
+
+        // XXX FIX Need location of outer pattern
+        let loc = 0..0;
+
+        if positional.next().is_some() {
+            return Err(self.fail(format!("Pattern did not contain enough positional params {other}"), &loc));
+        }
+
+        Ok(())
     }
 
     fn fail(&self, msg: String, loc: &Range<usize>) -> Error {

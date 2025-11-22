@@ -400,6 +400,23 @@ fn test_return_implicit_tuple() {
 }
 
 #[test]
+fn test_return_implicit_tuple_with_arg() {
+    let src = r#"
+        fun foo(arg: str): (str, [int]) {
+            (arg, [])
+        }
+
+        (fruit, count) = foo("banana")
+        print(fruit)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("banana", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
 fn test_manually_destruct_arguments() {
     let src = r#"
         fun foo(str, int, int) {

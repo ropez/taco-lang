@@ -147,7 +147,7 @@ fn test_named_tuple_destruction() {
 fn test_type_checking_formal_to_formal() {
     let src = r#"
         fun foo(tup: (str, name: str, age: int, more: str)): str {
-            (_, name, _, _) = tup
+            (_, name) = tup
             return name
         }
 
@@ -163,3 +163,64 @@ fn test_type_checking_formal_to_formal() {
         Err(err) => panic!("{err}"),
     };
 }
+
+#[test]
+fn test_named_destruction_patterns() {
+    let src = r#"
+        (a, b, c, d) = (1, 2, 3, 4)
+        println("$a$b$c$d")
+        (a, b, c, d) = (1, 2, 3, d: 4)
+        println("$a$b$c$d")
+        (a, b, c, d) = (1, 2, d: 4, c: 3)
+        println("$a$b$c$d")
+        (a, b, c, d) = (1, d: 4, c: 3, b: 2)
+        println("$a$b$c$d")
+        (a, b, c, d) = (c: 3, d: 4, a: 1, b: 2)
+        println("$a$b$c$d")
+        (a, b, c, d) = (b: 2, c: 3, d: 4, 1)
+        println("$a$b$c$d")
+        (a, b, c, d) = (b: 2, 1, c: 3, d: 4)
+        println("$a$b$c$d")
+        (a, b, c, d) = (d: 4, 1, c: 3, 2)
+        println("$a$b$c$d")
+        (a, b, c, d) = (1, d: 4, 2, 3)
+        println("$a$b$c$d")
+        (a, b, c, d) = (1, c: 3, 2, 4)
+        println("$a$b$c$d")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("1234\n".repeat(10), out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_nested_destruction() {
+    let src = r#"
+        (a, (b, (c, d))) = (1, (2, (3, 4)))
+        println("$a$b$c$d")
+        ((a, b), (c, d)) = ((1, 2), (3, 4))
+        println("$a$b$c$d")
+        ((a, (b, (c, d)))) = ((1, (2, (3, 4))))
+        println("$a$b$c$d")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("1234\n".repeat(3), out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_named_destruction_fails() {
+    let src = r#"
+        (a, b) = (a: 1, x: 2)
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!(err.message, "Element 'b' not found in (a: int, x: int)"),
+    };
+}
+

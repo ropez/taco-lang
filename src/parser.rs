@@ -1,10 +1,11 @@
 use std::{
     cmp::{self},
-    iter::Peekable,
     ops::Range,
     sync::Arc,
     vec::IntoIter,
 };
+
+use multipeek::{IteratorExt, MultiPeek};
 
 use crate::{
     error::{Error, Result},
@@ -15,7 +16,7 @@ use crate::{
 #[derive(Debug)]
 pub enum AstNode {
     Assignment {
-        assignee: Assignmee,
+        assignee: Located<Assignee>,
         value: Expression,
     },
 
@@ -165,14 +166,41 @@ pub struct Variant {
 }
 
 #[derive(Debug)]
-pub enum Assignmee {
+pub enum Assignee {
+    // XXX This is incorrect, must be a struct with name and Option<Destructure>
+    Discard,
     Scalar(Arc<str>),
-    Destructure(Vec<Arc<str>>),
+    Destructure(Vec<Located<Assignee>>),
+}
+
+impl Assignee {
+    pub(crate) fn name(&self) -> Option<Arc<str>> {
+        if let Self::Scalar(n) = self {
+            Some(Arc::clone(n))
+        } else {
+            None
+        }
+    }
+}
+
+#[derive(Debug)]
+pub struct Located<T> {
+    pub(crate) expr: T,
+    pub(crate) loc: Range<usize>,
+}
+
+impl<T> Located<T> {
+    fn new(expr: T, loc: &Range<usize>) -> Self {
+        Self {
+            expr,
+            loc: loc.clone(),
+        }
+    }
 }
 
 pub struct Parser<'a> {
     src: &'a str,
-    iter: Peekable<IntoIter<Token>>,
+    iter: MultiPeek<IntoIter<Token>>,
 }
 
 mod constants {
@@ -190,7 +218,7 @@ impl<'a> Parser<'a> {
     pub fn new(src: &'a str, tokens: Vec<Token>) -> Self {
         Self {
             src,
-            iter: tokens.into_iter().peekable(),
+            iter: tokens.into_iter().multipeek(),
         }
     }
 
@@ -236,7 +264,8 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Identifier(name) => {
                     if self.next_if_kind(&TokenKind::Assign).is_some() {
-                        let assignee = Assignmee::Scalar(name);
+                        let assignee = Assignee::Scalar(name);
+                        let assignee = Located::new(assignee, &token.loc);
                         let value = self.parse_expression(0)?;
                         ast.push(AstNode::Assignment { assignee, value });
                         self.expect_kind(TokenKind::NewLine)?;
@@ -261,12 +290,14 @@ impl<'a> Parser<'a> {
                     ast.push(AstNode::Expression(expr))
                 }
                 TokenKind::LeftParen => {
-                    if let Some(TokenKind::Identifier(_)) = self.peek_kind() {
-                        let idents = self.parse_ident_list()?;
-                        self.expect_kind(TokenKind::RightParen)?;
+                    if let Some(TokenKind::Assign) = self.peek_after_paren() {
+                        let idents = self.parse_destructure_pattern()?;
+                        let t = self.expect_kind(TokenKind::RightParen)?;
+                        let loc = wrap_locations(&token.loc, &t.loc);
+                        let assignee = Assignee::Destructure(idents);
+                        let assignee = Located::new(assignee, &loc);
                         self.expect_kind(TokenKind::Assign)?;
                         let value = self.parse_expression(0)?;
-                        let assignee = Assignmee::Destructure(idents);
                         ast.push(AstNode::Assignment { assignee, value });
                         self.expect_kind(TokenKind::NewLine)?;
                     } else {
@@ -643,10 +674,22 @@ impl<'a> Parser<'a> {
         self.parse_list(until, |p| p.parse_expression(0))
     }
 
-    fn parse_ident_list(&mut self) -> Result<Vec<Arc<str>>> {
+    fn parse_destructure_pattern(&mut self) -> Result<Vec<Located<Assignee>>> {
         self.parse_list(TokenKind::RightParen, |p| {
-            let (ident, _) = p.expect_ident()?;
-            Ok(ident)
+            if let Some(TokenKind::LeftParen) = p.peek_kind() {
+                let t = p.expect_token()?;
+                let inner = p.parse_destructure_pattern()?;
+                let e = p.expect_kind(TokenKind::RightParen)?;
+                let loc = wrap_locations(&t.loc, &e.loc);
+                let assignee = Assignee::Destructure(inner);
+                let assignee = Located::new(assignee, &loc);
+                Ok(assignee)
+            } else {
+                let (ident, loc) = p.expect_ident()?;
+                let assignee = Assignee::Scalar(ident);
+                let assignee = Located::new(assignee, &loc);
+                Ok(assignee)
+            }
         })
     }
 
@@ -809,11 +852,35 @@ impl<'a> Parser<'a> {
     }
 
     fn next_if_kind(&mut self, kind: &TokenKind) -> Option<Token> {
-        self.iter.next_if(|t| t.kind == *kind)
+        if self.iter.peek().filter(|t| t.kind == *kind).is_some() {
+            self.iter.next()
+        } else {
+            None
+        }
     }
 
     fn peek_kind(&mut self) -> Option<&TokenKind> {
         self.iter.peek().map(|t| &t.kind)
+    }
+
+    fn peek_after_paren(&mut self) -> Option<&TokenKind> {
+        let mut d = 1;
+        for n in 0.. {
+            let token = self.iter.peek_nth(n)?;
+
+            match &token.kind {
+                TokenKind::LeftParen => d += 1,
+                TokenKind::RightParen => {
+                    d -= 1;
+                    if d == 0 {
+                        return self.iter.peek_nth(n + 1).map(|t| &t.kind);
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        None
     }
 
     fn fail_at(&self, msg: &str, token: &Token) -> Error {
