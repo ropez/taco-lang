@@ -24,6 +24,8 @@ pub enum ScriptValue {
     List(Vec<Arc<ScriptValue>>),
     Tuple(Tuple),
 
+    NaN,
+
     Rec {
         rec: Arc<Record>,
         values: Tuple,
@@ -95,6 +97,7 @@ impl Display for ScriptValue {
                 write!(f, "{values}")?;
                 Ok(())
             }
+            ScriptValue::NaN => write!(f, "NaN"),
             _ => todo!("Display impl for {self:?}"),
         }
     }
@@ -403,51 +406,42 @@ impl Engine {
                 }
             }
             Expression::Addition(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope);
-                let rhs = self.eval_expr(rhs, scope);
-
-                match (lhs.as_ref(), rhs.as_ref()) {
-                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
-                        Arc::new(ScriptValue::Number(*lhs + *rhs))
-                    }
-                    _ => panic!("Expected numbers"),
-                }
+                self.eval_arithmetic(i64::checked_add, lhs, rhs, scope)
             }
             Expression::Subtraction(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope);
-                let rhs = self.eval_expr(rhs, scope);
-
-                match (lhs.as_ref(), rhs.as_ref()) {
-                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
-                        Arc::new(ScriptValue::Number(*lhs - *rhs))
-                    }
-                    _ => panic!("Expected numbers"),
-                }
+                self.eval_arithmetic(i64::checked_sub, lhs, rhs, scope)
             }
             Expression::Multiplication(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope);
-                let rhs = self.eval_expr(rhs, scope);
-
-                match (lhs.as_ref(), rhs.as_ref()) {
-                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
-                        Arc::new(ScriptValue::Number(*lhs * *rhs))
-                    }
-                    _ => panic!("Expected numbers"),
-                }
+                self.eval_arithmetic(i64::checked_mul, lhs, rhs, scope)
             }
             Expression::Division(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope);
-                let rhs = self.eval_expr(rhs, scope);
-
-                match (lhs.as_ref(), rhs.as_ref()) {
-                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
-                        Arc::new(ScriptValue::Number(*lhs / *rhs))
-                    }
-                    _ => panic!("Expected numbers"),
-                }
+                self.eval_arithmetic(i64::checked_div, lhs, rhs, scope)
             }
             Expression::Call { subject, arguments } => self.eval_call(subject, arguments, scope),
         }
+    }
+
+    fn eval_arithmetic<F>(
+        &self,
+        op: F,
+        lhs: &Loc<Expression>,
+        rhs: &Loc<Expression>,
+        scope: &Scope,
+    ) -> Arc<ScriptValue>
+    where
+        F: FnOnce(i64, i64) -> Option<i64>,
+    {
+        let lhs = self.eval_expr(lhs, scope);
+        let rhs = self.eval_expr(rhs, scope);
+        let res = match (lhs.as_ref(), rhs.as_ref()) {
+            (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => op(*lhs, *rhs)
+                .map(ScriptValue::Number)
+                .unwrap_or(ScriptValue::NaN),
+            (ScriptValue::NaN, ScriptValue::Number(_)) => ScriptValue::NaN,
+            (ScriptValue::Number(_), ScriptValue::NaN) => ScriptValue::NaN,
+            _ => panic!("Expected numbers"),
+        };
+        Arc::new(res)
     }
 
     fn eval_call(
