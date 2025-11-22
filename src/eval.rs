@@ -635,12 +635,12 @@ fn transform_args(params: &[Parameter], args: Tuple) -> Tuple {
 }
 
 fn eval_assignment(lhs: &Located<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope) {
-    match &lhs.expr {
-        Assignee::Discard => {}
-        Assignee::Scalar(name) => scope.set_local(Arc::clone(name), rhs),
-        Assignee::Destructure(names) => match rhs.as_ref() {
-            ScriptValue::Tuple(values) => eval_destructure(names, values, scope),
-            ScriptValue::Rec { values, .. } => eval_destructure(names, values, scope),
+    match (&lhs.expr.name, &lhs.expr.pattern) {
+        (None, None) => {}
+        (Some(name), None) => scope.set_local(Arc::clone(name), rhs),
+        (_, Some(pattern)) => match rhs.as_ref() {
+            ScriptValue::Tuple(values) => eval_destructure(pattern, values, scope),
+            ScriptValue::Rec { values, .. } => eval_destructure(pattern, values, scope),
             _ => panic!("Expected tuple, found: {rhs}"),
         },
     }
@@ -649,8 +649,8 @@ fn eval_assignment(lhs: &Located<Assignee>, rhs: Arc<ScriptValue>, scope: &mut S
 fn eval_destructure(lhs: &[Located<Assignee>], rhs: &Tuple, scope: &mut Scope) {
     let mut positional = rhs.0.iter().filter(|arg| arg.name.is_none());
     for par in lhs.iter() {
-        if let Some(name) = par.expr.name() {
-            if let Some(arg) = rhs.0.iter().find(|a| a.name.as_ref() == Some(&name)) {
+        if let Some(name) = &par.expr.name {
+            if let Some(arg) = rhs.0.iter().find(|a| a.name.as_ref() == Some(name)) {
                 eval_assignment(par, Arc::clone(&arg.value), scope);
             } else if let Some(arg) = positional.next() {
                 eval_assignment(par, Arc::clone(&arg.value), scope);

@@ -926,23 +926,19 @@ impl<'a> Validator<'a> {
         other: &ScriptType,
         scope: &mut Scope,
     ) -> Result<()> {
-        match &lhs.expr {
-            Assignee::Discard => {}
-            Assignee::Scalar(name) => scope.set_local(Arc::clone(name), other.clone()),
-            Assignee::Destructure(inner) => {
-                match other {
-                    ScriptType::Tuple(tuple) => self.eval_destruction(inner, tuple, scope)?,
-                    ScriptType::Rec { params, .. } => {
-                        self.eval_destruction(inner, params, scope)?
-                    }
-                    _ => {
-                        return Err(
-                            // Show error on lhs
-                            self.fail(format!("Expected tuple, found ..."), &lhs.loc),
-                        );
-                    }
+        match (&lhs.expr.name, &lhs.expr.pattern) {
+            (None, None) => {}
+            (Some(name), None) => scope.set_local(Arc::clone(name), other.clone()),
+            (_, Some(pattern)) => match other {
+                ScriptType::Tuple(tuple) => self.eval_destruction(pattern, tuple, scope)?,
+                ScriptType::Rec { params, .. } => self.eval_destruction(pattern, params, scope)?,
+                _ => {
+                    return Err(self.fail(
+                        format!("Unexpected tuple pattern, can't destructure {other}"),
+                        &lhs.loc,
+                    ));
                 }
-            }
+            },
         }
 
         Ok(())
@@ -957,18 +953,24 @@ impl<'a> Validator<'a> {
         let mut positional = other.0.iter().filter(|arg| arg.name.is_none());
 
         for assignee in lhs.iter() {
-            if let Some(name) = assignee.expr.name() {
-                if let Some(item) = other.0.iter().find(|a| a.name.as_ref() == Some(&name)) {
+            if let Some(name) = &assignee.expr.name {
+                if let Some(item) = other.0.iter().find(|a| a.name.as_ref() == Some(name)) {
                     self.eval_assignment(assignee, &item.typ, scope)?;
                 } else if let Some(item) = positional.next() {
                     self.eval_assignment(assignee, &item.typ, scope)?;
                 } else {
-                    return Err(self.fail(format!("Element '{name}' not found in {other}"), &assignee.loc));
+                    return Err(self.fail(
+                        format!("Element '{name}' not found in {other}"),
+                        &assignee.loc,
+                    ));
                 }
             } else if let Some(item) = positional.next() {
                 self.eval_assignment(assignee, &item.typ, scope)?;
             } else {
-                return Err(self.fail(format!("Missing positional argument in {other}"), &assignee.loc));
+                return Err(self.fail(
+                    format!("Missing positional argument in {other}"),
+                    &assignee.loc,
+                ));
             }
         }
 
@@ -976,7 +978,10 @@ impl<'a> Validator<'a> {
         let loc = 0..0;
 
         if positional.next().is_some() {
-            return Err(self.fail(format!("Pattern did not contain enough positional params {other}"), &loc));
+            return Err(self.fail(
+                format!("Pattern did not contain enough positional params {other}"),
+                &loc,
+            ));
         }
 
         Ok(())

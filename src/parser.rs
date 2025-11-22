@@ -166,20 +166,18 @@ pub struct Variant {
 }
 
 #[derive(Debug)]
-pub enum Assignee {
-    // XXX This is incorrect, must be a struct with name and Option<Destructure>
-    Discard,
-    Scalar(Arc<str>),
-    Destructure(Vec<Located<Assignee>>),
+pub struct Assignee {
+    pub(crate) name: Option<Arc<str>>,
+    pub(crate) pattern: Option<Vec<Located<Assignee>>>,
 }
 
 impl Assignee {
-    pub(crate) fn name(&self) -> Option<Arc<str>> {
-        if let Self::Scalar(n) = self {
-            Some(Arc::clone(n))
-        } else {
-            None
-        }
+    fn scalar(name: Arc<str>) -> Self {
+        Self { name: Some(name), pattern: None }
+    }
+
+    fn destructure(name: Option<Arc<str>>, pattern: Vec<Located<Assignee>>) -> Self {
+        Self { name, pattern: Some(pattern) }
     }
 }
 
@@ -264,7 +262,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Identifier(name) => {
                     if self.next_if_kind(&TokenKind::Assign).is_some() {
-                        let assignee = Assignee::Scalar(name);
+                        let assignee = Assignee::scalar(name);
                         let assignee = Located::new(assignee, &token.loc);
                         let value = self.parse_expression(0)?;
                         ast.push(AstNode::Assignment { assignee, value });
@@ -291,11 +289,9 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::LeftParen => {
                     if let Some(TokenKind::Assign) = self.peek_after_paren() {
-                        let idents = self.parse_destructure_pattern()?;
-                        let t = self.expect_kind(TokenKind::RightParen)?;
-                        let loc = wrap_locations(&token.loc, &t.loc);
-                        let assignee = Assignee::Destructure(idents);
-                        let assignee = Located::new(assignee, &loc);
+                        // XXX FIXME: Use peek in the outer loop, so that we don't need so much
+                        // awkward juggling with locations and starting lists inside prackets
+                        let assignee = self.parse_destructuring_pattern(None, &token)?;
                         self.expect_kind(TokenKind::Assign)?;
                         let value = self.parse_expression(0)?;
                         ast.push(AstNode::Assignment { assignee, value });
@@ -674,23 +670,30 @@ impl<'a> Parser<'a> {
         self.parse_list(until, |p| p.parse_expression(0))
     }
 
-    fn parse_destructure_pattern(&mut self) -> Result<Vec<Located<Assignee>>> {
-        self.parse_list(TokenKind::RightParen, |p| {
+    fn parse_destructuring_pattern(&mut self, name: Option<Arc<str>>, token: &Token) -> Result<Located<Assignee>> {
+        let pattern = self.parse_list(TokenKind::RightParen, |p| {
             if let Some(TokenKind::LeftParen) = p.peek_kind() {
                 let t = p.expect_token()?;
-                let inner = p.parse_destructure_pattern()?;
-                let e = p.expect_kind(TokenKind::RightParen)?;
-                let loc = wrap_locations(&t.loc, &e.loc);
-                let assignee = Assignee::Destructure(inner);
-                let assignee = Located::new(assignee, &loc);
+                let assignee = p.parse_destructuring_pattern(None, &t)?;
                 Ok(assignee)
             } else {
                 let (ident, loc) = p.expect_ident()?;
-                let assignee = Assignee::Scalar(ident);
-                let assignee = Located::new(assignee, &loc);
-                Ok(assignee)
+                if p.next_if_kind(&TokenKind::Colon).is_some() {
+                    let t = p.expect_kind(TokenKind::LeftParen)?;
+                    let assignee = p.parse_destructuring_pattern(Some(ident), &t)?;
+                    Ok(assignee)
+                } else {
+                    let assignee = Assignee::scalar(ident); // Discard if '_'
+                    let assignee = Located::new(assignee, &loc);
+                    Ok(assignee)
+                }
             }
-        })
+        })?;
+
+        let t = self.expect_kind(TokenKind::RightParen)?;
+        let loc = wrap_locations(&token.loc, &t.loc);
+        let assignee = Assignee::destructure(name, pattern);
+        Ok(Located::new(assignee, &loc))
     }
 
     fn parse_variants(&mut self) -> Result<Vec<Variant>> {

@@ -213,6 +213,23 @@ fn test_nested_destruction() {
 }
 
 #[test]
+fn test_nested_named_destruction() {
+    let src = r#"
+        (foo, bar) = (foo: (1, 2), bar: (3, 4))
+        println("$foo $bar")
+        (foo: (a, b), bar: (c, d)) = (foo: (1, 2), bar: (3, 4))
+        println("$a $b $c $d")
+    "#;
+
+    // What about `(foo: a) = (foo: 1)` ?
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("(1, 2) (3, 4)\n1 2 3 4\n", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
 fn test_named_destruction_fails() {
     let src = r#"
         (a, b) = (a: 1, x: 2)
