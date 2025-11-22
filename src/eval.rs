@@ -8,7 +8,7 @@ use std::{
 use crate::{
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
-    lexer::Loc,
+    lexer::Src,
     parser::{
         ArgumentsKind, Assignee, AstNode, Enumeration, Expression, Function, Parameter, Record,
         TypeExpression,
@@ -301,7 +301,7 @@ impl Engine {
         Completion::EndOfBlock
     }
 
-    fn eval_expr(&self, expr: &Loc<Expression>, scope: &Scope) -> Arc<ScriptValue> {
+    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Arc<ScriptValue> {
         match expr.as_ref() {
             Expression::String(s) => Arc::new(ScriptValue::String(Arc::clone(s))),
             Expression::StringInterpolate(parts) => {
@@ -424,8 +424,8 @@ impl Engine {
     fn eval_arithmetic<F>(
         &self,
         op: F,
-        lhs: &Loc<Expression>,
-        rhs: &Loc<Expression>,
+        lhs: &Src<Expression>,
+        rhs: &Src<Expression>,
         scope: &Scope,
     ) -> Arc<ScriptValue>
     where
@@ -446,7 +446,7 @@ impl Engine {
 
     fn eval_call(
         &self,
-        subject: &Loc<Expression>,
+        subject: &Src<Expression>,
         arguments: &ArgumentsKind,
         scope: &Scope,
     ) -> Arc<ScriptValue> {
@@ -633,7 +633,7 @@ fn transform_args(params: &[Parameter], args: Tuple) -> Tuple {
     Tuple(items)
 }
 
-fn eval_assignment(lhs: &Loc<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope) {
+fn eval_assignment(lhs: &Src<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope) {
     let lhs = lhs.as_ref();
     match (&lhs.name, &lhs.pattern) {
         (None, None) => {}
@@ -646,7 +646,7 @@ fn eval_assignment(lhs: &Loc<Assignee>, rhs: Arc<ScriptValue>, scope: &mut Scope
     }
 }
 
-fn eval_destructure(lhs: &[Loc<Assignee>], rhs: &Tuple, scope: &mut Scope) {
+fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
     let mut positional = rhs.0.iter().filter(|arg| arg.name.is_none());
     for par in lhs.iter() {
         if let Some(name) = &par.as_ref().name {
