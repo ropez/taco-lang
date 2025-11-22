@@ -555,6 +555,15 @@ impl<'a> Validator<'a> {
             Expression::Access { subject, key } => {
                 let subject_typ = self.validate_expr(subject, scope)?;
                 match &subject_typ {
+                    ScriptType::Tuple(tuple) => {
+                        match tuple.0.iter().find(|a| a.name.as_ref() == Some(key)) {
+                            Some(a) => Ok(a.typ.clone()),
+                            None => Err(self.fail(
+                                format!("Unknown attribute: {key} on {subject_typ}"),
+                                &expr.loc,
+                            )),
+                        }
+                    }
                     ScriptType::Rec { params, .. } => {
                         match params.0.iter().find(|a| a.name.as_ref() == Some(key)) {
                             Some(a) => Ok(a.typ.clone()),

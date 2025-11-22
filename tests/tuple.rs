@@ -125,6 +125,19 @@ fn test_named_tuple() {
 }
 
 #[test]
+fn test_named_tuple_access() {
+    let src = r#"
+        pos = (lat: 23, lon: 69)
+        print("Lat: ${pos.lat} / Lon: ${pos.lon}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "Lat: 23 / Lon: 69"),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
 fn test_named_tuple_destruction() {
     let src = r#"
         fun foo(tup: (name: str, age: int)) {

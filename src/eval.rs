@@ -352,6 +352,12 @@ impl Engine {
             Expression::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
                 match subject.as_ref() {
+                    ScriptValue::Tuple(tuple) => {
+                        match tuple.0.iter().find(|p| p.name.as_ref() == Some(key)) {
+                            Some(value) => Arc::clone(&value.value),
+                            None => panic!("{} doesn't have a property named: {}", tuple, key),
+                        }
+                    }
                     ScriptValue::Rec { rec, values } => {
                         let index = rec.params.iter().position(|p| p.name.as_ref() == Some(key));
                         match index {
