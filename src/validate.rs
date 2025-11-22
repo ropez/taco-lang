@@ -1,10 +1,10 @@
-use std::{collections::HashMap, fmt::Display, ops::Range, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use crate::{
     error::{Error, Result},
     fmt::fmt_tuple,
     ident::Ident,
-    lexer::Loc,
+    lexer::{Loc, Src},
     parser::{Arguments, ArgumentsKind, Assignee, AstNode, Expression, Parameter, TypeExpression},
 };
 
@@ -153,12 +153,12 @@ impl Display for TupleType {
     }
 }
 
-type EvaluatedType = Loc<ScriptType>;
+type EvaluatedType = Src<ScriptType>;
 
 #[derive(Debug, Clone)]
 pub struct EvaluatedArg {
     name: Option<Ident>,
-    typ: Loc<ScriptType>,
+    typ: Src<ScriptType>,
 }
 
 impl EvaluatedArg {
@@ -174,7 +174,7 @@ impl EvaluatedArg {
 #[derive(Debug, Clone)]
 pub struct AppliedArguments {
     pub(crate) args: Vec<EvaluatedArg>,
-    pub(crate) loc: Range<usize>,
+    pub(crate) loc: Loc,
 }
 
 impl AppliedArguments {
@@ -227,19 +227,19 @@ impl Scope {
 
 #[derive(Debug)]
 struct ReturnType {
-    typ: Loc<ScriptType>,
+    typ: Src<ScriptType>,
     is_explicit: bool,
 }
 
 impl ReturnType {
-    fn implicit(typ: Loc<ScriptType>) -> Self {
+    fn implicit(typ: Src<ScriptType>) -> Self {
         Self {
             typ,
             is_explicit: false,
         }
     }
 
-    fn explicit(typ: Loc<ScriptType>) -> Self {
+    fn explicit(typ: Src<ScriptType>) -> Self {
         Self {
             typ,
             is_explicit: true,
@@ -321,12 +321,13 @@ impl<'a> Validator<'a> {
                                 format!(
                                     "Incompatible return type: Expected {typ}, found {found_type}"
                                 ),
-                                &ret.typ.loc,
+                                ret.typ.loc,
                             ));
                         } else {
                             // XXX Needs 'loc' for entire block, or enclosing brace, or last
                             // statement
-                            return Err(self.fail("Missing return statement".into(), &(0..0)));
+                            let loc = Loc::new(0, 0);
+                            return Err(self.fail("Missing return statement".into(), loc));
                         }
                     }
 
@@ -382,7 +383,7 @@ impl<'a> Validator<'a> {
 
                     match iterable_typ {
                         ScriptType::EmptyList => {
-                            return Err(self.fail("List is always empty".into(), &iterable.loc));
+                            return Err(self.fail("List is always empty".into(), iterable.loc));
                         }
                         ScriptType::List(inner) => {
                             let mut inner_scope = scope.clone();
@@ -396,7 +397,7 @@ impl<'a> Validator<'a> {
                         }
                         _ => {
                             let msg = format!("Expected iterable, found {iterable_typ}");
-                            return Err(self.fail(msg, &iterable.loc));
+                            return Err(self.fail(msg, iterable.loc));
                         }
                     }
                 }
@@ -407,7 +408,7 @@ impl<'a> Validator<'a> {
                 } => {
                     let typ = self.validate_expr(cond, &scope)?;
                     if !ScriptType::Bool.accepts(&typ) {
-                        return Err(self.fail(format!("Expected boolean, found {typ}"), &cond.loc));
+                        return Err(self.fail(format!("Expected boolean, found {typ}"), cond.loc));
                     }
 
                     self.validate_block(body, scope.clone())?;
@@ -422,11 +423,11 @@ impl<'a> Validator<'a> {
                 AstNode::Return(expr) => {
                     let typ = self.validate_expr(expr, &scope)?;
                     match &scope.ret {
-                        None => return Err(self.fail("Unexpected return value".into(), &expr.loc)),
+                        None => return Err(self.fail("Unexpected return value".into(), expr.loc)),
                         Some(r) => {
                             if !r.accepts(&typ) {
                                 return Err(
-                                    self.fail(format!("Expected {r}, found {typ}"), &expr.loc)
+                                    self.fail(format!("Expected {r}, found {typ}"), expr.loc)
                                 );
                             }
                         }
@@ -443,12 +444,12 @@ impl<'a> Validator<'a> {
             None => None,
             Some(AstNode::Return(expr)) => {
                 let typ = self.validate_expr(expr, scope)?;
-                Some(ReturnType::explicit(Loc::new(typ, expr.loc.clone())))
+                Some(ReturnType::explicit(Src::new(typ, expr.loc)))
             }
             Some(AstNode::Expression(expr)) => {
                 if ast.len() == 1 {
                     let typ = self.validate_expr(expr, scope)?;
-                    Some(ReturnType::implicit(Loc::new(typ, expr.loc.clone())))
+                    Some(ReturnType::implicit(Src::new(typ, expr.loc)))
                 } else {
                     None
                 }
@@ -466,7 +467,7 @@ impl<'a> Validator<'a> {
                             let types = vec![l.typ.clone(), r.typ.clone()];
                             let typ = self
                                 .most_specific_type(&types)?
-                                .unwrap_or(Loc::new(ScriptType::identity(), 0..0));
+                                .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
                             if l.is_explicit && r.is_explicit {
                                 Some(ReturnType::explicit(typ))
                             } else if ast.len() == 1 {
@@ -498,12 +499,12 @@ impl<'a> Validator<'a> {
         Ok(res)
     }
 
-    fn eval_expr(&self, expr: &Loc<Expression>, scope: &Scope) -> Result<EvaluatedType> {
+    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<EvaluatedType> {
         let typ = self.validate_expr(expr, scope)?;
-        Ok(Loc::new(typ, expr.loc.clone()))
+        Ok(Src::new(typ, expr.loc))
     }
 
-    fn validate_expr(&self, expr: &Loc<Expression>, scope: &Scope) -> Result<ScriptType> {
+    fn validate_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptType> {
         match expr.as_ref() {
             Expression::Number(_) => Ok(ScriptType::Int),
             Expression::String(_) => Ok(ScriptType::Str),
@@ -535,7 +536,7 @@ impl<'a> Validator<'a> {
                 Ok(ScriptType::Tuple(applied.into_formal()))
             }
             Expression::Ref(ident) => match scope.get_local(ident) {
-                None => Err(self.fail(format!("Undefined reference: {ident}"), &expr.loc)),
+                None => Err(self.fail(format!("Undefined reference: {ident}"), expr.loc)),
                 Some(value) => Ok(value.clone()),
             },
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
@@ -546,11 +547,11 @@ impl<'a> Validator<'a> {
                     } else {
                         Err(self.fail(
                             format!("Variant not found: {name} in {}", def.name),
-                            &expr.loc,
+                            expr.loc,
                         ))
                     }
                 }
-                None => Err(self.fail(format!("Undefined type: {prefix}"), &expr.loc)),
+                None => Err(self.fail(format!("Undefined type: {prefix}"), expr.loc)),
             },
             Expression::Access { subject, key } => {
                 let subject_typ = self.validate_expr(subject, scope)?;
@@ -560,7 +561,7 @@ impl<'a> Validator<'a> {
                             Some(a) => Ok(a.typ.clone()),
                             None => Err(self.fail(
                                 format!("Unknown attribute: {key} on {subject_typ}"),
-                                &expr.loc,
+                                expr.loc,
                             )),
                         }
                     }
@@ -569,20 +570,20 @@ impl<'a> Validator<'a> {
                             Some(a) => Ok(a.typ.clone()),
                             None => Err(self.fail(
                                 format!("Unknown attribute: {key} on {subject_typ}"),
-                                &expr.loc,
+                                expr.loc,
                             )),
                         }
                     }
                     _ => Err(self.fail(
                         format!("Unknown attribute: {key} on {subject_typ}"),
-                        &expr.loc,
+                        expr.loc,
                     )),
                 }
             }
             Expression::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if ScriptType::Bool.accepts(&typ) {
-                    return Err(self.fail(format!("Expected boolean, found {typ}"), &expr.loc));
+                    return Err(self.fail(format!("Expected boolean, found {typ}"), expr.loc));
                 }
                 Ok(ScriptType::Bool)
             }
@@ -591,7 +592,7 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if r != l {
-                    return Err(self.fail(format!("Expected {l}, found {r}"), &rhs.loc));
+                    return Err(self.fail(format!("Expected {l}, found {r}"), rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -601,7 +602,7 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if r != l {
-                    return Err(self.fail(format!("Expected {l}, found {r}"), &rhs.loc));
+                    return Err(self.fail(format!("Expected {l}, found {r}"), rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -611,10 +612,10 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if l != ScriptType::Int {
-                    return Err(self.fail(format!("Expected number, found {l}"), &lhs.loc));
+                    return Err(self.fail(format!("Expected number, found {l}"), lhs.loc));
                 }
                 if r != ScriptType::Int {
-                    return Err(self.fail(format!("Expected number, found {r}"), &rhs.loc));
+                    return Err(self.fail(format!("Expected number, found {r}"), rhs.loc));
                 }
 
                 Ok(ScriptType::Range)
@@ -630,7 +631,7 @@ impl<'a> Validator<'a> {
                             if arguments.args.len() != 1 {
                                 return Err(self.fail(
                                     format!("Expected 1 argument, got {}", arguments.args.len()),
-                                    &expr.loc,
+                                    expr.loc,
                                 ));
                             }
                             let arg = arguments.args.first().expect("state arg");
@@ -638,19 +639,19 @@ impl<'a> Validator<'a> {
 
                             Ok(ScriptType::State(typ.into()))
                         } else {
-                            Err(self.fail(format!("Expected one inline argument"), &expr.loc))
+                            Err(self.fail(format!("Expected one inline argument"), expr.loc))
                         }
                     }
-                    _ => match scope.get_local(&name) {
+                    _ => match scope.get_local(name) {
                         Some(ScriptType::Function { params, ret }) => {
                             self.validate_arguments(params, arguments, scope)?;
 
                             Ok(*ret.clone())
                         }
                         Some(t) => {
-                            Err(self.fail(format!("Expected a callable, found {t}"), &subject.loc))
+                            Err(self.fail(format!("Expected a callable, found {t}"), subject.loc))
                         }
-                        None => match scope.types.get(&name) {
+                        None => match scope.types.get(name) {
                             Some(TypeDefinition::RecDefinition { params, name }) => {
                                 self.validate_arguments(params, arguments, scope)?;
 
@@ -661,10 +662,10 @@ impl<'a> Validator<'a> {
                             }
                             Some(TypeDefinition::EnumDefinition(_)) => Err(self.fail(
                                 format!("Expected a callable, found enum {name}"),
-                                &subject.loc,
+                                subject.loc,
                             )),
                             None => {
-                                Err(self.fail(format!("Undefined reference: {name}"), &subject.loc))
+                                Err(self.fail(format!("Undefined reference: {name}"), subject.loc))
                             }
                         },
                     },
@@ -675,7 +676,7 @@ impl<'a> Validator<'a> {
                             // TODO Associated methods like Record::foo()
                             Err(self.fail(
                                 format!("Method not found: '{name}' for {rec_name}"),
-                                &expr.loc,
+                                expr.loc,
                             ))
                         }
                         Some(TypeDefinition::EnumDefinition(def)) => {
@@ -685,11 +686,11 @@ impl<'a> Validator<'a> {
                             } else {
                                 Err(self.fail(
                                     format!("Variant not found: {name} in {}", def.name),
-                                    &expr.loc,
+                                    expr.loc,
                                 ))
                             }
                         }
-                        None => Err(self.fail(format!("Undefined type: {prefix}"), &expr.loc)),
+                        None => Err(self.fail(format!("Undefined type: {prefix}"), expr.loc)),
                     }
                 }
                 Expression::Access { subject, key } => {
@@ -723,7 +724,7 @@ impl<'a> Validator<'a> {
                                     Ok(ScriptType::EmptyList)
                                 }
                             } else {
-                                Err(self.fail(format!("Expected one inline argument"), &expr.loc))
+                                Err(self.fail(format!("Expected one inline argument"), expr.loc))
                             }
                         }
                         (ScriptType::List(typ), "push") => {
@@ -742,11 +743,11 @@ impl<'a> Validator<'a> {
                         }
                         _ => {
                             Err(self
-                                .fail(format!("Unknown method: {key} on {subject_typ}"), &expr.loc))
+                                .fail(format!("Unknown method: {key} on {subject_typ}"), expr.loc))
                         }
                     }
                 }
-                _ => Err(self.fail("Call not allowed here".into(), &expr.loc)),
+                _ => Err(self.fail("Call not allowed here".into(), expr.loc)),
             },
         }
     }
@@ -754,17 +755,17 @@ impl<'a> Validator<'a> {
     fn validate_arithmetic(
         &self,
         scope: &Scope,
-        lhs: &Loc<Expression>,
-        rhs: &Loc<Expression>,
+        lhs: &Src<Expression>,
+        rhs: &Src<Expression>,
     ) -> Result<ScriptType> {
         let l = self.validate_expr(lhs, scope)?;
         let r = self.validate_expr(rhs, scope)?;
 
         if l != ScriptType::Int {
-            return Err(self.fail(format!("Expected number, found {l}"), &lhs.loc));
+            return Err(self.fail(format!("Expected number, found {l}"), lhs.loc));
         }
         if r != ScriptType::Int {
-            return Err(self.fail(format!("Expected number, found {r}"), &rhs.loc));
+            return Err(self.fail(format!("Expected number, found {r}"), rhs.loc));
         }
 
         Ok(ScriptType::Int)
@@ -785,7 +786,7 @@ impl<'a> Validator<'a> {
 
         Ok(AppliedArguments {
             args,
-            loc: arguments.loc.clone(),
+            loc: arguments.loc,
         })
     }
 
@@ -809,7 +810,7 @@ impl<'a> Validator<'a> {
                 let typ = scope.arguments.clone();
                 let arg = EvaluatedArg {
                     name: None,
-                    typ: Loc::new(ScriptType::Tuple(typ), loc.clone()),
+                    typ: Src::new(ScriptType::Tuple(typ), *loc),
                 };
                 self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
             }
@@ -830,7 +831,7 @@ impl<'a> Validator<'a> {
                 } else {
                     return Err(self.fail(
                         format!("Missing argument {name}, expected {formal} got {other}"),
-                        &other.loc,
+                        other.loc,
                     ));
                 }
             } else if let Some(arg) = positional.next() {
@@ -838,7 +839,7 @@ impl<'a> Validator<'a> {
             } else {
                 return Err(self.fail(
                     format!("Missing positional argument, expected {formal} got {other}"),
-                    &other.loc,
+                    other.loc,
                 ));
             }
         }
@@ -846,7 +847,7 @@ impl<'a> Validator<'a> {
         if let Some(arg) = positional.next() {
             return Err(self.fail(
                 format!("Expected no arguments here, found {}", arg.typ.as_ref()),
-                &arg.typ.loc,
+                arg.typ.loc,
             ));
         }
 
@@ -857,13 +858,13 @@ impl<'a> Validator<'a> {
         if !typ.accepts(arg.typ.as_ref()) {
             return Err(self.fail(
                 format!("Expected {} got {}", typ, arg.typ.as_ref()),
-                &arg.typ.loc,
+                arg.typ.loc,
             ));
         }
         Ok(())
     }
 
-    fn eval_type_expr(&self, type_expr: &Loc<TypeExpression>, scope: &Scope) -> Result<ScriptType> {
+    fn eval_type_expr(&self, type_expr: &Src<TypeExpression>, scope: &Scope) -> Result<ScriptType> {
         match type_expr.as_ref() {
             TypeExpression::Scalar(ident) => match ident.as_str() {
                 "str" => Ok(ScriptType::Str),
@@ -877,7 +878,7 @@ impl<'a> Validator<'a> {
                     Some(TypeDefinition::EnumDefinition(def)) => {
                         Ok(ScriptType::Enum(def.name.clone()))
                     }
-                    None => Err(self.fail(format!("Unknown type: {ident}"), &type_expr.loc)),
+                    None => Err(self.fail(format!("Unknown type: {ident}"), type_expr.loc)),
                 },
             },
             TypeExpression::Tuple(params) => {
@@ -910,7 +911,7 @@ impl<'a> Validator<'a> {
                             t.as_ref(),
                             typ.as_ref()
                         ),
-                        &t.loc,
+                        t.loc,
                     ));
                 }
             }
@@ -925,7 +926,7 @@ impl<'a> Validator<'a> {
     // ScriptType::accepts
     fn eval_assignment(
         &self,
-        lhs: &Loc<Assignee>,
+        lhs: &Src<Assignee>,
         other: &ScriptType,
         scope: &mut Scope,
     ) -> Result<()> {
@@ -934,12 +935,16 @@ impl<'a> Validator<'a> {
             (None, None) => {}
             (Some(name), None) => scope.set_local(name.clone(), other.clone()),
             (_, Some(pattern)) => match other {
-                ScriptType::Tuple(tuple) => self.eval_destruction(pattern, tuple, scope)?,
-                ScriptType::Rec { params, .. } => self.eval_destruction(pattern, params, scope)?,
+                ScriptType::Tuple(tuple) => {
+                    self.eval_destruction(pattern, lhs.loc, tuple, scope)?
+                }
+                ScriptType::Rec { params, .. } => {
+                    self.eval_destruction(pattern, lhs.loc, params, scope)?
+                }
                 _ => {
                     return Err(self.fail(
                         format!("Unexpected tuple pattern, can't destructure {other}"),
-                        &lhs.loc,
+                        lhs.loc,
                     ));
                 }
             },
@@ -950,7 +955,8 @@ impl<'a> Validator<'a> {
 
     fn eval_destruction(
         &self,
-        lhs: &[Loc<Assignee>],
+        lhs: &[Src<Assignee>],
+        loc: Loc,
         other: &TupleType,
         scope: &mut Scope,
     ) -> Result<()> {
@@ -965,7 +971,7 @@ impl<'a> Validator<'a> {
                 } else {
                     return Err(self.fail(
                         format!("Element '{name}' not found in {other}"),
-                        &assignee.loc,
+                        assignee.loc,
                     ));
                 }
             } else if let Some(item) = positional.next() {
@@ -973,29 +979,26 @@ impl<'a> Validator<'a> {
             } else {
                 return Err(self.fail(
                     format!("Missing positional argument in {other}"),
-                    &assignee.loc,
+                    assignee.loc,
                 ));
             }
         }
 
-        // XXX FIX Need location of outer pattern
-        let loc = 0..0;
-
         if positional.next().is_some() {
             return Err(self.fail(
                 format!("Pattern did not contain enough positional params {other}"),
-                &loc,
+                loc,
             ));
         }
 
         Ok(())
     }
 
-    fn fail(&self, msg: String, loc: &Range<usize>) -> Error {
-        Error::new(msg, self.src, &shift_location(loc, self.offset))
+    fn fail(&self, msg: String, loc: Loc) -> Error {
+        Error::new(msg, self.src, shift_location(loc, self.offset))
     }
 }
 
-fn shift_location(loc: &Range<usize>, offset: usize) -> Range<usize> {
-    (loc.start + offset)..(loc.end + offset)
+fn shift_location(loc: Loc, offset: usize) -> Loc {
+    Loc::new(loc.start + offset, loc.end + offset)
 }

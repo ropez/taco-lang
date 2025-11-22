@@ -5,13 +5,29 @@ use crate::{
     ident::Ident,
 };
 
-#[derive(Debug, Clone)]
-pub struct Loc<T> {
-    inner: T,
-    pub(crate) loc: Range<usize>,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Loc {
+    pub(crate) start: usize,
+    pub(crate) end: usize,
 }
 
-impl<T> Loc<T>
+impl Loc {
+    pub fn start() -> Self {
+        Self { start: 0, end: 0 }
+    }
+
+    pub fn new(start: usize, end: usize) -> Self {
+        Self { start, end }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct Src<T> {
+    inner: T,
+    pub(crate) loc: Loc,
+}
+
+impl<T> Src<T>
 where
     T: Clone,
 {
@@ -20,13 +36,13 @@ where
     }
 }
 
-impl<T> Loc<T> {
-    pub(crate) fn new(expr: T, loc: Range<usize>) -> Self {
+impl<T> Src<T> {
+    pub(crate) fn new(expr: T, loc: Loc) -> Self {
         Self { inner: expr, loc }
     }
 }
 
-impl<T> AsRef<T> for Loc<T> {
+impl<T> AsRef<T> for Src<T> {
     fn as_ref(&self) -> &T {
         &self.inner
     }
@@ -73,16 +89,16 @@ pub enum TokenKind {
     Enum,
 }
 
-pub type Token = Loc<TokenKind>;
+pub type Token = Src<TokenKind>;
 
 struct Tokenizer<'a> {
     src: &'a str,
-    loc: Range<usize>,
+    loc: Loc,
 }
 
 impl<'a> Tokenizer<'a> {
     fn new(src: &'a str) -> Self {
-        Self { src, loc: 0..0 }
+        Self { src, loc: Loc::start() }
     }
 
     fn next_token(&mut self) -> Result<Option<Token>> {
@@ -191,7 +207,7 @@ impl<'a> Tokenizer<'a> {
         match self.peek() {
             Some(ch) => {
                 let l = ch.len_utf8();
-                self.loc = self.loc.start..self.loc.end + l;
+                self.loc = Loc::new(self.loc.start, self.loc.end + l);
                 Some(ch)
             }
             None => None,
@@ -199,7 +215,7 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn untake(&mut self) {
-        self.loc = self.loc.start..self.loc.start;
+        self.loc = Loc::new(self.loc.start, self.loc.start);
     }
 
     fn take_if_eq(&mut self, ch: char) -> bool {
@@ -207,7 +223,7 @@ impl<'a> Tokenizer<'a> {
             Some(c) => {
                 if c == ch {
                     let l = ch.len_utf8();
-                    self.loc = self.loc.start..self.loc.end + l;
+                    self.loc = Loc::new(self.loc.start, self.loc.end + l);
                     true
                 } else {
                     false
@@ -219,17 +235,17 @@ impl<'a> Tokenizer<'a> {
 
     fn skip(&mut self, amount: usize) {
         let end = self.loc.end + amount;
-        self.loc = end..end;
+        self.loc = Loc::new(end, end);
     }
 
     fn produce(&mut self, kind: TokenKind) -> Token {
-        let loc = self.loc.clone();
-        self.loc = self.loc.end..self.loc.end;
+        let loc = self.loc;
+        self.loc = Loc::new(self.loc.end, self.loc.end);
         Token { inner: kind, loc }
     }
 
     fn fail(&self, msg: &str) -> Error {
-        Error::new(msg.into(), self.src, &self.loc)
+        Error::new(msg.into(), self.src, self.loc)
     }
 
     fn find_str(&mut self) -> Result<Arc<str>> {

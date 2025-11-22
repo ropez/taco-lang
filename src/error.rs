@@ -1,9 +1,10 @@
 use std::{
     error,
     fmt::{self, Write},
-    ops::Range,
     result,
 };
+
+use crate::lexer::Loc;
 
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -12,7 +13,7 @@ pub struct Error {
 }
 
 impl Error {
-    pub fn new(message: String, source: &str, loc: &Range<usize>) -> Self {
+    pub fn new(message: String, source: &str, loc: Loc) -> Self {
         let details = format_error_details(source, loc).unwrap_or_default();
         Self { message, details }
     }
@@ -37,7 +38,7 @@ pub type Result<T> = result::Result<T, Error>;
 
 fn format_error_details(
     source: &str,
-    loc: &Range<usize>,
+    loc: Loc,
 ) -> result::Result<Vec<String>, fmt::Error> {
     let mut ret = Vec::new();
 
