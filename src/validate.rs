@@ -58,6 +58,7 @@ impl Display for ScriptType {
             Self::List(inner) => write!(f, "[{inner}]"),
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::Rec { name, params } => write!(f, "{name}{params}"),
+            Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -742,6 +743,19 @@ impl<'a> Validator<'a> {
                             self.validate_arguments(&TupleType::identity(), arguments, scope)?;
                             Ok(ScriptType::Int)
                         }
+                        (ScriptType::List(typ), "sort") if ScriptType::Int.accepts(typ) => {
+                            // No arguments allowed
+                            self.validate_arguments(&TupleType::identity(), arguments, scope)?;
+                            Ok(ScriptType::List(typ.clone()))
+                        }
+                        (ScriptType::List(typ), "map") => {
+                            // TODO
+                            // Argument must be a function,
+                            // The function must take the same argument as the list item (destructured)?
+                            // The return value will be List with the return type of the function
+                            // self.validate_arguments(&TupleType::identity(), arguments, scope)?;
+                            Ok(ScriptType::List(ScriptType::Int.into()))
+                        }
                         (ScriptType::List(typ), "unzip") => {
                             // No arguments allowed
                             self.validate_arguments(&TupleType::identity(), arguments, scope)?;
@@ -787,7 +801,8 @@ impl<'a> Validator<'a> {
                                     .collect::<Result<Vec<_>>>()?;
 
                                 let tuple = TupleType(items);
-                                Ok(ScriptType::Tuple(tuple))
+                                let inner = ScriptType::Tuple(tuple);
+                                Ok(ScriptType::List(inner.into()))
                             } else {
                                 Err(self.fail("Expected inline arguments".into(), expr.loc))
                             }

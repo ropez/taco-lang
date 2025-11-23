@@ -37,6 +37,11 @@ pub enum ScriptValue {
         values: Tuple,
     },
 
+    Fun {
+        function: Arc<Function>,
+        captured_scope: Scope, // XXX Fix warning with dedicated struct type
+    },
+
     State(RwLock<Arc<ScriptValue>>),
 }
 
@@ -170,13 +175,12 @@ pub enum Completion {
 }
 
 #[derive(Default, Clone)]
-struct Scope {
+pub(crate) struct Scope {
     // XXX Try to remove Arc, so that the scope _owns_ the value
     // Don't clone the scope, but create something like a stack of scopes?
     locals: HashMap<Ident, Arc<ScriptValue>>,
 
-    // XXX functions, records could all be script values in locals
-    functions: HashMap<Ident, (Arc<Function>, Scope)>,
+    // XXX Use some "types" like in validation?
     records: HashMap<Ident, Arc<Record>>,
     enums: HashMap<Ident, Arc<Enumeration>>,
 
@@ -192,6 +196,12 @@ impl Scope {
         if name.as_str() != "_" {
             self.locals.insert(name, value);
         }
+    }
+}
+
+impl fmt::Debug for Scope {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Scope").finish()
     }
 }
 
@@ -222,9 +232,11 @@ impl Engine {
                     eval_assignment(assignee, rhs, &mut scope);
                 }
                 AstNode::Function { name, fun, .. } => {
-                    scope
-                        .functions
-                        .insert(name.clone(), (Arc::clone(fun), scope.clone()));
+                    let val = ScriptValue::Fun {
+                        function: Arc::clone(fun),
+                        captured_scope: scope.clone(),
+                    };
+                    scope.set_local(name.clone(), Arc::new(val));
                 }
                 AstNode::Rec(rec) => {
                     scope.records.insert(rec.name.clone(), Arc::clone(rec));
@@ -496,21 +508,29 @@ impl Engine {
                     Arc::new(ScriptValue::State(RwLock::new(arg)))
                 }
                 _ => {
-                    if let Some((fun, captured_scope)) = scope.functions.get(name) {
-                        let mut inner_scope = captured_scope.clone();
+                    if let Some(val) = scope.locals.get(name) {
+                        if let ScriptValue::Fun {
+                            function,
+                            captured_scope,
+                        } = val.as_ref()
+                        {
+                            let mut inner_scope = captured_scope.clone();
 
-                        let values = transform_args(&fun.params, arguments);
-                        for item in &values.0 {
-                            if let Some(name) = &item.name {
-                                inner_scope.set_local(name.clone(), Arc::clone(&item.value));
+                            let values = transform_args(&function.params, arguments);
+                            for item in &values.0 {
+                                if let Some(name) = &item.name {
+                                    inner_scope.set_local(name.clone(), Arc::clone(&item.value));
+                                }
                             }
-                        }
-                        inner_scope.arguments = values;
+                            inner_scope.arguments = values;
 
-                        match self.eval_block(&fun.body, inner_scope) {
-                            Completion::EndOfBlock => Arc::new(ScriptValue::identity()),
-                            Completion::ExplicitReturn(v) => v,
-                            Completion::ImpliedReturn(v) => v,
+                            match self.eval_block(&function.body, inner_scope) {
+                                Completion::EndOfBlock => Arc::new(ScriptValue::identity()),
+                                Completion::ExplicitReturn(v) => v,
+                                Completion::ImpliedReturn(v) => v,
+                            }
+                        } else {
+                            todo!()
                         }
                     } else if let Some(rec) = scope.records.get(name) {
                         let values = transform_args(&rec.params, arguments);
@@ -654,6 +674,66 @@ impl Engine {
                         };
 
                         Arc::new(res)
+                    }
+                    (ScriptValue::List(list), "sort") => {
+                        let mut values: Vec<_> = list
+                            .iter()
+                            .map(|val| {
+                                if let ScriptValue::Number(n) = val.as_ref() {
+                                    *n
+                                } else {
+                                    panic!("Expected numbers")
+                                }
+                            })
+                            .collect();
+
+                        values.sort();
+
+                        let arcs = values
+                            .into_iter()
+                            .map(|n| Arc::new(ScriptValue::Number(n)))
+                            .collect();
+
+                        Arc::new(ScriptValue::List(arcs))
+                    }
+                    (ScriptValue::List(list), "map") => {
+                        if let Some(val) = arguments.at(0) {
+                            if let ScriptValue::Fun {
+                                function,
+                                captured_scope,
+                            } = val.as_ref()
+                            {
+                                let mut mapped = Vec::new();
+                                for item in list {
+                                    let mut inner_scope = captured_scope.clone();
+
+                                    let arguments =
+                                        Tuple(vec![TupleItem::unnamed(Arc::clone(item))]);
+                                    let values = transform_args(&function.params, arguments);
+                                    for item in &values.0 {
+                                        if let Some(name) = &item.name {
+                                            inner_scope
+                                                .set_local(name.clone(), Arc::clone(&item.value));
+                                        }
+                                    }
+                                    inner_scope.arguments = values;
+
+                                    let ret = match self.eval_block(&function.body, inner_scope) {
+                                        Completion::EndOfBlock => Arc::new(ScriptValue::identity()),
+                                        Completion::ExplicitReturn(v) => v,
+                                        Completion::ImpliedReturn(v) => v,
+                                    };
+
+                                    mapped.push(ret);
+                                }
+
+                                Arc::new(ScriptValue::List(mapped))
+                            } else {
+                                panic!("Argument to 'map' is not a function");
+                            }
+                        } else {
+                            panic!("Missing positional argument");
+                        }
                     }
                     (ScriptValue::Rec { rec, values }, "with") => {
                         let mut items = values.0.clone();
