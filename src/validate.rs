@@ -737,6 +737,61 @@ impl<'a> Validator<'a> {
                             self.validate_arguments(&formal, arguments, scope)?;
                             Ok(ScriptType::List(typ.clone()))
                         }
+                        (ScriptType::List(typ), "sum") if ScriptType::Int.accepts(typ) => {
+                            // No arguments allowed
+                            self.validate_arguments(&TupleType::identity(), arguments, scope)?;
+                            Ok(ScriptType::Int)
+                        }
+                        (ScriptType::List(typ), "unzip") => {
+                            // No arguments allowed
+                            self.validate_arguments(&TupleType::identity(), arguments, scope)?;
+
+                            // [(int, int)] -> ([int], [int])
+                            if let ScriptType::Tuple(tuple) = typ.as_ref() {
+                                let types = tuple
+                                    .0
+                                    .iter()
+                                    .map(|t| {
+                                        TupleItemType::unnamed(ScriptType::List(Box::new(
+                                            t.typ.clone(),
+                                        )))
+                                    })
+                                    .collect();
+
+                                Ok(ScriptType::Tuple(TupleType(types)))
+                            } else {
+                                Err(self.fail(
+                                    format!("Expected list of tuples, found {typ}"),
+                                    expr.loc,
+                                ))
+                            }
+                        }
+
+                        // XXX Using empty list [], as a placeholder for a "static method"
+                        (ScriptType::EmptyList, "zip") => {
+                            // XXX FIXME: Unnecessary restriction
+                            if let ArgumentsKind::Inline(inline_arguments) = arguments.as_ref() {
+                                let args = self.eval_args(inline_arguments, scope)?;
+                                let items = args
+                                    .into_inner()
+                                    .into_iter()
+                                    .map(|arg| match arg.typ.as_ref() {
+                                        ScriptType::List(inner) => {
+                                            Ok(TupleItemType::new(arg.name, inner.as_ref().clone()))
+                                        }
+                                        _ => Err(self.fail(
+                                            format!("Expected list, found {}", arg.typ.as_ref()),
+                                            arg.typ.loc,
+                                        )),
+                                    })
+                                    .collect::<Result<Vec<_>>>()?;
+
+                                let tuple = TupleType(items);
+                                Ok(ScriptType::Tuple(tuple))
+                            } else {
+                                Err(self.fail("Expected inline arguments".into(), expr.loc))
+                            }
+                        }
                         (ScriptType::Rec { params, .. }, "with") => {
                             // let args = self.eval_args(arguments, scope)?;
 

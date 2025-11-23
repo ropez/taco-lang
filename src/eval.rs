@@ -44,6 +44,10 @@ impl ScriptValue {
     pub const fn identity() -> Self {
         Self::Tuple(Tuple::identity())
     }
+
+    pub fn is_nan(&self) -> bool {
+        matches!(self, Self::NaN)
+    }
 }
 
 impl PartialEq for ScriptValue {
@@ -419,9 +423,15 @@ impl Engine {
                 self.eval_arithmetic(i64::checked_div, lhs, rhs, scope)
             }
             Expression::LessThan(lhs, rhs) => self.eval_comparison(|a, b| a < b, lhs, rhs, scope),
-            Expression::GreaterThan(lhs, rhs) => self.eval_comparison(|a, b| a > b, lhs, rhs, scope),
-            Expression::LessOrEqual(lhs, rhs) => self.eval_comparison(|a, b| a <= b, lhs, rhs, scope),
-            Expression::GreaterOrEqual(lhs, rhs) => self.eval_comparison(|a, b| a >= b, lhs, rhs, scope),
+            Expression::GreaterThan(lhs, rhs) => {
+                self.eval_comparison(|a, b| a > b, lhs, rhs, scope)
+            }
+            Expression::LessOrEqual(lhs, rhs) => {
+                self.eval_comparison(|a, b| a <= b, lhs, rhs, scope)
+            }
+            Expression::GreaterOrEqual(lhs, rhs) => {
+                self.eval_comparison(|a, b| a >= b, lhs, rhs, scope)
+            }
             Expression::Call { subject, arguments } => self.eval_call(subject, arguments, scope),
         }
     }
@@ -462,7 +472,9 @@ impl Engine {
         let lhs = self.eval_expr(lhs, scope);
         let rhs = self.eval_expr(rhs, scope);
         let res = match (lhs.as_ref(), rhs.as_ref()) {
-            (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => ScriptValue::Boolean(op(*lhs, *rhs)),
+            (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
+                ScriptValue::Boolean(op(*lhs, *rhs))
+            }
             (ScriptValue::NaN, ScriptValue::Number(_)) => ScriptValue::NaN,
             (ScriptValue::Number(_), ScriptValue::NaN) => ScriptValue::NaN,
             _ => panic!("Expected numbers"),
@@ -557,6 +569,91 @@ impl Engine {
                             res.push(Arc::clone(&arg.value));
                         }
                         Arc::new(ScriptValue::List(res))
+                    }
+                    (ScriptValue::List(list), "unzip") => {
+                        let tuples: Vec<_> = list
+                            .iter()
+                            .map(|arg| {
+                                if let ScriptValue::Tuple(l) = arg.as_ref() {
+                                    l.clone() // XXX Too much cloning
+                                } else {
+                                    panic!("Not a tuple")
+                                }
+                            })
+                            .collect();
+
+                        let mut lists = Vec::new();
+
+                        if let Some(first) = tuples.first() {
+                            for it in &first.0 {
+                                lists.push(vec![Arc::clone(&it.value)]);
+                            }
+
+                            for i in &tuples[1..] {
+                                for (k, it) in i.0.iter().enumerate() {
+                                    lists[k].push(Arc::clone(&it.value));
+                                }
+                            }
+                            let items = lists
+                                .into_iter()
+                                .map(|l| TupleItem::unnamed(Arc::new(ScriptValue::List(l))))
+                                .collect();
+                            Arc::new(ScriptValue::Tuple(Tuple(items)))
+                        } else {
+                            Arc::new(ScriptValue::Tuple(Tuple::identity()))
+                        }
+                    }
+                    (ScriptValue::List(list), "zip") => {
+                        // Input should be empty, this is for "future enhancements"
+                        let mut res = list.clone();
+
+                        let lists: Vec<_> = arguments
+                            .0
+                            .into_iter()
+                            .map(|arg| {
+                                if let ScriptValue::List(l) = arg.value.as_ref() {
+                                    l.clone()
+                                } else {
+                                    panic!("Not a list")
+                                }
+                            })
+                            .collect();
+
+                        'outer: for i in 0.. {
+                            let mut items = Vec::new();
+
+                            for l in &lists {
+                                if let Some(it) = l.get(i) {
+                                    items.push(TupleItem::unnamed(Arc::clone(it)));
+                                } else {
+                                    break 'outer;
+                                }
+                            }
+
+                            res.push(Arc::new(ScriptValue::Tuple(Tuple(items))));
+                        }
+
+                        Arc::new(ScriptValue::List(res))
+                    }
+                    (ScriptValue::List(list), "sum") => {
+                        let res = if list.iter().any(|v| v.is_nan()) {
+                            ScriptValue::NaN
+                        } else {
+                            ScriptValue::Number(
+                                list.iter()
+                                    .map(|val| {
+                                        if let ScriptValue::Number(n) = val.as_ref() {
+                                            *n
+                                        } else {
+                                            panic!("Expected numbers")
+                                        }
+                                    })
+                                    .reduce(|n, a| n + a)
+                                    .unwrap_or_default(),
+                            )
+                        };
+
+                        Arc::new(res)
                     }
                     (ScriptValue::Rec { rec, values }, "with") => {
                         let mut items = values.0.clone();
