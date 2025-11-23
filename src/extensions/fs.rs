@@ -3,14 +3,14 @@ use std::{collections::HashMap, fs};
 use crate::{
     eval::{ScriptValue, Tuple},
     extensions::ExtensionFunction,
-    validate::{ScriptType, TupleParameter, TupleType},
+    validate::{TupleItemType, TupleType, ScriptType},
 };
 
 pub fn create() -> HashMap<String, ExtensionFunction> {
     let mut ext = HashMap::new();
 
     let read_type = ScriptType::Function {
-        params: TupleType::from(vec![TupleParameter::unnamed(ScriptType::Str)]),
+        params: TupleType::from(vec![TupleItemType::unnamed(ScriptType::Str)]),
         ret: Box::new(ScriptType::Str),
     };
 
@@ -42,7 +42,7 @@ pub fn create() -> HashMap<String, ExtensionFunction> {
     // Maybe extenstions need to "plug in" to the type system/analyzer.
 
     let json_type = ScriptType::Function {
-        params: TupleType::from(vec![TupleParameter::unnamed(ScriptType::List(
+        params: TupleType::from(vec![TupleItemType::unnamed(ScriptType::List(
             ScriptType::Str.into(),
         ))]),
         ret: Box::new(ScriptType::Str),

@@ -7,7 +7,7 @@ use std::{
 use crate::{
     eval::{ScriptValue, Tuple},
     extensions::ExtensionFunction,
-    validate::{ScriptType, TupleParameter, TupleType},
+    validate::{TupleItemType, TupleType, ScriptType},
 };
 
 pub fn create<O>(out: Arc<Mutex<O>>) -> HashMap<String, ExtensionFunction>
@@ -15,7 +15,7 @@ where
     O: io::Write + 'static,
 {
     let print_type = ScriptType::Function {
-        params: TupleType::from(vec![TupleParameter::unnamed(ScriptType::Str)]),
+        params: TupleType::from(vec![TupleItemType::unnamed(ScriptType::Str)]),
         ret: Box::new(ScriptType::identity()),
     };
 

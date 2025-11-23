@@ -66,28 +66,28 @@ impl Display for ScriptType {
 #[derive(Debug, Clone)]
 pub enum TypeDefinition {
     RecDefinition { name: Ident, params: TupleType },
-    EnumDefinition(Arc<EnumDefinition>),
+    EnumDefinition(Arc<EnumType>),
 }
 
 #[derive(Debug)]
-pub struct EnumDefinition {
+pub struct EnumType {
     name: Ident,
-    variants: Vec<EnumVariant>,
+    variants: Vec<EnumVariantType>,
 }
 
 #[derive(Debug)]
-struct EnumVariant {
+struct EnumVariantType {
     name: Ident,
     params: TupleType,
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct TupleParameter {
+pub struct TupleItemType {
     name: Option<Ident>,
     typ: ScriptType,
 }
 
-impl TupleParameter {
+impl TupleItemType {
     pub fn new(name: Option<Ident>, typ: ScriptType) -> Self {
         Self { name, typ }
     }
@@ -102,10 +102,10 @@ impl TupleParameter {
 }
 
 #[derive(Default, Debug, Clone, PartialEq)]
-pub struct TupleType(Vec<TupleParameter>);
+pub struct TupleType(Vec<TupleItemType>);
 
-impl From<Vec<TupleParameter>> for TupleType {
-    fn from(args: Vec<TupleParameter>) -> Self {
+impl From<Vec<TupleItemType>> for TupleType {
+    fn from(args: Vec<TupleItemType>) -> Self {
         TupleType(args)
     }
 }
@@ -153,43 +153,41 @@ impl Display for TupleType {
     }
 }
 
-type EvaluatedType = Src<ScriptType>;
-
 #[derive(Debug, Clone)]
-pub struct EvaluatedArg {
+pub struct ArgumentType {
     name: Option<Ident>,
     typ: Src<ScriptType>,
 }
 
-impl EvaluatedArg {
-    fn into_formal(self) -> TupleParameter {
+impl ArgumentType {
+    fn into_formal(self) -> TupleItemType {
         if let Some(name) = self.name {
-            TupleParameter::named(name, self.typ.cloned())
+            TupleItemType::named(name, self.typ.cloned())
         } else {
-            TupleParameter::unnamed(self.typ.cloned())
+            TupleItemType::unnamed(self.typ.cloned())
         }
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct AppliedArguments {
-    pub(crate) args: Vec<EvaluatedArg>,
-    pub(crate) loc: Loc,
-}
-
-impl AppliedArguments {
+impl Src<Vec<ArgumentType>> {
     fn into_formal(self) -> TupleType {
-        let args = self.args.into_iter().map(|a| a.into_formal()).collect();
+        let args = self
+            .into_inner()
+            .into_iter()
+            .map(|a| a.into_formal())
+            .collect();
 
         TupleType(args)
     }
 }
 
-impl Display for AppliedArguments {
+impl Display for Src<Vec<ArgumentType>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_tuple(
             f,
-            self.args.iter().map(|a| (a.name.clone(), a.typ.as_ref())),
+            self.as_ref()
+                .iter()
+                .map(|a| (a.name.clone(), a.typ.as_ref())),
         )
     }
 }
@@ -356,19 +354,19 @@ impl<'a> Validator<'a> {
                     );
                 }
                 AstNode::Enum(rec) => {
-                    let def = EnumDefinition {
+                    let def = EnumType {
                         name: rec.name.clone(),
                         variants: rec
                             .variants
                             .iter()
                             .map(|v| {
                                 let params = self.eval_params(&v.params, &scope)?;
-                                Ok(EnumVariant {
+                                Ok(EnumVariantType {
                                     name: v.name.clone(),
                                     params,
                                 })
                             })
-                            .collect::<Result<Vec<EnumVariant>>>()?,
+                            .collect::<Result<Vec<EnumVariantType>>>()?,
                     };
                     scope
                         .types
@@ -493,13 +491,13 @@ impl<'a> Validator<'a> {
 
         for param in params {
             let typ = self.eval_type_expr(&param.type_expr, scope)?;
-            res.0.push(TupleParameter::new(param.name.clone(), typ))
+            res.0.push(TupleItemType::new(param.name.clone(), typ))
         }
 
         Ok(res)
     }
 
-    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<EvaluatedType> {
+    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<Src<ScriptType>> {
         let typ = self.validate_expr(expr, scope)?;
         Ok(Src::new(typ, expr.loc))
     }
@@ -702,7 +700,7 @@ impl<'a> Validator<'a> {
                         }
                         (ScriptType::State(typ), "set") => {
                             // Simulate normal function call
-                            let formal = TupleType(vec![TupleParameter::unnamed(*typ.clone())]);
+                            let formal = TupleType(vec![TupleItemType::unnamed(*typ.clone())]);
                             self.validate_arguments(&formal, arguments, scope)?;
                             Ok(ScriptType::identity())
                         }
@@ -717,7 +715,7 @@ impl<'a> Validator<'a> {
                                 {
                                     // XXX Variadic args not supported (but allowed in runtime)
                                     let formal =
-                                        TupleType(vec![TupleParameter::unnamed(typ.clone())]);
+                                        TupleType(vec![TupleItemType::unnamed(typ.clone())]);
                                     self.validate_arguments(&formal, arguments, scope)?;
                                     Ok(ScriptType::List(typ.into()))
                                 } else {
@@ -729,7 +727,7 @@ impl<'a> Validator<'a> {
                         }
                         (ScriptType::List(typ), "push") => {
                             // XXX Variadic args not supported (but allowed in runtime)
-                            let formal = TupleType(vec![TupleParameter::unnamed(*typ.clone())]);
+                            let formal = TupleType(vec![TupleItemType::unnamed(*typ.clone())]);
                             self.validate_arguments(&formal, arguments, scope)?;
                             Ok(ScriptType::List(typ.clone()))
                         }
@@ -771,23 +769,20 @@ impl<'a> Validator<'a> {
         Ok(ScriptType::Int)
     }
 
-    fn eval_args(&self, arguments: &Arguments, scope: &Scope) -> Result<AppliedArguments> {
+    fn eval_args(&self, arguments: &Arguments, scope: &Scope) -> Result<Src<Vec<ArgumentType>>> {
         let args = arguments
             .args
             .iter()
             .map(|arg| {
                 let typ = self.eval_expr(&arg.expr, scope)?;
-                Ok(EvaluatedArg {
+                Ok(ArgumentType {
                     name: arg.name.clone(),
                     typ,
                 })
             })
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(AppliedArguments {
-            args,
-            loc: arguments.loc,
-        })
+        Ok(Src::new(args, arguments.loc))
     }
 
     fn validate_arguments(
@@ -803,12 +798,12 @@ impl<'a> Validator<'a> {
             }
             ArgumentsKind::Destructure(expr) => {
                 let typ = self.eval_expr(expr, scope)?;
-                let arg = EvaluatedArg { name: None, typ };
+                let arg = ArgumentType { name: None, typ };
                 self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
             }
             ArgumentsKind::DestructureImplicit(loc) => {
                 let typ = scope.arguments.clone();
-                let arg = EvaluatedArg {
+                let arg = ArgumentType {
                     name: None,
                     typ: Src::new(ScriptType::Tuple(typ), *loc),
                 };
@@ -818,13 +813,13 @@ impl<'a> Validator<'a> {
         Ok(())
     }
 
-    fn validate_args(&self, formal: &TupleType, other: &AppliedArguments) -> Result<()> {
+    fn validate_args(&self, formal: &TupleType, other: &Src<Vec<ArgumentType>>) -> Result<()> {
         // For each formal: If args contain named, take it, else take next unnamed
-        let mut positional = other.args.iter().filter(|arg| arg.name.is_none());
+        let mut positional = other.as_ref().iter().filter(|arg| arg.name.is_none());
 
         for par in formal.0.iter() {
             if let Some(name) = &par.name {
-                if let Some(arg) = other.args.iter().find(|a| a.name.as_ref() == Some(name)) {
+                if let Some(arg) = other.as_ref().iter().find(|a| a.name.as_ref() == Some(name)) {
                     self.validate_single_arg(&par.typ, arg)?;
                 } else if let Some(arg) = positional.next() {
                     self.validate_single_arg(&par.typ, arg)?;
@@ -854,7 +849,7 @@ impl<'a> Validator<'a> {
         Ok(())
     }
 
-    fn validate_single_arg(&self, typ: &ScriptType, arg: &EvaluatedArg) -> Result<()> {
+    fn validate_single_arg(&self, typ: &ScriptType, arg: &ArgumentType) -> Result<()> {
         if !typ.accepts(arg.typ.as_ref()) {
             return Err(self.fail(
                 format!("Expected {} got {}", typ, arg.typ.as_ref()),
@@ -897,7 +892,7 @@ impl<'a> Validator<'a> {
     // the element type that such a list would have.
     // Locations are included for error formatting. The returned tuple contains
     // the location of the first found element with the returned type.
-    fn most_specific_type(&self, types: &[EvaluatedType]) -> Result<Option<EvaluatedType>> {
+    fn most_specific_type(&self, types: &[Src<ScriptType>]) -> Result<Option<Src<ScriptType>>> {
         let mut iter = types.iter();
         if let Some(first) = iter.next() {
             let mut typ = first;
