@@ -50,6 +50,7 @@ impl PartialEq for ScriptValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
             (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::Boolean(l), Self::Boolean(r)) => l == r,
             (Self::Number(l0), Self::Number(r0)) => l0 == r0,
             (
                 Self::Enum {

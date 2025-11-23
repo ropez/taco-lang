@@ -179,7 +179,8 @@ pub struct Parser<'a> {
 }
 
 mod constants {
-    pub(crate) const BP_EQUAL: u32 = 1;
+    pub(crate) const BP_EQUAL: u32 = 3;
+    pub(crate) const BP_CMP: u32 = 4;
     pub(crate) const BP_SPREAD: u32 = 6;
     pub(crate) const BP_PLUS: u32 = 10;
     pub(crate) const BP_MINUS: u32 = 10;
@@ -423,16 +424,16 @@ impl<'a> Parser<'a> {
                     self.parse_binary_expr(lhs, Expression::NotEqual, BP_EQUAL, bp)?
                 }
                 TokenKind::LessThan => {
-                    self.parse_binary_expr(lhs, Expression::LessThan, BP_EQUAL, bp)?
+                    self.parse_binary_expr(lhs, Expression::LessThan, BP_CMP, bp)?
                 }
                 TokenKind::GreaterThan => {
-                    self.parse_binary_expr(lhs, Expression::GreaterThan, BP_EQUAL, bp)?
+                    self.parse_binary_expr(lhs, Expression::GreaterThan, BP_CMP, bp)?
                 }
                 TokenKind::LessOrEqual => {
-                    self.parse_binary_expr(lhs, Expression::LessOrEqual, BP_EQUAL, bp)?
+                    self.parse_binary_expr(lhs, Expression::LessOrEqual, BP_CMP, bp)?
                 }
                 TokenKind::GreaterOrEqual => {
-                    self.parse_binary_expr(lhs, Expression::GreaterOrEqual, BP_EQUAL, bp)?
+                    self.parse_binary_expr(lhs, Expression::GreaterOrEqual, BP_CMP, bp)?
                 }
                 TokenKind::Plus => {
                     self.parse_binary_expr(lhs, Expression::Addition, BP_PLUS, bp)?

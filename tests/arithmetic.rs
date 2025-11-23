@@ -188,8 +188,6 @@ fn all_operations_with_nan() {
 
 #[test]
 fn all_comparison_operations() {
-    // TODO This behavior should be configurable, something like "--checked"
-
     let src = r#"
         println("${1 < 1}")
         println("${1 < 2}")
@@ -203,6 +201,21 @@ fn all_comparison_operations() {
 
     match check_output(src) {
         Ok(out) => assert_eq!("false\ntrue\n".repeat(4), out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_comparizone_and_equality_precedence() {
+    let src = r#"
+        println("${1 < 1 + 1 == 1 + 1 > 1}")
+        println("${1 + 1 > 1 == 1 < 1 + 1}")
+        println("${1 + 1 <= 1 == 1 >= 1 + 1}")
+        println("${1 >= 1 + 1 == 1 + 1 <= 1}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("true\n".repeat(4), out),
         Err(err) => panic!("{err}"),
     };
 }
