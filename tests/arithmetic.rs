@@ -185,3 +185,24 @@ fn all_operations_with_nan() {
         Err(err) => panic!("{err}"),
     };
 }
+
+#[test]
+fn all_comparison_operations() {
+    // TODO This behavior should be configurable, something like "--checked"
+
+    let src = r#"
+        println("${1 < 1}")
+        println("${1 < 2}")
+        println("${1 > 1}")
+        println("${2 > 1}")
+        println("${2 <= 1}")
+        println("${2 <= 2}")
+        println("${1 >= 2}")
+        println("${2 >= 2}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("false\ntrue\n".repeat(4), out),
+        Err(err) => panic!("{err}"),
+    };
+}

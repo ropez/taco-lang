@@ -585,22 +585,28 @@ impl<'a> Validator<'a> {
                 }
                 Ok(ScriptType::Bool)
             }
-            Expression::Equal(lhs, rhs) => {
+            Expression::Equal(lhs, rhs) | Expression::NotEqual(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
 
-                if r != l {
+                if !(l.accepts(&r) || r.accepts(&l)) {
                     return Err(self.fail(format!("Expected {l}, found {r}"), rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
             }
-            Expression::NotEqual(lhs, rhs) => {
+            Expression::LessThan(lhs, rhs)
+            | Expression::GreaterThan(lhs, rhs)
+            | Expression::LessOrEqual(lhs, rhs)
+            | Expression::GreaterOrEqual(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
 
-                if r != l {
-                    return Err(self.fail(format!("Expected {l}, found {r}"), rhs.loc));
+                if !ScriptType::Int.accepts(&l) {
+                    return Err(self.fail(format!("Expected number, found {l}"), lhs.loc));
+                }
+                if !ScriptType::Int.accepts(&r) {
+                    return Err(self.fail(format!("Expected number, found {r}"), rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -819,7 +825,11 @@ impl<'a> Validator<'a> {
 
         for par in formal.0.iter() {
             if let Some(name) = &par.name {
-                if let Some(arg) = other.as_ref().iter().find(|a| a.name.as_ref() == Some(name)) {
+                if let Some(arg) = other
+                    .as_ref()
+                    .iter()
+                    .find(|a| a.name.as_ref() == Some(name))
+                {
                     self.validate_single_arg(&par.typ, arg)?;
                 } else if let Some(arg) = positional.next() {
                     self.validate_single_arg(&par.typ, arg)?;

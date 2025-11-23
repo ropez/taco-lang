@@ -61,6 +61,10 @@ pub enum Expression {
     Not(Box<Src<Expression>>),
     Equal(Box<Src<Expression>>, Box<Src<Expression>>),
     NotEqual(Box<Src<Expression>>, Box<Src<Expression>>),
+    LessThan(Box<Src<Expression>>, Box<Src<Expression>>),
+    GreaterThan(Box<Src<Expression>>, Box<Src<Expression>>),
+    LessOrEqual(Box<Src<Expression>>, Box<Src<Expression>>),
+    GreaterOrEqual(Box<Src<Expression>>, Box<Src<Expression>>),
     Range(Box<Src<Expression>>, Box<Src<Expression>>),
     Addition(Box<Src<Expression>>, Box<Src<Expression>>),
     Subtraction(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -414,27 +418,33 @@ impl<'a> Parser<'a> {
             None => lhs,
             Some(token) => match token {
                 TokenKind::Comment(_) => lhs,
-                TokenKind::Equal => {
-                    if bp >= BP_EQUAL {
-                        lhs
-                    } else {
-                        self.iter.next();
-                        let rhs = self.parse_expression(BP_EQUAL)?;
-                        let loc = wrap_locations(lhs.loc, rhs.loc);
-                        let expr = Src::new(Expression::Equal(lhs.into(), rhs.into()), loc);
-                        self.parse_continuation(expr, bp)?
-                    }
-                }
+                TokenKind::Equal => self.parse_binary_expr(lhs, Expression::Equal, BP_EQUAL, bp)?,
                 TokenKind::NotEqual => {
-                    if bp >= BP_EQUAL {
-                        lhs
-                    } else {
-                        self.iter.next();
-                        let rhs = self.parse_expression(BP_EQUAL)?;
-                        let loc = wrap_locations(lhs.loc, rhs.loc);
-                        let expr = Src::new(Expression::NotEqual(lhs.into(), rhs.into()), loc);
-                        self.parse_continuation(expr, bp)?
-                    }
+                    self.parse_binary_expr(lhs, Expression::NotEqual, BP_EQUAL, bp)?
+                }
+                TokenKind::LessThan => {
+                    self.parse_binary_expr(lhs, Expression::LessThan, BP_EQUAL, bp)?
+                }
+                TokenKind::GreaterThan => {
+                    self.parse_binary_expr(lhs, Expression::GreaterThan, BP_EQUAL, bp)?
+                }
+                TokenKind::LessOrEqual => {
+                    self.parse_binary_expr(lhs, Expression::LessOrEqual, BP_EQUAL, bp)?
+                }
+                TokenKind::GreaterOrEqual => {
+                    self.parse_binary_expr(lhs, Expression::GreaterOrEqual, BP_EQUAL, bp)?
+                }
+                TokenKind::Plus => {
+                    self.parse_binary_expr(lhs, Expression::Addition, BP_PLUS, bp)?
+                }
+                TokenKind::Minus => {
+                    self.parse_binary_expr(lhs, Expression::Subtraction, BP_MINUS, bp)?
+                }
+                TokenKind::Multiply => {
+                    self.parse_binary_expr(lhs, Expression::Multiplication, BP_MULT, bp)?
+                }
+                TokenKind::Divide => {
+                    self.parse_binary_expr(lhs, Expression::Division, BP_DIV, bp)?
                 }
                 TokenKind::Dot => {
                     if bp >= BP_ACCESS {
@@ -461,51 +471,6 @@ impl<'a> Parser<'a> {
                         let rhs = self.parse_expression(BP_SPREAD)?;
                         let loc = wrap_locations(lhs.loc, rhs.loc);
                         let expr = Src::new(Expression::Range(lhs.into(), rhs.into()), loc);
-                        self.parse_continuation(expr, bp)?
-                    }
-                }
-                TokenKind::Plus => {
-                    if bp >= BP_PLUS {
-                        lhs
-                    } else {
-                        self.iter.next();
-                        let rhs = self.parse_expression(BP_PLUS)?;
-                        let loc = wrap_locations(lhs.loc, rhs.loc);
-                        let expr = Src::new(Expression::Addition(lhs.into(), rhs.into()), loc);
-                        self.parse_continuation(expr, bp)?
-                    }
-                }
-                TokenKind::Minus => {
-                    if bp >= BP_MINUS {
-                        lhs
-                    } else {
-                        self.iter.next();
-                        let rhs = self.parse_expression(BP_MINUS)?;
-                        let loc = wrap_locations(lhs.loc, rhs.loc);
-                        let expr = Src::new(Expression::Subtraction(lhs.into(), rhs.into()), loc);
-                        self.parse_continuation(expr, bp)?
-                    }
-                }
-                TokenKind::Multiply => {
-                    if bp >= BP_MULT {
-                        lhs
-                    } else {
-                        self.iter.next();
-                        let rhs = self.parse_expression(BP_MULT)?;
-                        let loc = wrap_locations(lhs.loc, rhs.loc);
-                        let expr =
-                            Src::new(Expression::Multiplication(lhs.into(), rhs.into()), loc);
-                        self.parse_continuation(expr, bp)?
-                    }
-                }
-                TokenKind::Divide => {
-                    if bp >= BP_DIV {
-                        lhs
-                    } else {
-                        self.iter.next();
-                        let rhs = self.parse_expression(BP_DIV)?;
-                        let loc = wrap_locations(lhs.loc, rhs.loc);
-                        let expr = Src::new(Expression::Division(lhs.into(), rhs.into()), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -561,6 +526,27 @@ impl<'a> Parser<'a> {
         };
 
         Ok(expr)
+    }
+
+    fn parse_binary_expr<F>(
+        &mut self,
+        lhs: Src<Expression>,
+        factory: F,
+        bp_op: u32,
+        bp: u32,
+    ) -> Result<Src<Expression>>
+    where
+        F: FnOnce(Box<Src<Expression>>, Box<Src<Expression>>) -> Expression,
+    {
+        Ok(if bp >= bp_op {
+            lhs
+        } else {
+            self.iter.next();
+            let rhs = self.parse_expression(bp_op)?;
+            let loc = wrap_locations(lhs.loc, rhs.loc);
+            let expr = Src::new(factory(lhs.into(), rhs.into()), loc);
+            self.parse_continuation(expr, bp)?
+        })
     }
 
     fn parse_params(&mut self, until: TokenKind) -> Result<Vec<Parameter>> {
@@ -880,9 +866,10 @@ fn parse_string(src: &str, loc: Loc) -> Result<Src<Expression>> {
     let start_offset = loc.start + 1;
     for part in parts {
         let expr = match &part.kind {
-            StringTokenKind::Str => {
-                Src::new(Expression::String(part.src.into()), Loc::new(0, part.src.len()))
-            }
+            StringTokenKind::Str => Src::new(
+                Expression::String(part.src.into()),
+                Loc::new(0, part.src.len()),
+            ),
             StringTokenKind::Expr => {
                 let tokens = lexer::tokenize(part.src)?;
                 Parser::new(part.src, tokens).parse_expression(0)?
@@ -896,5 +883,8 @@ fn parse_string(src: &str, loc: Loc) -> Result<Src<Expression>> {
 }
 
 fn wrap_locations(start: Loc, end: Loc) -> Loc {
-    Loc::new(cmp::min(start.start, end.start), cmp::max(start.end, end.end))
+    Loc::new(
+        cmp::min(start.start, end.start),
+        cmp::max(start.end, end.end),
+    )
 }

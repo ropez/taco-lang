@@ -417,6 +417,10 @@ impl Engine {
             Expression::Division(lhs, rhs) => {
                 self.eval_arithmetic(i64::checked_div, lhs, rhs, scope)
             }
+            Expression::LessThan(lhs, rhs) => self.eval_comparison(|a, b| a < b, lhs, rhs, scope),
+            Expression::GreaterThan(lhs, rhs) => self.eval_comparison(|a, b| a > b, lhs, rhs, scope),
+            Expression::LessOrEqual(lhs, rhs) => self.eval_comparison(|a, b| a <= b, lhs, rhs, scope),
+            Expression::GreaterOrEqual(lhs, rhs) => self.eval_comparison(|a, b| a >= b, lhs, rhs, scope),
             Expression::Call { subject, arguments } => self.eval_call(subject, arguments, scope),
         }
     }
@@ -437,6 +441,27 @@ impl Engine {
             (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => op(*lhs, *rhs)
                 .map(ScriptValue::Number)
                 .unwrap_or(ScriptValue::NaN),
+            (ScriptValue::NaN, ScriptValue::Number(_)) => ScriptValue::NaN,
+            (ScriptValue::Number(_), ScriptValue::NaN) => ScriptValue::NaN,
+            _ => panic!("Expected numbers"),
+        };
+        Arc::new(res)
+    }
+
+    fn eval_comparison<F>(
+        &self,
+        op: F,
+        lhs: &Src<Expression>,
+        rhs: &Src<Expression>,
+        scope: &Scope,
+    ) -> Arc<ScriptValue>
+    where
+        F: FnOnce(i64, i64) -> bool,
+    {
+        let lhs = self.eval_expr(lhs, scope);
+        let rhs = self.eval_expr(rhs, scope);
+        let res = match (lhs.as_ref(), rhs.as_ref()) {
+            (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => ScriptValue::Boolean(op(*lhs, *rhs)),
             (ScriptValue::NaN, ScriptValue::Number(_)) => ScriptValue::NaN,
             (ScriptValue::Number(_), ScriptValue::NaN) => ScriptValue::NaN,
             _ => panic!("Expected numbers"),

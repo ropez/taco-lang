@@ -64,6 +64,10 @@ pub enum TokenKind {
     Not,
     Equal,
     NotEqual,
+    LessThan,
+    GreaterThan,
+    LessOrEqual,
+    GreaterOrEqual,
     Comma,
     Colon,
     DoubleColon,
@@ -146,6 +150,20 @@ impl<'a> Tokenizer<'a> {
                 '}' => Some(self.produce(TokenKind::RightBrace)),
                 '[' => Some(self.produce(TokenKind::LeftSquare)),
                 ']' => Some(self.produce(TokenKind::RightSquare)),
+                '<' => {
+                    if self.take_if_eq('=') {
+                        Some(self.produce(TokenKind::LessOrEqual))
+                    } else {
+                        Some(self.produce(TokenKind::LessThan))
+                    }
+                }
+                '>' => {
+                    if self.take_if_eq('=') {
+                        Some(self.produce(TokenKind::GreaterOrEqual))
+                    } else {
+                        Some(self.produce(TokenKind::GreaterThan))
+                    }
+                }
                 ',' => Some(self.produce(TokenKind::Comma)),
                 ':' => {
                     if self.take_if_eq(':') {
