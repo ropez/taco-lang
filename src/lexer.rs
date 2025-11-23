@@ -19,6 +19,10 @@ impl Loc {
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
+
+    pub fn shift_right(self, offset: usize) -> Self {
+        Self::new(self.start + offset, self.end + offset)
+    }
 }
 
 #[derive(Debug, Clone)]

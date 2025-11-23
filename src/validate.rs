@@ -1000,10 +1000,6 @@ impl<'a> Validator<'a> {
     }
 
     fn fail(&self, msg: String, loc: Loc) -> Error {
-        Error::new(msg, self.src, shift_location(loc, self.offset))
+        Error::new(msg, self.src, loc.shift_right(self.offset))
     }
-}
-
-fn shift_location(loc: Loc, offset: usize) -> Loc {
-    Loc::new(loc.start + offset, loc.end + offset)
 }

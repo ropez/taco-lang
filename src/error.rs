@@ -9,13 +9,14 @@ use crate::lexer::Loc;
 #[derive(Debug, Clone)]
 pub struct Error {
     pub message: String,
+    pub loc: Loc,
     details: Vec<String>,
 }
 
 impl Error {
     pub fn new(message: String, source: &str, loc: Loc) -> Self {
         let details = format_error_details(source, loc).unwrap_or_default();
-        Self { message, details }
+        Self { message, loc, details }
     }
 }
 

@@ -202,6 +202,16 @@ impl<'a> Parser<'a> {
         self.parse_block(true)
     }
 
+    pub fn parse_single_expression(&mut self) -> Result<Src<Expression>> {
+        let expr = self.parse_expression(0)?;
+
+        if let Some(token) = self.iter.next() {
+            return Err(self.fail("Unexpected token", token.loc));
+        }
+
+        Ok(expr)
+    }
+
     pub fn parse_block(&mut self, root: bool) -> Result<Vec<AstNode>> {
         let mut ast = Vec::new();
 
@@ -253,7 +263,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 TokenKind::String(s) => {
-                    let expr = parse_string(s.as_ref(), token.loc)?;
+                    let expr = self.parse_string(s.as_ref(), token.loc)?;
                     let expr = self.parse_continuation(expr, 0)?;
                     ast.push(AstNode::Expression(expr));
                 }
@@ -353,7 +363,7 @@ impl<'a> Parser<'a> {
                 Src::new(Expression::Not(expr.into()), loc)
             }
             TokenKind::String(s) => {
-                let expr = parse_string(s, token.loc)?;
+                let expr = self.parse_string(s, token.loc)?;
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::Number(n) => {
@@ -853,34 +863,41 @@ impl<'a> Parser<'a> {
         println!("{}", Backtrace::force_capture());
         Error::new(msg.into(), self.src, loc)
     }
-}
 
-fn parse_string(src: &str, loc: Loc) -> Result<Src<Expression>> {
-    let parts = interp::tokenise_string(src);
-
-    if parts.is_empty() {
-        return Ok(Src::new(Expression::String("".into()), loc));
+    fn wrap_err(&self, err: Error, offset: usize) -> Error {
+        Error::new(err.message, self.src, err.loc.shift_right(offset))
     }
 
-    let mut res = Vec::new();
+    fn parse_string(&self, src: &str, loc: Loc) -> Result<Src<Expression>> {
+        let parts = interp::tokenise_string(src);
 
-    let start_offset = loc.start + 1;
-    for part in parts {
-        let expr = match &part.kind {
-            StringTokenKind::Str => Src::new(
-                Expression::String(part.src.into()),
-                Loc::new(0, part.src.len()),
-            ),
-            StringTokenKind::Expr => {
-                let tokens = lexer::tokenize(part.src)?;
-                Parser::new(part.src, tokens).parse_expression(0)?
-            }
-        };
+        if parts.is_empty() {
+            return Ok(Src::new(Expression::String("".into()), loc));
+        }
 
-        res.push((expr, start_offset + part.offset));
+        let mut res = Vec::new();
+
+        let start_offset = loc.start + 1;
+        for part in parts {
+            let expr = match &part.kind {
+                StringTokenKind::Str => Src::new(
+                    Expression::String(part.src.into()),
+                    Loc::new(0, part.src.len()),
+                ),
+                StringTokenKind::Expr => {
+                    let tokens = lexer::tokenize(part.src)
+                        .map_err(|err| self.wrap_err(err, start_offset + part.offset))?;
+                    Parser::new(part.src, tokens)
+                        .parse_single_expression()
+                        .map_err(|err| self.wrap_err(err, start_offset + part.offset))?
+                }
+            };
+
+            res.push((expr, start_offset + part.offset));
+        }
+
+        Ok(Src::new(Expression::StringInterpolate(res), loc))
     }
-
-    Ok(Src::new(Expression::StringInterpolate(res), loc))
 }
 
 fn wrap_locations(start: Loc, end: Loc) -> Loc {
