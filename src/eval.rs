@@ -530,7 +530,7 @@ impl Engine {
                                 Completion::ImpliedReturn(v) => v,
                             }
                         } else {
-                            todo!()
+                            panic!("Expected function, found {val:?}")
                         }
                     } else if let Some(rec) = scope.records.get(name) {
                         let values = transform_args(&rec.params, arguments);

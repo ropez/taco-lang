@@ -748,13 +748,40 @@ impl<'a> Validator<'a> {
                             self.validate_arguments(&TupleType::identity(), arguments, scope)?;
                             Ok(ScriptType::List(typ.clone()))
                         }
+                        (ScriptType::EmptyList, "map") => {
+                            // TODO This should be a warning, "function is never called"
+                            Ok(ScriptType::EmptyList)
+                        }
                         (ScriptType::List(typ), "map") => {
-                            // TODO
-                            // Argument must be a function,
-                            // The function must take the same argument as the list item (destructured)?
-                            // The return value will be List with the return type of the function
-                            // self.validate_arguments(&TupleType::identity(), arguments, scope)?;
-                            Ok(ScriptType::List(ScriptType::Int.into()))
+                            if let ArgumentsKind::Inline(inline_arguments) = arguments.as_ref() {
+                                if let Some(first) = inline_arguments
+                                    .args
+                                    .first()
+                                    .map(|arg| Ok(Src::new(self.validate_expr(&arg.expr, scope)?, arg.expr.loc)))
+                                    .transpose()?
+                                {
+                                    // XXX FIXME This should all just be hendled in 'ScriptType::accepts'
+                                    if let ScriptType::Function { ret, params } = first.as_ref() {
+                                        if params.0.len() != 1 {
+                                            return Err(self.fail("Expected function to take one argument".into(), first.loc))
+                                        }
+                                        if let Some(par) = params.0.first() {
+                                            if !par.typ.accepts(typ.as_ref()) {
+                                                return Err(self.fail(format!("Expected function to take {typ}"), first.loc))
+                                            }
+                                            Ok(ScriptType::List(ret.clone()))
+                                        } else {
+                                            Err(self.fail("Expected function to take one argument".into(), first.loc))
+                                        }
+                                    } else {
+                                        return Err(self.fail(format!("Expected function, found {}", first.as_ref()), expr.loc));
+                                    }
+                                } else {
+                                    Err(self.fail("Expected one inline argument".into(), expr.loc))
+                                }
+                            } else {
+                                Err(self.fail("Expected one inline argument".into(), expr.loc))
+                            }
                         }
                         (ScriptType::List(typ), "unzip") => {
                             // No arguments allowed
