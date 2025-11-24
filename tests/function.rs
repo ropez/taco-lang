@@ -417,6 +417,22 @@ fn test_return_implicit_tuple_with_arg() {
 }
 
 #[test]
+fn test_arguments_access() {
+    let src = r#"
+        fun foo(fruit: str, count: int) {
+            print("${arguments.fruit} ${arguments.count}")
+        }
+
+        foo("banana", 42)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("banana 42", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
 fn test_manually_destruct_arguments() {
     let src = r#"
         fun foo(str, int, int) {
@@ -430,6 +446,40 @@ fn test_manually_destruct_arguments() {
     match check_output(src) {
         Ok(out) => assert_eq!("banana 42", out),
         Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_manually_destruct_named_arguments() {
+    let src = r#"
+        fun foo(fruit: str, count: int) {
+            (count, fruit) = arguments
+            print("$fruit $count")
+        }
+
+        foo("banana", 42)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("banana 42", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
+fn test_missing_argument_name_in_destruction() {
+    let src = r#"
+        fun foo(fruit: str, amount: int) {
+            (fruit, count) = arguments
+            print("$fruit $count")
+        }
+
+        foo("banana", 42)
+    "#;
+
+    match check_output(src) {
+        Ok(_) => panic!("Expected error"),
+        Err(err) => assert_eq!("Element 'count' not found in (fruit: str, amount: int)", err.message),
     }
 }
 
