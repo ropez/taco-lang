@@ -66,6 +66,7 @@ pub enum Expression {
     LessOrEqual(Box<Src<Expression>>, Box<Src<Expression>>),
     GreaterOrEqual(Box<Src<Expression>>, Box<Src<Expression>>),
     Range(Box<Src<Expression>>, Box<Src<Expression>>),
+    Negate(Box<Src<Expression>>),
     Addition(Box<Src<Expression>>, Box<Src<Expression>>),
     Subtraction(Box<Src<Expression>>, Box<Src<Expression>>),
     Multiplication(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -215,9 +216,7 @@ impl<'a> Parser<'a> {
     pub fn parse_block(&mut self, root: bool) -> Result<Vec<AstNode>> {
         let mut ast = Vec::new();
 
-        loop {
-            let Some(token) = self.iter.next() else { break };
-
+        while let Some(token) = self.iter.next() {
             match token.as_ref() {
                 TokenKind::NewLine => {} // Ignore
                 TokenKind::Comment(_) => {}
@@ -261,6 +260,17 @@ impl<'a> Parser<'a> {
                         let expr = self.parse_continuation(expr, 0)?;
                         ast.push(AstNode::Expression(expr));
                     }
+                }
+                TokenKind::Number(num) => {
+                    let expr = Src::new(Expression::Number(*num), token.loc);
+                    let expr = self.parse_continuation(expr, 0)?;
+                    ast.push(AstNode::Expression(expr));
+                }
+                TokenKind::Minus => {
+                    let expr = self.parse_expression(0)?;
+                    let loc = wrap_locations(token.loc, expr.loc);
+                    let expr = Expression::Negate(expr.into());
+                    ast.push(AstNode::Expression(Src::new(expr, loc)));
                 }
                 TokenKind::String(s) => {
                     let expr = self.parse_string(s.as_ref(), token.loc)?;
@@ -369,6 +379,12 @@ impl<'a> Parser<'a> {
             TokenKind::Number(n) => {
                 let e = Src::new(Expression::Number(*n), token.loc);
                 self.parse_continuation(e, bp)?
+            }
+            TokenKind::Minus => {
+                let expr = self.parse_expression(0)?;
+                let loc = wrap_locations(token.loc, expr.loc);
+                let expr = Src::new(Expression::Negate(expr.into()), loc);
+                self.parse_continuation(expr, bp)?
             }
             TokenKind::True => {
                 let e = Src::new(Expression::True, token.loc);

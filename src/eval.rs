@@ -444,6 +444,14 @@ impl Engine {
                     _ => panic!("Expected numbers in range"),
                 }
             }
+            Expression::Negate(expr) => {
+                let val = self.eval_expr(expr, scope);
+                match val {
+                    ScriptValue::Number(n) => ScriptValue::Number(-n),
+                    ScriptValue::NaN => val,
+                    _ => panic!("Expected number"),
+                }
+            }
             Expression::Addition(lhs, rhs) => {
                 self.eval_arithmetic(i64::checked_add, lhs, rhs, scope)
             }

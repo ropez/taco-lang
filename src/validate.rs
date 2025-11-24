@@ -625,6 +625,13 @@ impl<'a> Validator<'a> {
 
                 Ok(ScriptType::Range)
             }
+            Expression::Negate(expr) => {
+                let typ = self.validate_expr(expr, scope)?;
+                if !ScriptType::Int.accepts(&typ) {
+                    return Err(self.fail(format!("Expected number, found {typ}"), expr.loc));
+                }
+                Ok(typ)
+            }
             Expression::Addition(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
             Expression::Subtraction(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
             Expression::Multiplication(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),

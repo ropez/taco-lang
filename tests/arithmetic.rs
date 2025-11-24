@@ -219,3 +219,20 @@ fn test_comparizone_and_equality_precedence() {
         Err(err) => panic!("{err}"),
     };
 }
+
+#[test]
+fn test_negative_numbers() {
+    let src = r#"
+        fun negate(i: int) { -i }
+
+        a = -42
+        println("${a}")
+        println("${negate(42)}")
+        println("${0 - negate(a)}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("-42\n".repeat(3), out),
+        Err(err) => panic!("{err}"),
+    };
+}
