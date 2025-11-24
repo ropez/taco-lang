@@ -763,6 +763,46 @@ impl Engine {
                                     let mut inner_scope = Scope::clone(captured_scope);
 
                                     let arguments = Tuple(vec![TupleItem::unnamed(item.clone())]);
+                                    let values = transform_args(&function.params, &arguments);
+                                    for item in &values.0 {
+                                        if let Some(name) = &item.name {
+                                            inner_scope.set_local(name.clone(), item.value.clone());
+                                        }
+                                    }
+                                    inner_scope.arguments = Arc::new(values);
+
+                                    let ret = match self.eval_block(&function.body, inner_scope) {
+                                        Completion::EndOfBlock => ScriptValue::identity(),
+                                        Completion::ExplicitReturn(v) => v,
+                                        Completion::ImpliedReturn(v) => v,
+                                    };
+
+                                    mapped.push(ret);
+                                }
+
+                                ScriptValue::List(Arc::new(mapped))
+                            } else {
+                                panic!("Argument to 'map' is not a function");
+                            }
+                        } else {
+                            panic!("Missing positional argument");
+                        }
+                    }
+                    (ScriptValue::List(list), "map_to") => {
+                        if let Some(val) = arguments.at(0) {
+                            if let ScriptValue::Fun {
+                                function,
+                                captured_scope,
+                            } = val
+                            {
+                                let mut mapped = Vec::new();
+                                for item in list.as_ref() {
+                                    let mut inner_scope = Scope::clone(captured_scope);
+
+                                    let Some(arguments) = item.as_tuple() else {
+                                        panic!("Epected tuple");
+                                    };
+
                                     let values = transform_args(&function.params, arguments);
                                     for item in &values.0 {
                                         if let Some(name) = &item.name {

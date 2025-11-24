@@ -166,3 +166,52 @@ fn test_invalid_list_type_in_return() {
         Err(err) => assert_eq!(err.message, "Incompatible return type: Expected [bool], found [[]]"),
     };
 }
+
+#[test]
+fn test_simple_map() {
+    let src = r#"
+        fruits = [
+            "apple"
+            "orange"
+            "banana"
+        ]
+
+        fun quote(name: str) {
+            "'$name'"
+        }
+
+        for fruit in fruits.map(quote) {
+            println(fruit)
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("'apple'\n'orange'\n'banana'\n", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_map_as_tuple() {
+    let src = r#"
+        fruits = [
+            ("apple", 5)
+            ("orange", 15)
+            ("banana", 42)
+        ]
+
+        fun quote(fruit: str, amount: int) {
+            "$amount ${fruit}s"
+        }
+
+        for fruit in fruits.map_to(quote) {
+            println(fruit)
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("5 apples\n15 oranges\n42 bananas\n", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+

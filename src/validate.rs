@@ -784,24 +784,83 @@ impl<'a> Validator<'a> {
                                 if let Some(first) = inline_arguments
                                     .args
                                     .first()
-                                    .map(|arg| Ok(Src::new(self.validate_expr(&arg.expr, scope)?, arg.expr.loc)))
+                                    .map(|arg| {
+                                        Ok(Src::new(
+                                            self.validate_expr(&arg.expr, scope)?,
+                                            arg.expr.loc,
+                                        ))
+                                    })
                                     .transpose()?
                                 {
                                     // XXX FIXME This should all just be hendled in 'ScriptType::accepts'
                                     if let ScriptType::Function { ret, params } = first.as_ref() {
                                         if params.0.len() != 1 {
-                                            return Err(self.fail("Expected function to take one argument".into(), first.loc))
+                                            return Err(self.fail(
+                                                "Expected function to take one argument".into(),
+                                                first.loc,
+                                            ));
                                         }
                                         if let Some(par) = params.0.first() {
                                             if !par.typ.accepts(typ.as_ref()) {
-                                                return Err(self.fail(format!("Expected function to take {typ}"), first.loc))
+                                                return Err(self.fail(
+                                                    format!("Expected function to take {typ}"),
+                                                    first.loc,
+                                                ));
                                             }
                                             Ok(ScriptType::List(ret.clone()))
                                         } else {
-                                            Err(self.fail("Expected function to take one argument".into(), first.loc))
+                                            Err(self.fail(
+                                                "Expected function to take one argument".into(),
+                                                first.loc,
+                                            ))
                                         }
                                     } else {
-                                        Err(self.fail(format!("Expected function, found {}", first.as_ref()), expr.loc))
+                                        Err(self.fail(
+                                            format!("Expected function, found {}", first.as_ref()),
+                                            expr.loc,
+                                        ))
+                                    }
+                                } else {
+                                    Err(self.fail("Expected one inline argument".into(), expr.loc))
+                                }
+                            } else {
+                                Err(self.fail("Expected one inline argument".into(), expr.loc))
+                            }
+                        }
+                        (ScriptType::List(typ), "map_to") => {
+                            let Some(tuple_typ) = typ.as_tuple() else {
+                                return Err(self.fail(
+                                    "Expected a list of tuples, found {typ}".into(),
+                                    subject.loc,
+                                ));
+                            };
+
+                            if let ArgumentsKind::Inline(inline_arguments) = arguments.as_ref() {
+                                if let Some(first) = inline_arguments
+                                    .args
+                                    .first()
+                                    .map(|arg| {
+                                        Ok(Src::new(
+                                            self.validate_expr(&arg.expr, scope)?,
+                                            arg.expr.loc,
+                                        ))
+                                    })
+                                    .transpose()?
+                                {
+                                    if let ScriptType::Function { ret, params } = first.as_ref() {
+                                        if !params.accepts(tuple_typ) {
+                                            return Err(self.fail(
+                                                format!("Expected a function with arguments {tuple_typ}"),
+                                                first.loc,
+                                            ));
+                                        }
+
+                                        Ok(ScriptType::List(ret.clone()))
+                                    } else {
+                                        Err(self.fail(
+                                            format!("Expected function, found {}", first.as_ref()),
+                                            expr.loc,
+                                        ))
                                     }
                                 } else {
                                     Err(self.fail("Expected one inline argument".into(), expr.loc))
