@@ -774,7 +774,7 @@ impl<'a> Validator<'a> {
                                             Err(self.fail("Expected function to take one argument".into(), first.loc))
                                         }
                                     } else {
-                                        return Err(self.fail(format!("Expected function, found {}", first.as_ref()), expr.loc));
+                                        Err(self.fail(format!("Expected function, found {}", first.as_ref()), expr.loc))
                                     }
                                 } else {
                                     Err(self.fail("Expected one inline argument".into(), expr.loc))

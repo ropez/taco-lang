@@ -14,12 +14,12 @@ pub fn create() -> HashMap<String, ExtensionFunction> {
         ret: Box::new(ScriptType::Str),
     };
 
-    let read_fn = move |arguments: Tuple| {
+    let read_fn = move |arguments: &Tuple| {
         let Some(name) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };
 
-        match name.as_ref() {
+        match name {
             ScriptValue::String(name) => match fs::read_to_string(name.as_ref()) {
                 Ok(content) => ScriptValue::String(content.into()),
                 Err(err) => todo!("Return errors from extensions: {err}"),
@@ -48,19 +48,19 @@ pub fn create() -> HashMap<String, ExtensionFunction> {
         ret: Box::new(ScriptType::Str),
     };
 
-    let json_fn = move |arguments: Tuple| {
+    let json_fn = move |arguments: &Tuple| {
         let Some(value) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };
 
-        match value.as_ref() {
+        match value {
             ScriptValue::List(list) => {
                 let mut s = String::new();
 
                 s.push_str("[");
                 let mut iter = list.iter();
                 if let Some(val) = iter.next() {
-                    match val.as_ref() {
+                    match val {
                         ScriptValue::String(v) => s.push_str(v),
                         _ => todo!("Serialize {val:?}"),
                     }

@@ -22,7 +22,7 @@ where
     let mut ext = HashMap::new();
 
     let print_out = out.clone();
-    let print_fn = move |arguments: Tuple| {
+    let print_fn = move |arguments: &Tuple| {
         if let Some(arg) = arguments.at(0) {
             let mut out = print_out.lock().unwrap();
             write!(out, "{arg}").unwrap();
@@ -39,7 +39,7 @@ where
     );
 
     let println_out = out.clone();
-    let println_fn = move |arguments: Tuple| {
+    let println_fn = move |arguments: &Tuple| {
         if let Some(arg) = arguments.at(0) {
             let mut out = println_out.lock().unwrap();
             writeln!(out, "{arg}").unwrap();
