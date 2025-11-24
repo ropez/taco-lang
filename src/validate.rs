@@ -45,6 +45,14 @@ impl ScriptType {
             _ => *self == *other,
         }
     }
+
+    pub fn as_tuple(&self) -> Option<&TupleType> {
+        match &self {
+            ScriptType::Tuple(tuple) => Some(tuple),
+            ScriptType::Rec { params, .. } => Some(params),
+            _ => None,
+        }
+    }
 }
 
 impl Display for ScriptType {
@@ -684,12 +692,24 @@ impl<'a> Validator<'a> {
                 },
                 Expression::PrefixedName(prefix, name) => {
                     match scope.types.get(prefix) {
-                        Some(TypeDefinition::RecDefinition { name: rec_name, .. }) => {
+                        Some(TypeDefinition::RecDefinition {
+                            name: rec_name,
+                            params,
+                        }) => {
                             // TODO Associated methods like Record::foo()
-                            Err(self.fail(
-                                format!("Method not found: '{name}' for {rec_name}"),
-                                expr.loc,
-                            ))
+                            match name.as_str() {
+                                "parse" => {
+                                    // TODO Fallible type
+                                    Ok(ScriptType::Rec {
+                                        params: params.clone(),
+                                        name: rec_name.clone(),
+                                    })
+                                }
+                                _ => Err(self.fail(
+                                    format!("Method not found: '{name}' for {rec_name}"),
+                                    expr.loc,
+                                )),
+                            }
                         }
                         Some(TypeDefinition::EnumDefinition(def)) => {
                             if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
@@ -795,7 +815,7 @@ impl<'a> Validator<'a> {
                             self.validate_arguments(&TupleType::identity(), arguments, scope)?;
 
                             // [(int, int)] -> ([int], [int])
-                            if let ScriptType::Tuple(tuple) = typ.as_ref() {
+                            if let Some(tuple) = typ.as_tuple() {
                                 let types = tuple
                                     .0
                                     .iter()
@@ -840,6 +860,9 @@ impl<'a> Validator<'a> {
                             } else {
                                 Err(self.fail("Expected inline arguments".into(), expr.loc))
                             }
+                        }
+                        (ScriptType::Str, "lines") => {
+                            Ok(ScriptType::List(Box::new(ScriptType::Str)))
                         }
                         (ScriptType::Rec { params, .. }, "with") => {
                             // let args = self.eval_args(arguments, scope)?;

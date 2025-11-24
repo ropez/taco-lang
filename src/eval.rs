@@ -575,7 +575,31 @@ impl Engine {
                 }
             },
             Expression::PrefixedName(prefix, name) => {
-                if let Some(v) = scope.enums.get(prefix) {
+                if let Some(def) = scope.records.get(prefix) {
+                    match name.as_str() {
+                        "parse" => {
+                            if let Some(ScriptValue::String(s)) = arguments.at(0) {
+                                let mut nums =
+                                    s.split_whitespace().map(|t| t.parse::<i64>().unwrap());
+                                let mut values = Vec::new();
+                                for d in &def.params {
+                                    values.push(TupleItem::new(
+                                        d.name.clone(),
+                                        ScriptValue::Number(nums.next().unwrap()),
+                                    ));
+                                }
+
+                                ScriptValue::Rec {
+                                    def: Arc::clone(def),
+                                    value: Arc::new(Tuple(values)),
+                                }
+                            } else {
+                                panic!("Expected string");
+                            }
+                        }
+                        _ => panic!("Method not found: {name} in {prefix}"),
+                    }
+                } else if let Some(v) = scope.enums.get(prefix) {
                     if let Some((index, variant)) =
                         v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
                     {
@@ -787,6 +811,14 @@ impl Engine {
                             def: Arc::clone(rec),
                             value: Arc::new(Tuple(values)),
                         }
+                    }
+                    (ScriptValue::String(s), "lines") => {
+                        let lines = s
+                            .lines()
+                            .filter(|l| !l.is_empty())
+                            .map(|l| ScriptValue::String(Arc::from(l)))
+                            .collect();
+                        ScriptValue::List(Arc::new(lines))
                     }
                     _ => panic!("Unknown method: {key} on {subject:?}"),
                 }
