@@ -215,3 +215,43 @@ fn test_map_as_tuple() {
     };
 }
 
+#[test]
+fn test_zip_combines_two_lists() {
+    let src = r#"
+        fruits = [
+            "apple"
+            "orange"
+            "banana"
+        ]
+
+        heroes = [ "fred", "barney" ]
+
+        zipped = [].zip(fruits, heroes, [1, 2, 3])
+        print("$zipped")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("[(apple, fred, 1), (orange, barney, 2)]", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_unzip_splits_list_of_tuples() {
+    let src = r#"
+        items = [
+            ("apple", 5)
+            ("orange", 15)
+            ("banana", 42)
+        ]
+
+        unzipped = items.unzip()
+        print("$unzipped")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("([apple, orange, banana], [5, 15, 42])", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+

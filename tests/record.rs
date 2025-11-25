@@ -105,17 +105,59 @@ fn test_record_with_method() {
 
 #[test]
 fn test_record_with_unnamed_params() {
-    // Not so useful atm, but later with patterm-matching, destructuring etc
     let src = r#"
         rec Person(str, str)
 
         per = Person("foo@bar.com", "per")
 
+        println("$per")
+
+        (email, name) = per
+        println("$name")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "Person(foo@bar.com, per)\nper\n"),
+        Err(err) => panic!("{err}"),
+    };
+
+}
+
+#[test]
+fn test_apply_arguments_from_tuple() {
+    let src = r#"
+        rec Person(name: str, age: int)
+
+        args = ("per", 42)
+        per = Person(=args)
+
         print("$per")
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!(out, "Person(foo@bar.com, per)"),
+        Ok(out) => assert_eq!(out, "Person(name: per, age: 42)"),
+        Err(err) => panic!("{err}"),
+    };
+
+}
+
+#[test]
+fn test_pass_record_as_function() {
+    let src = r#"
+        rec Person(name: str, age: int)
+
+        args = [
+            ("per", 42)
+            ("kari", 36)
+        ]
+
+        people = args.map_to(Person)
+
+        print("$people")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "[Person(name: per, age: 42), Person(name: kari, age: 36)]"),
         Err(err) => panic!("{err}"),
     };
 

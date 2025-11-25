@@ -90,6 +90,79 @@ fn test_enum_with_value() {
 }
 
 #[test]
+fn fails_for_missing_value() {
+    let src = r#"
+        enum City (
+            Paris
+            London
+            Madrid
+        )
+
+        enum VacationPlan (
+            StayAtHome
+            TravelTo(City)
+        )
+
+        fun foo(plan: VacationPlan) {
+            print("$plan")
+        }
+
+        foo(VacationPlan::TravelTo)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => panic!("Expected error, got {out}"),
+        Err(err) => assert_eq!(err.message, "Expected VacationPlan got VacationPlan::TravelTo"),
+    };
+}
+
+#[test]
+fn test_apply_arguments_from_tuple() {
+    let src = r#"
+        enum Receiver(
+            Person(name: str, age: int)
+            Group(name: str)
+        )
+
+        args = ("per", 42)
+        per = Receiver::Person(=args)
+
+        print("$per")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "Person(name: per, age: 42)"),
+        Err(err) => panic!("{err}"),
+    };
+
+}
+
+#[test]
+fn test_pass_variant_as_function() {
+    let src = r#"
+        enum Receiver(
+            Person(name: str, age: int)
+            Group(name: str)
+        )
+
+        args = [
+            ("per", 42)
+            ("kari", 36)
+        ]
+
+        people = args.map_to(Receiver::Person)
+
+        print("$people")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(out, "[Person(name: per, age: 42), Person(name: kari, age: 36)]"),
+        Err(err) => panic!("{err}"),
+    };
+
+}
+
+#[test]
 fn test_apply_params() {
     let src = r#"
         enum Enum(

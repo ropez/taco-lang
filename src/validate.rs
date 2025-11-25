@@ -17,7 +17,8 @@ pub enum ScriptType {
     EmptyList,
     List(Box<ScriptType>),
     Tuple(TupleType),
-    Enum(Ident),
+    Enum(Arc<EnumType>),
+    EnumVariant(Arc<EnumType>, Ident),
     Function {
         params: TupleType,
         ret: Box<ScriptType>,
@@ -42,6 +43,8 @@ impl ScriptType {
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
+            (ScriptType::Enum(ltyp), ScriptType::Enum(rtyp)) => Arc::ptr_eq(ltyp, rtyp),
+            (ScriptType::Enum(_), ScriptType::EnumVariant(_, _)) => false,
             _ => *self == *other,
         }
     }
@@ -53,6 +56,20 @@ impl ScriptType {
             _ => None,
         }
     }
+
+    pub fn as_callable(&self) -> Option<(&TupleType, Arc<ScriptType>)> {
+        // XXX Too much cloning
+        match &self {
+            ScriptType::Function { params, ret } => {
+                Some((params, Arc::new(ScriptType::clone(ret))))
+            }
+            ScriptType::EnumVariant(def, name) => {
+                let var = def.variants.iter().find(|v| v.name == *name)?;
+                Some((&var.params, Arc::new(ScriptType::Enum(Arc::clone(def)))))
+            }
+            _ => None,
+        }
+    }
 }
 
 impl Display for ScriptType {
@@ -61,7 +78,8 @@ impl Display for ScriptType {
             Self::Bool => write!(f, "bool"),
             Self::Int => write!(f, "int"),
             Self::Str => write!(f, "str"),
-            Self::Enum(name) => write!(f, "{name}"),
+            Self::Enum(typ) => write!(f, "{}", typ.name),
+            Self::EnumVariant(typ, var) => write!(f, "{}::{}", typ.name, var), // Display as function?
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => write!(f, "[{inner}]"),
             Self::Tuple(arguments) => write!(f, "{arguments}"),
@@ -78,13 +96,13 @@ pub enum TypeDefinition {
     EnumDefinition(Arc<EnumType>),
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct EnumType {
     name: Ident,
     variants: Vec<EnumVariantType>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, PartialEq)]
 struct EnumVariantType {
     name: Ident,
     params: TupleType,
@@ -542,15 +560,64 @@ impl<'a> Validator<'a> {
 
                 Ok(ScriptType::Tuple(applied.into_formal()))
             }
-            Expression::Ref(ident) => match scope.get_local(ident) {
-                None => Err(self.fail(format!("Undefined reference: {ident}"), expr.loc)),
-                Some(value) => Ok(value.clone()),
-            },
+            Expression::Ref(ident) => {
+                if let Some(value) = scope.get_local(ident) {
+                    Ok(value.clone())
+                } else if let Some(typ) = scope.types.get(ident) {
+                    match typ {
+                        TypeDefinition::RecDefinition { name, params } => {
+                            // XXX Returning record as function up-front
+                            // Should probably return a record type instead,
+                            // and provide something like ScriptType::as_callable()
+                            let rec_type = ScriptType::Rec {
+                                name: name.clone(),
+                                params: params.clone(),
+                            };
+                            Ok(ScriptType::Function {
+                                params: params.clone(),
+                                ret: rec_type.into(),
+                            })
+                        }
+                        TypeDefinition::EnumDefinition(_) => Err(self.fail(
+                            format!("Undefined expression, found enum {ident}"),
+                            expr.loc,
+                        )),
+                    }
+                } else {
+                    Err(self.fail(format!("Undefined reference: {ident}"), expr.loc))
+                }
+            }
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
-                Some(TypeDefinition::RecDefinition { .. }) => todo!("rec access"),
+                Some(TypeDefinition::RecDefinition {
+                    name: rec_name,
+                    params: rec_params,
+                }) => {
+                    // TODO Associated methods like Record::foo()
+                    match name.as_str() {
+                        "parse" => {
+                            let ret = ScriptType::Rec {
+                                params: rec_params.clone(),
+                                name: rec_name.clone(),
+                            };
+                            let params = TupleType(vec![TupleItemType::unnamed(ScriptType::Str)]);
+                            Ok(ScriptType::Function {
+                                params,
+                                ret: ret.into(),
+                            })
+                        }
+                        _ => Err(self.fail(
+                            format!("Method not found: '{name}' for {rec_name}"),
+                            expr.loc,
+                        )),
+                    }
+                }
                 Some(TypeDefinition::EnumDefinition(def)) => {
-                    if def.variants.iter().any(|v| v.name == *name) {
-                        Ok(ScriptType::Enum(prefix.clone()))
+                    if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
+                        if var.params.0.is_empty() {
+                            Ok(ScriptType::Enum(Arc::clone(def)))
+                        } else {
+                            Ok(ScriptType::EnumVariant(Arc::clone(def), var.name.clone()))
+                        }
                     } else {
                         Err(self.fail(
                             format!("Variant not found: {name} in {}", def.name),
@@ -714,7 +781,7 @@ impl<'a> Validator<'a> {
                         Some(TypeDefinition::EnumDefinition(def)) => {
                             if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
                                 self.validate_arguments(&var.params, arguments, scope)?;
-                                Ok(ScriptType::Enum(prefix.clone()))
+                                Ok(ScriptType::Enum(Arc::clone(def)))
                             } else {
                                 Err(self.fail(
                                     format!("Variant not found: {name} in {}", def.name),
@@ -830,7 +897,7 @@ impl<'a> Validator<'a> {
                         (ScriptType::List(typ), "map_to") => {
                             let Some(tuple_typ) = typ.as_tuple() else {
                                 return Err(self.fail(
-                                    "Expected a list of tuples, found {typ}".into(),
+                                    format!("Expected a list of tuples, found {subject_typ}"),
                                     subject.loc,
                                 ));
                             };
@@ -847,15 +914,19 @@ impl<'a> Validator<'a> {
                                     })
                                     .transpose()?
                                 {
-                                    if let ScriptType::Function { ret, params } = first.as_ref() {
+                                    if let Some((params, ret)) = first.as_ref().as_callable() {
                                         if !params.accepts(tuple_typ) {
                                             return Err(self.fail(
-                                                format!("Expected a function with arguments {tuple_typ}"),
+                                                format!(
+                                                    "Expected a function with arguments {tuple_typ}"
+                                                ),
                                                 first.loc,
                                             ));
                                         }
 
-                                        Ok(ScriptType::List(ret.clone()))
+                                        Ok(ScriptType::List(Box::new(ScriptType::clone(
+                                            ret.as_ref(),
+                                        ))))
                                     } else {
                                         Err(self.fail(
                                             format!("Expected function, found {}", first.as_ref()),
@@ -1067,7 +1138,7 @@ impl<'a> Validator<'a> {
                         name: name.clone(),
                     }),
                     Some(TypeDefinition::EnumDefinition(def)) => {
-                        Ok(ScriptType::Enum(def.name.clone()))
+                        Ok(ScriptType::Enum(Arc::clone(def)))
                     }
                     None => Err(self.fail(format!("Unknown type: {ident}"), type_expr.loc)),
                 },

@@ -25,7 +25,7 @@ pub enum ScriptValue {
 
     NaN,
 
-    // The *instance* of a record. Not the record itself (which might be treated as a function)
+    // The *instance* of a record. Not the record itself (which is a callable)
     Rec {
         def: Arc<Record>,
         value: Arc<Tuple>,
@@ -37,10 +37,7 @@ pub enum ScriptValue {
         value: Arc<Tuple>,
     },
 
-    Fun {
-        function: Arc<Function>,
-        captured_scope: Arc<Scope>, // XXX Fix warning with dedicated struct type
-    },
+    Callable(Callable),
 
     State(Arc<RwLock<ScriptValue>>),
 }
@@ -54,21 +51,46 @@ impl ScriptValue {
         matches!(self, Self::NaN)
     }
 
-    pub fn as_tuple(&self) -> Option<&Arc<Tuple>> {
+    pub fn as_number(&self) -> i64 {
         match self {
-            Self::Tuple(tuple) => Some(tuple),
-            Self::Rec { value, .. } => Some(value),
-            _ => None,
+            Self::Number(num) => *num,
+            _ => panic!("Expected number, found {self}"),
         }
+    }
+
+    pub fn as_tuple(&self) -> Arc<Tuple> {
+        match self {
+            Self::Tuple(tuple) => Arc::clone(tuple),
+            Self::Rec { value, .. } => Arc::clone(value),
+            _ => panic!("Expected tuple, found {self}"),
+        }
+    }
+
+    pub fn as_callable(&self) -> &Callable {
+        match self {
+            Self::Callable(callable) => callable,
+            _ => panic!("Expected callable, found {self}"),
+        }
+    }
+
+    pub fn as_iterable(&self) -> &Vec<ScriptValue> {
+        match self {
+            Self::List(items) => items,
+            _ => panic!("Expected iterable, found {self}"),
+        }
+    }
+
+    pub fn to_single_argument(&self) -> Tuple {
+        Tuple(vec![TupleItem::unnamed(self.clone())])
     }
 }
 
 impl PartialEq for ScriptValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::String(l0), Self::String(r0)) => l0 == r0,
+            (Self::String(l), Self::String(r)) => l == r,
             (Self::Boolean(l), Self::Boolean(r)) => l == r,
-            (Self::Number(l0), Self::Number(r0)) => l0 == r0,
+            (Self::Number(l), Self::Number(r)) => l == r,
             (
                 Self::Enum {
                     def: dl,
@@ -128,6 +150,20 @@ impl Display for ScriptValue {
     }
 }
 
+#[derive(Debug, Clone)]
+pub enum Callable {
+    ScriptFunction {
+        function: Arc<Function>,
+        captured_scope: Arc<Scope>, // XXX Fix warning with dedicated struct type
+    },
+    Record(Arc<Record>),
+    EnumVariant {
+        def: Arc<Enumeration>,
+        index: usize,
+    },
+    Parse(Arc<Record>), // XXX
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct TupleItem {
     name: Option<Ident>,
@@ -173,6 +209,14 @@ impl Tuple {
 
     pub fn at(&self, index: usize) -> Option<&ScriptValue> {
         self.0.get(index).map(|item| &item.value)
+    }
+
+    pub fn single(&self) -> &ScriptValue {
+        self.0
+            .iter()
+            .find(|i| i.name.is_none())
+            .map(|item| &item.value)
+            .expect("Expected argument")
     }
 }
 
@@ -247,10 +291,11 @@ impl Engine {
                     eval_assignment(assignee, &rhs, &mut scope);
                 }
                 AstNode::Function { name, fun, .. } => {
-                    let val = ScriptValue::Fun {
+                    let fun = Callable::ScriptFunction {
                         function: Arc::clone(fun),
                         captured_scope: Arc::new(scope.clone()),
                     };
+                    let val = ScriptValue::Callable(fun);
                     scope.set_local(name.clone(), val);
                 }
                 AstNode::Rec(rec) => {
@@ -365,21 +410,37 @@ impl Engine {
 
                 ScriptValue::Tuple(Arc::new(Tuple(items)))
             }
-            Expression::Ref(ident) => match scope.locals.get(ident) {
-                None => panic!("Undefined reference: {ident}"),
-                Some(value) => value.clone(),
-            },
+            Expression::Ref(ident) => {
+                if let Some(value) = scope.locals.get(ident) {
+                    value.clone()
+                } else if let Some(typ) = scope.records.get(ident) {
+                    let val = Callable::Record(Arc::clone(typ));
+                    ScriptValue::Callable(val)
+                } else {
+                    panic!("Undefined reference: {ident}")
+                }
+            }
             Expression::PrefixedName(prefix, name) => {
                 if let Some(v) = scope.records.get(prefix) {
-                    todo!()
+                    match name.as_str() {
+                        "parse" => ScriptValue::Callable(Callable::Parse(Arc::clone(v))),
+                        _ => panic!("Unexpected expression {prefix}::{name}"),
+                    }
                 } else if let Some(v) = scope.enums.get(prefix) {
-                    if let Some((index, _variant)) =
+                    if let Some((index, variant)) =
                         v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
                     {
-                        ScriptValue::Enum {
-                            def: Arc::clone(v),
-                            index,
-                            value: Arc::new(Tuple::identity()),
+                        if variant.params.is_empty() {
+                            ScriptValue::Enum {
+                                def: Arc::clone(v),
+                                index,
+                                value: Arc::new(Tuple::identity()),
+                            }
+                        } else {
+                            ScriptValue::Callable(Callable::EnumVariant {
+                                def: Arc::clone(v),
+                                index,
+                            })
                         }
                     } else {
                         panic!("Enum variant not found: {name} in {prefix}");
@@ -434,15 +495,10 @@ impl Engine {
                 ScriptValue::Boolean(!lhs.eq(&rhs))
             }
             Expression::Range(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope);
-                let rhs = self.eval_expr(rhs, scope);
+                let lhs = self.eval_expr(lhs, scope).as_number();
+                let rhs = self.eval_expr(rhs, scope).as_number();
 
-                match (lhs, rhs) {
-                    (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
-                        ScriptValue::Range(lhs, rhs)
-                    }
-                    _ => panic!("Expected numbers in range"),
-                }
+                ScriptValue::Range(lhs, rhs)
             }
             Expression::Negate(expr) => {
                 let val = self.eval_expr(expr, scope);
@@ -490,13 +546,12 @@ impl Engine {
     {
         let lhs = self.eval_expr(lhs, scope);
         let rhs = self.eval_expr(rhs, scope);
-        match (lhs, rhs) {
-            (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => op(lhs, rhs)
+        if lhs.is_nan() || rhs.is_nan() {
+            ScriptValue::NaN
+        } else {
+            op(lhs.as_number(), rhs.as_number())
                 .map(ScriptValue::Number)
-                .unwrap_or(ScriptValue::NaN),
-            (ScriptValue::NaN, ScriptValue::Number(_)) => ScriptValue::NaN,
-            (ScriptValue::Number(_), ScriptValue::NaN) => ScriptValue::NaN,
-            _ => panic!("Expected numbers"),
+                .unwrap_or(ScriptValue::NaN)
         }
     }
 
@@ -537,28 +592,26 @@ impl Engine {
                 }
                 _ => {
                     if let Some(val) = scope.locals.get(name) {
-                        if let ScriptValue::Fun {
-                            function,
-                            captured_scope,
-                        } = val
-                        {
-                            let mut inner_scope = Scope::clone(captured_scope);
-
-                            let values = transform_args(&function.params, &arguments);
-                            for item in &values.0 {
-                                if let Some(name) = &item.name {
-                                    inner_scope.set_local(name.clone(), item.value.clone());
+                        match val {
+                            ScriptValue::Callable(Callable::ScriptFunction {
+                                function,
+                                captured_scope,
+                            }) => {
+                                let mut inner_scope = Scope::clone(captured_scope);
+                                let values = transform_args(&function.params, &arguments);
+                                for item in &values.0 {
+                                    if let Some(name) = &item.name {
+                                        inner_scope.set_local(name.clone(), item.value.clone());
+                                    }
+                                }
+                                inner_scope.arguments = Arc::new(values);
+                                match self.eval_block(&function.body, inner_scope) {
+                                    Completion::EndOfBlock => ScriptValue::identity(),
+                                    Completion::ExplicitReturn(v) => v,
+                                    Completion::ImpliedReturn(v) => v,
                                 }
                             }
-                            inner_scope.arguments = Arc::new(values);
-
-                            match self.eval_block(&function.body, inner_scope) {
-                                Completion::EndOfBlock => ScriptValue::identity(),
-                                Completion::ExplicitReturn(v) => v,
-                                Completion::ImpliedReturn(v) => v,
-                            }
-                        } else {
-                            panic!("Expected function, found {val:?}")
+                            _ => panic!("Expected function, found {val:?}"),
                         }
                     } else if let Some(rec) = scope.records.get(name) {
                         let values = transform_args(&rec.params, &arguments);
@@ -642,16 +695,7 @@ impl Engine {
                     (ScriptValue::List(list), "unzip") => {
                         // TODO These methods should create "stream" or "iterator" instead of just copying the whole list up-front
 
-                        let tuples: Vec<_> = list
-                            .iter()
-                            .map(|arg| {
-                                if let Some(l) = arg.as_tuple() {
-                                    Arc::clone(l)
-                                } else {
-                                    panic!("Not a tuple")
-                                }
-                            })
-                            .collect();
+                        let tuples: Vec<_> = list.iter().map(|arg| arg.as_tuple()).collect();
 
                         let mut lists = Vec::new();
 
@@ -683,25 +727,16 @@ impl Engine {
                         let lists: Vec<_> = arguments
                             .0
                             .iter()
-                            .map(|arg| {
-                                if let ScriptValue::List(l) = &arg.value {
-                                    Arc::clone(l)
-                                } else {
-                                    panic!("Not a list")
-                                }
-                            })
+                            .map(|arg| arg.value.as_iterable())
                             .collect();
 
                         let mut tuples = Vec::new();
-                        'outer: for i in 0.. {
+                        let len = lists.iter().map(|l| l.len()).min().unwrap_or_default();
+                        for i in 0..len {
                             let mut items = Vec::new();
 
                             for l in &lists {
-                                if let Some(it) = l.get(i) {
-                                    items.push(TupleItem::unnamed(it.clone()));
-                                } else {
-                                    break 'outer;
-                                }
+                                items.push(TupleItem::unnamed(l[i].clone()));
                             }
 
                             tuples.push(Tuple(items));
@@ -721,29 +756,14 @@ impl Engine {
                         } else {
                             ScriptValue::Number(
                                 list.iter()
-                                    .map(|val| {
-                                        if let ScriptValue::Number(n) = val {
-                                            *n
-                                        } else {
-                                            panic!("Expected numbers")
-                                        }
-                                    })
+                                    .map(|val| val.as_number())
                                     .reduce(|n, a| n + a)
                                     .unwrap_or_default(),
                             )
                         }
                     }
                     (ScriptValue::List(list), "sort") => {
-                        let mut values: Vec<_> = list
-                            .iter()
-                            .map(|val| {
-                                if let ScriptValue::Number(n) = val {
-                                    *n
-                                } else {
-                                    panic!("Expected numbers")
-                                }
-                            })
-                            .collect();
+                        let mut values: Vec<_> = list.iter().map(|val| val.as_number()).collect();
 
                         values.sort();
 
@@ -752,81 +772,22 @@ impl Engine {
                         ScriptValue::List(Arc::new(values))
                     }
                     (ScriptValue::List(list), "map") => {
-                        if let Some(val) = arguments.at(0) {
-                            if let ScriptValue::Fun {
-                                function,
-                                captured_scope,
-                            } = val
-                            {
-                                let mut mapped = Vec::new();
-                                for item in list.as_ref() {
-                                    let mut inner_scope = Scope::clone(captured_scope);
-
-                                    let arguments = Tuple(vec![TupleItem::unnamed(item.clone())]);
-                                    let values = transform_args(&function.params, &arguments);
-                                    for item in &values.0 {
-                                        if let Some(name) = &item.name {
-                                            inner_scope.set_local(name.clone(), item.value.clone());
-                                        }
-                                    }
-                                    inner_scope.arguments = Arc::new(values);
-
-                                    let ret = match self.eval_block(&function.body, inner_scope) {
-                                        Completion::EndOfBlock => ScriptValue::identity(),
-                                        Completion::ExplicitReturn(v) => v,
-                                        Completion::ImpliedReturn(v) => v,
-                                    };
-
-                                    mapped.push(ret);
-                                }
-
-                                ScriptValue::List(Arc::new(mapped))
-                            } else {
-                                panic!("Argument to 'map' is not a function");
-                            }
-                        } else {
-                            panic!("Missing positional argument");
+                        let callable = arguments.single().as_callable();
+                        let mut mapped = Vec::new();
+                        for item in list.as_ref() {
+                            let value = self.eval_callable(callable, &item.to_single_argument());
+                            mapped.push(value);
                         }
+                        ScriptValue::List(Arc::new(mapped))
                     }
                     (ScriptValue::List(list), "map_to") => {
-                        if let Some(val) = arguments.at(0) {
-                            if let ScriptValue::Fun {
-                                function,
-                                captured_scope,
-                            } = val
-                            {
-                                let mut mapped = Vec::new();
-                                for item in list.as_ref() {
-                                    let mut inner_scope = Scope::clone(captured_scope);
-
-                                    let Some(arguments) = item.as_tuple() else {
-                                        panic!("Epected tuple");
-                                    };
-
-                                    let values = transform_args(&function.params, arguments);
-                                    for item in &values.0 {
-                                        if let Some(name) = &item.name {
-                                            inner_scope.set_local(name.clone(), item.value.clone());
-                                        }
-                                    }
-                                    inner_scope.arguments = Arc::new(values);
-
-                                    let ret = match self.eval_block(&function.body, inner_scope) {
-                                        Completion::EndOfBlock => ScriptValue::identity(),
-                                        Completion::ExplicitReturn(v) => v,
-                                        Completion::ImpliedReturn(v) => v,
-                                    };
-
-                                    mapped.push(ret);
-                                }
-
-                                ScriptValue::List(Arc::new(mapped))
-                            } else {
-                                panic!("Argument to 'map' is not a function");
-                            }
-                        } else {
-                            panic!("Missing positional argument");
+                        let callable = arguments.single().as_callable();
+                        let mut mapped = Vec::new();
+                        for item in list.as_ref() {
+                            let value = self.eval_callable(callable, &item.as_tuple());
+                            mapped.push(value);
                         }
+                        ScriptValue::List(Arc::new(mapped))
                     }
                     (
                         ScriptValue::Rec {
@@ -864,6 +825,65 @@ impl Engine {
                 }
             }
             _ => panic!("Call on something that's not a ref"),
+        }
+    }
+
+    fn eval_callable(&self, callable: &Callable, arguments: &Tuple) -> ScriptValue {
+        match callable {
+            Callable::ScriptFunction {
+                function,
+                captured_scope,
+            } => {
+                let mut inner_scope = Scope::clone(captured_scope);
+                let values = transform_args(&function.params, arguments);
+                for item in &values.0 {
+                    if let Some(name) = &item.name {
+                        inner_scope.set_local(name.clone(), item.value.clone());
+                    }
+                }
+                inner_scope.arguments = Arc::new(values);
+
+                match self.eval_block(&function.body, inner_scope) {
+                    Completion::EndOfBlock => ScriptValue::identity(),
+                    Completion::ExplicitReturn(v) => v,
+                    Completion::ImpliedReturn(v) => v,
+                }
+            }
+            Callable::Record(rec) => {
+                let values = transform_args(&rec.params, arguments);
+                ScriptValue::Rec {
+                    def: Arc::clone(rec),
+                    value: Arc::new(values),
+                }
+            }
+            Callable::Parse(def) => {
+                if let Some(ScriptValue::String(s)) = arguments.at(0) {
+                    let mut nums = s.split_whitespace().map(|t| t.parse::<i64>().unwrap());
+                    let mut values = Vec::new();
+                    for d in &def.params {
+                        values.push(TupleItem::new(
+                            d.name.clone(),
+                            ScriptValue::Number(nums.next().unwrap()),
+                        ));
+                    }
+
+                    ScriptValue::Rec {
+                        def: Arc::clone(def),
+                        value: Arc::new(Tuple(values)),
+                    }
+                } else {
+                    panic!("Expected string, got {arguments:?}");
+                }
+            }
+            Callable::EnumVariant { def, index } => {
+                let variant = &def.variants[*index];
+                let values = transform_args(&variant.params, arguments);
+                ScriptValue::Enum {
+                    def: Arc::clone(def),
+                    index: *index,
+                    value: Arc::new(values),
+                }
+            }
         }
     }
 
