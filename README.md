@@ -203,7 +203,7 @@ rec Person(
     last_name: str
 )
 
-fun Person.full_name(self): str {
+fun Person::full_name(self): str {
     return "${self.first_name} ${self.last_name}"
 }
 
@@ -217,7 +217,7 @@ print(p.full_name())
 ```
 rec Point(x: int, y: int)
 
-fun Point.move_by(self, x: int, y: int): Point {
+fun Point::move_by(self, x: int, y: int): Point {
     self.with(x: self.x + x, y: self.y + y)
 }
 ```
@@ -227,7 +227,7 @@ Associated function:
 ```
 rec Point(x: int, y: int)
 
-fun Point.origo(): Point {
+fun Point::origo(): Point {
     Point(0, 0)
 }
 

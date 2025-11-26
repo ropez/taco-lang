@@ -23,12 +23,12 @@ impl Error {
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(f)?;
+        writeln!(f, "\x1b[31m     {}\x1b[0m", self.message)?;
+        writeln!(f)?;
         for line in &self.details {
             write!(f, "{}", line)?;
         }
 
-        writeln!(f)?;
-        writeln!(f, "\x1b[31m  ERROR {}\x1b[0m", self.message)?;
         Ok(())
     }
 }
@@ -48,7 +48,7 @@ fn format_error_details(
 
     let mut pos = 0;
     for (n, line) in source.lines().enumerate() {
-        if n + 10 < first_line {
+        if n + 5 < first_line {
             pos = pos + line.len() + 1;
             continue;
         }
@@ -60,16 +60,18 @@ fn format_error_details(
 
         if loc.start <= pos + line.len() && loc.end >= pos {
             write!(buf, "\x1b[33m")?;
-            write!(buf, "{:-5} > ", n + 1)?;
+            write!(buf, " >")?;
         } else {
-            write!(buf, "\x1b[36m")?;
-            write!(buf, "{:-5} | ", n + 1)?;
+            write!(buf, "  ")?;
         }
+        write!(buf, "\x1b[30m")?;
+        write!(buf, "{:-5} | ", n + 1)?;
+
         write!(buf, "\x1b[0m")?;
         writeln!(buf, "{line}")?;
         if loc.start >= pos && loc.start <= pos + line.len() && loc.end <= pos + line.len() {
             write!(buf, "\x1b[33m")?;
-            write!(buf, "        ")?;
+            write!(buf, "          ")?;
             writeln!(
                 buf,
                 "{}{} here",
