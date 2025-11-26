@@ -55,7 +55,10 @@ fn test_comparison_not_allowed_for_different_enums() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Expected Hero, found Villain"),
+        Err(err) => {
+            println!("{err}");
+            assert_eq!(err.message, "Expected Hero, found Villain")
+        },
     };
 }
 
@@ -113,6 +116,33 @@ fn fails_for_missing_value() {
     match check_output(src) {
         Ok(out) => panic!("Expected error, got {out}"),
         Err(err) => assert_eq!(err.message, "Expected VacationPlan got VacationPlan::TravelTo"),
+    };
+}
+
+#[test]
+fn fails_for_unexpected_call() {
+    let src = r#"
+        enum City (
+            Paris
+            London
+            Madrid
+        )
+
+        enum VacationPlan (
+            StayAtHome
+            TravelTo(City)
+        )
+
+        fun foo(plan: VacationPlan) {
+            print("$plan")
+        }
+
+        foo(VacationPlan::StayAtHome())
+    "#;
+
+    match check_output(src) {
+        Ok(out) => panic!("Expected error, got {out}"),
+        Err(err) => assert_eq!(err.message, "Variant not callable: VacationPlan::StayAtHome"),
     };
 }
 

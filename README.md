@@ -236,6 +236,15 @@ fun Point.origo(): Point {
 p = Point.origo()
 ```
 
+Tuples:
+
+```
+fun foo(a: int, b: int) {}
+
+tup = (10, 20)
+foo(=tup)
+```
+
 ## Assignment always shadows
 
 "Variables" aren't _variable_, they are immutable.

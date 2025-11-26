@@ -255,3 +255,45 @@ fn test_unzip_splits_list_of_tuples() {
     };
 }
 
+#[test]
+fn test_find_an_item() {
+    let src = r#"
+        fruits = [
+            "apple"
+            "orange"
+            "banana"
+        ]
+
+        if item in fruits.find("banana") {
+            print("found $item")
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("found banana", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_find_no_item() {
+    let src = r#"
+        fruits = [
+            "apple"
+            "orange"
+            "banana"
+        ]
+
+        if item in fruits.find("pineapple") {
+            print("found $item")
+        } else {
+            print("no such item")
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("no such item", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+

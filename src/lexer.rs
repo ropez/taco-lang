@@ -12,7 +12,7 @@ pub struct Loc {
 }
 
 impl Loc {
-    pub fn start() -> Self {
+    pub const fn start() -> Self {
         Self { start: 0, end: 0 }
     }
 
@@ -65,6 +65,7 @@ pub enum TokenKind {
     RightBrace,
     LeftSquare,
     RightSquare,
+    Question,
     Not,
     Equal,
     NotEqual,
@@ -154,6 +155,7 @@ impl<'a> Tokenizer<'a> {
                 '}' => Some(self.produce(TokenKind::RightBrace)),
                 '[' => Some(self.produce(TokenKind::LeftSquare)),
                 ']' => Some(self.produce(TokenKind::RightSquare)),
+                '?' => Some(self.produce(TokenKind::Question)),
                 '<' => {
                     if self.take_if_eq('=') {
                         Some(self.produce(TokenKind::LessOrEqual))

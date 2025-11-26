@@ -39,19 +39,26 @@ pub enum AstNode {
         else_body: Option<Vec<AstNode>>,
     },
 
+    IfIn {
+        assignee: Src<Assignee>,
+        value: Src<Expression>,
+        body: Vec<AstNode>,
+        else_body: Option<Vec<AstNode>>,
+    },
+
     Rec(Arc<Record>),
     Enum(Arc<Enumeration>),
 
     Expression(Src<Expression>),
-    Return(Src<Expression>),
+    Return(Option<Src<Expression>>),
 }
 
 #[derive(Debug)]
 pub enum Expression {
     Ref(Ident),
     PrefixedName(Ident, Ident),
-    String(Arc<str>),
-    StringInterpolate(Vec<(Src<Expression>, usize)>),
+    Str(Arc<str>),
+    String(Vec<(Src<Expression>, usize)>),
     Number(i64),
     True,
     False,
@@ -71,6 +78,9 @@ pub enum Expression {
     Subtraction(Box<Src<Expression>>, Box<Src<Expression>>),
     Multiplication(Box<Src<Expression>>, Box<Src<Expression>>),
     Division(Box<Src<Expression>>, Box<Src<Expression>>),
+
+    // An expression followed by the '?' operator
+    Try(Box<Src<Expression>>),
     Call {
         subject: Box<Src<Expression>>,
         arguments: Box<ArgumentsKind>,
@@ -118,6 +128,7 @@ pub enum ArgumentsKind {
 pub enum TypeExpression {
     Scalar(Ident),
     List(Box<Src<TypeExpression>>),
+    Opt(Box<Src<TypeExpression>>),
     Tuple(Vec<Parameter>),
 }
 
@@ -149,7 +160,7 @@ pub struct Enumeration {
 #[derive(Debug)]
 pub struct Variant {
     pub(crate) name: Ident,
-    pub(crate) params: Vec<Parameter>,
+    pub(crate) params: Option<Vec<Parameter>>,
 }
 
 #[derive(Debug)]
@@ -180,6 +191,7 @@ pub struct Parser<'a> {
 }
 
 mod constants {
+    pub(crate) const BP_QUESTION: u32 = 2;
     pub(crate) const BP_EQUAL: u32 = 3;
     pub(crate) const BP_CMP: u32 = 4;
     pub(crate) const BP_SPREAD: u32 = 6;
@@ -245,8 +257,12 @@ impl<'a> Parser<'a> {
                     ast.push(AstNode::Function { name, fun });
                 }
                 TokenKind::Return => {
-                    let expr = self.parse_expression(0)?;
-                    ast.push(AstNode::Return(expr));
+                    if let Some(TokenKind::NewLine | TokenKind::RightBrace) = self.peek_kind() {
+                        ast.push(AstNode::Return(None));
+                    } else {
+                        let expr = self.parse_expression(0)?;
+                        ast.push(AstNode::Return(Some(expr)));
+                    }
                 }
                 TokenKind::Identifier(name) => {
                     if self.next_if_kind(&TokenKind::Assign).is_some() {
@@ -304,23 +320,48 @@ impl<'a> Parser<'a> {
                     }
                 }
                 TokenKind::If => {
-                    let cond = self.parse_expression(0)?;
-                    self.expect_kind(TokenKind::LeftBrace)?;
-                    let body = self.parse_block(false)?;
+                    if self.peek_is_assignee_followed_by_in() {
+                        let assignee = self.parse_assignee()?;
+                        self.expect_kind(TokenKind::In)?;
+                        let value = self.parse_expression(0)?;
 
-                    let else_body = self
-                        .next_if_kind(&TokenKind::Else)
-                        .map(|_| {
-                            self.expect_kind(TokenKind::LeftBrace)?;
-                            self.parse_block(false)
-                        })
-                        .transpose()?;
+                        self.expect_kind(TokenKind::LeftBrace)?;
+                        let body = self.parse_block(false)?;
 
-                    ast.push(AstNode::Condition {
-                        cond,
-                        body,
-                        else_body,
-                    });
+                        // XXX DRY
+                        let else_body = self
+                            .next_if_kind(&TokenKind::Else)
+                            .map(|_| {
+                                self.expect_kind(TokenKind::LeftBrace)?;
+                                self.parse_block(false)
+                            })
+                            .transpose()?;
+
+                        ast.push(AstNode::IfIn {
+                            assignee,
+                            value,
+                            body,
+                            else_body,
+                        });
+                    } else {
+                        let cond = self.parse_expression(0)?;
+                        self.expect_kind(TokenKind::LeftBrace)?;
+                        let body = self.parse_block(false)?;
+
+                        let else_body = self
+                            .next_if_kind(&TokenKind::Else)
+                            .map(|_| {
+                                self.expect_kind(TokenKind::LeftBrace)?;
+                                self.parse_block(false)
+                            })
+                            .transpose()?;
+
+                        ast.push(AstNode::Condition {
+                            cond,
+                            body,
+                            else_body,
+                        });
+                    }
                 }
                 TokenKind::For => {
                     let (ident, _) = self.expect_ident()?;
@@ -368,6 +409,7 @@ impl<'a> Parser<'a> {
         let expr = match token.as_ref() {
             TokenKind::Identifier(s) => self.handle_identifier_expr(s.clone(), token.loc, bp)?,
             TokenKind::Not => {
+                // FIX continuation: !foo || bar
                 let expr = self.parse_expression(bp)?;
                 let loc = wrap_locations(token.loc, expr.loc);
                 Src::new(Expression::Not(expr.into()), loc)
@@ -490,6 +532,19 @@ impl<'a> Parser<'a> {
                         self.parse_continuation(expr, bp)?
                     }
                 }
+                TokenKind::Question => {
+                    if bp >= BP_QUESTION {
+                        lhs
+                    } else {
+                        let t = self.expect_token()?;
+
+                        let loc = wrap_locations(lhs.loc, t.loc);
+                        let expr = Src::new(Expression::Try(Box::new(lhs)), loc);
+                        // XXX Continuation
+
+                        expr
+                    }
+                }
                 TokenKind::Spread => {
                     if bp >= BP_SPREAD {
                         lhs
@@ -600,6 +655,7 @@ impl<'a> Parser<'a> {
                     });
                 } else {
                     let type_expr = Src::new(TypeExpression::Scalar(name), t.loc);
+                    let type_expr = self.parse_type_suffix(type_expr)?;
 
                     params.push(Parameter {
                         name: None,
@@ -633,6 +689,18 @@ impl<'a> Parser<'a> {
 
     fn parse_expressions(&mut self, until: TokenKind) -> Result<Vec<Src<Expression>>> {
         self.parse_list(until, |p| p.parse_expression(0))
+    }
+
+    fn parse_assignee(&mut self) -> Result<Src<Assignee>> {
+        let token = self.expect_token()?;
+        match token.as_ref() {
+            TokenKind::Identifier(ident) => {
+                let assignee = Assignee::scalar(ident.clone());
+                Ok(Src::new(assignee, token.loc))
+            }
+            TokenKind::LeftParen => self.parse_destructuring_pattern(None, &token),
+            _ => todo!("Expected assignment"),
+        }
     }
 
     fn parse_destructuring_pattern(
@@ -673,12 +741,12 @@ impl<'a> Parser<'a> {
                 let params = p.parse_params(TokenKind::RightParen)?;
                 let r = p.expect_kind(TokenKind::RightParen)?;
 
-                Ok(Variant { name, params })
-            } else {
                 Ok(Variant {
                     name,
-                    params: Vec::new(),
+                    params: Some(params),
                 })
+            } else {
+                Ok(Variant { name, params: None })
             }
         })
     }
@@ -734,17 +802,30 @@ impl<'a> Parser<'a> {
             let r = self.expect_kind(TokenKind::RightSquare)?;
 
             let kind = TypeExpression::List(inner.into());
-            Ok(Src::new(kind, wrap_locations(l.loc, r.loc)))
+            let expr = Src::new(kind, wrap_locations(l.loc, r.loc));
+            self.parse_type_suffix(expr)
         } else if let Some(l) = self.next_if_kind(&TokenKind::LeftParen) {
             let params = self.parse_params(TokenKind::RightParen)?;
             let r = self.expect_kind(TokenKind::RightParen)?;
 
             let kind = TypeExpression::Tuple(params);
-            Ok(Src::new(kind, wrap_locations(l.loc, r.loc)))
+            let expr = Src::new(kind, wrap_locations(l.loc, r.loc));
+            self.parse_type_suffix(expr)
         } else {
             let (raw, loc) = self.expect_ident()?;
             let kind = TypeExpression::Scalar(raw);
-            Ok(Src::new(kind, loc))
+            let expr = Src::new(kind, loc);
+            self.parse_type_suffix(expr)
+        }
+    }
+
+    fn parse_type_suffix(&mut self, expr: Src<TypeExpression>) -> Result<Src<TypeExpression>> {
+        if let Some(t) = self.next_if_kind(&TokenKind::Question) {
+            let loc = wrap_locations(expr.loc, t.loc);
+            let expr = Src::new(TypeExpression::Opt(expr.into()), loc);
+            Ok(expr)
+        } else {
+            Ok(expr)
         }
     }
 
@@ -841,13 +922,37 @@ impl<'a> Parser<'a> {
         }
     }
 
+    // TODO Reuse this pattern with other assignment cases
+    fn peek_is_assignee_followed_by_in(&mut self) -> bool {
+        if let Some(TokenKind::Identifier(_)) = self.peek_kind()
+            && let Some(TokenKind::In) = self.peek_kind_nth(1)
+        {
+            return true;
+        }
+        if let Some(TokenKind::LeftParen) = self.peek_kind()
+            && let Some(TokenKind::In) = self.peek_after_paren_nth(1)
+        {
+            return true;
+        }
+
+        false
+    }
+
     fn peek_kind(&mut self) -> Option<&TokenKind> {
         self.iter.peek().map(|t| t.as_ref())
     }
 
+    fn peek_kind_nth(&mut self, n: usize) -> Option<&TokenKind> {
+        self.iter.peek_nth(n).map(|t| t.as_ref())
+    }
+
     fn peek_after_paren(&mut self) -> Option<&TokenKind> {
+        self.peek_after_paren_nth(0)
+    }
+
+    fn peek_after_paren_nth(&mut self, nth: usize) -> Option<&TokenKind> {
         let mut d = 1;
-        for n in 0.. {
+        for n in nth.. {
             let token = self.iter.peek_nth(n)?;
 
             match token.as_ref() {
@@ -888,7 +993,7 @@ impl<'a> Parser<'a> {
         let parts = interp::tokenise_string(src);
 
         if parts.is_empty() {
-            return Ok(Src::new(Expression::String("".into()), loc));
+            return Ok(Src::new(Expression::Str("".into()), loc));
         }
 
         let mut res = Vec::new();
@@ -897,7 +1002,7 @@ impl<'a> Parser<'a> {
         for part in parts {
             let expr = match &part.kind {
                 StringTokenKind::Str => Src::new(
-                    Expression::String(part.src.into()),
+                    Expression::Str(part.src.into()),
                     Loc::new(0, part.src.len()),
                 ),
                 StringTokenKind::Expr => {
@@ -912,7 +1017,7 @@ impl<'a> Parser<'a> {
             res.push((expr, start_offset + part.offset));
         }
 
-        Ok(Src::new(Expression::StringInterpolate(res), loc))
+        Ok(Src::new(Expression::String(res), loc))
     }
 }
 

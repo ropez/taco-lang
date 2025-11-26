@@ -25,6 +25,10 @@ pub enum ScriptValue {
 
     NaN,
 
+    // The "opt" type is only checked in validation. During evaluation, it's equvalent to it's
+    // inner value, or the special 'None' value.
+    None,
+
     // The *instance* of a record. Not the record itself (which is a callable)
     Rec {
         def: Arc<Record>,
@@ -336,6 +340,34 @@ impl Engine {
                         _ => panic!("Expected iterable, found: {iterable}"),
                     }
                 }
+                AstNode::IfIn {
+                    assignee,
+                    value,
+                    body,
+                    else_body,
+                } => {
+                    let val = self.eval_expr(value, &scope);
+
+                    let (branch, scope) = if let ScriptValue::None = val {
+                        (else_body.as_ref(), scope.clone())
+                    } else {
+                        let mut inner_scope = scope.clone();
+                        eval_assignment(assignee, &val, &mut inner_scope);
+                        (Some(body), inner_scope)
+                    };
+
+                    if let Some(branch) = branch {
+                        match self.eval_block(branch, scope) {
+                            Completion::ExplicitReturn(val) => {
+                                return Completion::ExplicitReturn(val);
+                            }
+                            Completion::ImpliedReturn(val) if ast.len() == 1 => {
+                                return Completion::ImpliedReturn(val);
+                            }
+                            _ => (),
+                        }
+                    }
+                }
                 AstNode::Condition {
                     cond,
                     body,
@@ -369,8 +401,12 @@ impl Engine {
                     }
                 }
                 AstNode::Return(expr) => {
-                    let val = self.eval_expr(expr, &scope);
-                    return Completion::ExplicitReturn(val);
+                    if let Some(expr) = expr {
+                        let val = self.eval_expr(expr, &scope);
+                        return Completion::ExplicitReturn(val);
+                    } else {
+                        return Completion::ExplicitReturn(ScriptValue::None);
+                    }
                 }
             }
         }
@@ -380,8 +416,8 @@ impl Engine {
 
     fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> ScriptValue {
         match expr.as_ref() {
-            Expression::String(s) => ScriptValue::String(Arc::clone(s)),
-            Expression::StringInterpolate(parts) => {
+            Expression::Str(s) => ScriptValue::String(Arc::clone(s)),
+            Expression::String(parts) => {
                 // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
                 let mut builder = String::new();
                 for (expr, _) in parts {
@@ -430,7 +466,7 @@ impl Engine {
                     if let Some((index, variant)) =
                         v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
                     {
-                        if variant.params.is_empty() {
+                        if variant.params.is_none() {
                             ScriptValue::Enum {
                                 def: Arc::clone(v),
                                 index,
@@ -530,6 +566,15 @@ impl Engine {
             Expression::GreaterOrEqual(lhs, rhs) => {
                 self.eval_comparison(|a, b| a >= b, lhs, rhs, scope)
             }
+            Expression::Try(inner) => {
+                let val = self.eval_expr(inner, scope);
+                if let ScriptValue::None = val {
+                    // Need to make ALL eval methods return some Result or custom outcome enum
+                    // Should be Result, so that we can use `?` sugar
+                    panic!("TODO return from here")
+                }
+                val
+            }
             Expression::Call { subject, arguments } => self.eval_call(subject, arguments, scope),
         }
     }
@@ -606,7 +651,7 @@ impl Engine {
                                 }
                                 inner_scope.arguments = Arc::new(values);
                                 match self.eval_block(&function.body, inner_scope) {
-                                    Completion::EndOfBlock => ScriptValue::identity(),
+                                    Completion::EndOfBlock => ScriptValue::None,
                                     Completion::ExplicitReturn(v) => v,
                                     Completion::ImpliedReturn(v) => v,
                                 }
@@ -656,11 +701,15 @@ impl Engine {
                     if let Some((index, variant)) =
                         v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
                     {
-                        let values = transform_args(&variant.params, &arguments);
-                        ScriptValue::Enum {
-                            def: Arc::clone(v),
-                            index,
-                            value: Arc::new(values),
+                        if let Some(params) = &variant.params {
+                            let values = transform_args(params, &arguments);
+                            ScriptValue::Enum {
+                                def: Arc::clone(v),
+                                index,
+                                value: Arc::new(values),
+                            }
+                        } else {
+                            panic!("Variant not callable: {prefix}::{name}");
                         }
                     } else {
                         panic!("Enum variant not found: {name} in {prefix}");
@@ -691,6 +740,11 @@ impl Engine {
                             res.push(arg.value.clone());
                         }
                         ScriptValue::List(Arc::new(res))
+                    }
+                    (ScriptValue::List(values), "find") => {
+                        let val = arguments.single();
+                        let opt_val = values.iter().find(|v| ScriptValue::eq(v, val));
+                        opt_val.cloned().unwrap_or(ScriptValue::None)
                     }
                     (ScriptValue::List(list), "unzip") => {
                         // TODO These methods should create "stream" or "iterator" instead of just copying the whole list up-front
@@ -877,7 +931,9 @@ impl Engine {
             }
             Callable::EnumVariant { def, index } => {
                 let variant = &def.variants[*index];
-                let values = transform_args(&variant.params, arguments);
+                // XXX Should be non-option
+                let params = variant.params.as_ref().unwrap();
+                let values = transform_args(params, arguments);
                 ScriptValue::Enum {
                     def: Arc::clone(def),
                     index: *index,

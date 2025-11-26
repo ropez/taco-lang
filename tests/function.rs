@@ -306,7 +306,7 @@ fn test_missing_return_statement_in_one_condition() {
         Ok(_) => panic!("Expected error"),
         Err(err) => {
             println!("{err}");
-            assert_eq!(err.message, "Missing return statement")
+            assert_eq!(err.message, "Incompatible return type: Expected str, found str?")
         }
     }
 }

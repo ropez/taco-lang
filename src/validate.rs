@@ -15,6 +15,7 @@ pub enum ScriptType {
     Range,
     Str,
     EmptyList,
+    Opt(Box<ScriptType>),
     List(Box<ScriptType>),
     Tuple(TupleType),
     Enum(Arc<EnumType>),
@@ -39,13 +40,28 @@ impl ScriptType {
     fn accepts(&self, other: &ScriptType) -> bool {
         match (self, other) {
             (ScriptType::State(_), _) => false,
+            (ScriptType::Bool, ScriptType::Bool) => true,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
-            (ScriptType::Enum(ltyp), ScriptType::Enum(rtyp)) => Arc::ptr_eq(ltyp, rtyp),
+            (ScriptType::Enum(l), ScriptType::Enum(r)) => Arc::ptr_eq(l, r),
             (ScriptType::Enum(_), ScriptType::EnumVariant(_, _)) => false,
+
+            // If a function returns str?, it can also optionally call another function that
+            // returns str?. This doesn't turn into "str??", it's always just a value nor no value.
+            // You can't have a situation where an expression like "if x in opt" sets 'x' to
+            // another opt!
+            (ScriptType::Opt(l), r) => l.accepts(r.flatten()),
             _ => *self == *other,
+        }
+    }
+
+    fn flatten(&self) -> &Self {
+        if let ScriptType::Opt(opt) = self {
+            opt.flatten()
+        } else {
+            self
         }
     }
 
@@ -65,7 +81,9 @@ impl ScriptType {
             }
             ScriptType::EnumVariant(def, name) => {
                 let var = def.variants.iter().find(|v| v.name == *name)?;
-                Some((&var.params, Arc::new(ScriptType::Enum(Arc::clone(def)))))
+                // XXX We don't have EnumVariant if params is None, this should be part of the type system
+                let params = var.params.as_ref().unwrap();
+                Some((params, Arc::new(ScriptType::Enum(Arc::clone(def)))))
             }
             _ => None,
         }
@@ -82,6 +100,7 @@ impl Display for ScriptType {
             Self::EnumVariant(typ, var) => write!(f, "{}::{}", typ.name, var), // Display as function?
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => write!(f, "[{inner}]"),
+            Self::Opt(inner) => write!(f, "{inner}?"),
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::Rec { name, params } => write!(f, "{name}{params}"),
             Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
@@ -105,7 +124,7 @@ pub struct EnumType {
 #[derive(Debug, Clone, PartialEq)]
 struct EnumVariantType {
     name: Ident,
-    params: TupleType,
+    params: Option<TupleType>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -270,6 +289,16 @@ impl ReturnType {
             is_explicit: true,
         }
     }
+
+    fn into_opt(self) -> Self {
+        Self {
+            typ: Src::new(
+                ScriptType::Opt(Box::new(ScriptType::clone(self.typ.as_ref()))),
+                self.typ.loc,
+            ),
+            ..self
+        }
+    }
 }
 
 pub struct Validator<'a> {
@@ -341,17 +370,24 @@ impl<'a> Validator<'a> {
                     if let Some(typ) = &declared_type
                         && !typ.accepts(&found_type)
                     {
+                        let loc = fun
+                            .type_expr
+                            .as_ref()
+                            .map(|t| t.loc)
+                            .unwrap_or(Loc::start());
                         if let Some(ret) = found_ret_type {
                             return Err(self.fail(
                                 format!(
                                     "Incompatible return type: Expected {typ}, found {found_type}"
                                 ),
-                                ret.typ.loc,
+                                loc,
                             ));
                         } else {
-                            // XXX Needs 'loc' for entire block, or enclosing brace, or last
-                            // statement
-                            let loc = Loc::new(0, 0);
+                            let loc = fun
+                                .type_expr
+                                .as_ref()
+                                .map(|t| t.loc)
+                                .unwrap_or(Loc::start());
                             return Err(self.fail("Missing return statement".into(), loc));
                         }
                     }
@@ -387,7 +423,11 @@ impl<'a> Validator<'a> {
                             .variants
                             .iter()
                             .map(|v| {
-                                let params = self.eval_params(&v.params, &scope)?;
+                                let params = v
+                                    .params
+                                    .as_ref()
+                                    .map(|p| self.eval_params(p, &scope))
+                                    .transpose()?;
                                 Ok(EnumVariantType {
                                     name: v.name.clone(),
                                     params,
@@ -442,18 +482,51 @@ impl<'a> Validator<'a> {
                         self.validate_block(else_body, scope.clone())?;
                     }
                 }
+                AstNode::IfIn {
+                    assignee,
+                    value,
+                    body,
+                    else_body,
+                } => {
+                    let opt_typ = self.validate_expr(value, &scope)?;
+                    let ScriptType::Opt(typ) = opt_typ else {
+                        return Err(
+                            self.fail(format!("Expected option type, found {opt_typ}"), value.loc)
+                        );
+                    };
+
+                    let mut inner_scope = scope.clone();
+                    self.eval_assignment(assignee, &typ, &mut inner_scope)?;
+                    self.validate_block(body, inner_scope)?;
+
+                    if let Some(else_body) = else_body.as_ref() {
+                        self.validate_block(else_body, scope.clone())?;
+                    }
+                }
                 AstNode::Expression(expr) => {
                     self.validate_expr(expr, &scope)?;
                 }
                 AstNode::Return(expr) => {
-                    let typ = self.validate_expr(expr, &scope)?;
-                    match &scope.ret {
-                        None => return Err(self.fail("Unexpected return value".into(), expr.loc)),
-                        Some(r) => {
-                            if !r.accepts(&typ) {
-                                return Err(
-                                    self.fail(format!("Expected {r}, found {typ}"), expr.loc)
-                                );
+                    if let Some(expr) = expr {
+                        let typ = self.validate_expr(expr, &scope)?;
+                        match &scope.ret {
+                            None => {
+                                return Err(self.fail("Unexpected return value".into(), expr.loc));
+                            }
+                            Some(r) => {
+                                if !r.accepts(&typ) {
+                                    return Err(
+                                        self.fail(format!("Expected {r}, found {typ}"), expr.loc)
+                                    );
+                                }
+                            }
+                        }
+                    } else {
+                        match &scope.ret {
+                            None => {}
+                            Some(ScriptType::Opt(_)) => {}
+                            Some(_) => {
+                                return Err(self.fail("Expected return value".into(), Loc::start()));
                             }
                         }
                     }
@@ -468,8 +541,12 @@ impl<'a> Validator<'a> {
         let typ = match ast.last() {
             None => None,
             Some(AstNode::Return(expr)) => {
-                let typ = self.validate_expr(expr, scope)?;
-                Some(ReturnType::explicit(Src::new(typ, expr.loc)))
+                if let Some(expr) = expr {
+                    let typ = self.validate_expr(expr, scope)?;
+                    Some(ReturnType::explicit(Src::new(typ, expr.loc)))
+                } else {
+                    todo!("return without value");
+                }
             }
             Some(AstNode::Expression(expr)) => {
                 if ast.len() == 1 {
@@ -482,29 +559,71 @@ impl<'a> Validator<'a> {
             Some(AstNode::Condition {
                 body, else_body, ..
             }) => {
-                let ret = self.eval_return_type(body, scope)?;
+                let body_ret = self.eval_return_type(body, scope)?;
+                let else_ret = else_body
+                    .as_ref()
+                    .map(|else_body| self.eval_return_type(else_body, scope))
+                    .transpose()?
+                    .flatten();
 
-                if let Some(else_body) = else_body.as_ref() {
-                    let else_ret = self.eval_return_type(else_body, scope)?;
-
-                    match (ret, else_ret) {
-                        (Some(l), Some(r)) => {
-                            let types = vec![l.typ.clone(), r.typ.clone()];
-                            let typ = self
-                                .most_specific_type(&types)?
-                                .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
-                            if l.is_explicit && r.is_explicit {
-                                Some(ReturnType::explicit(typ))
-                            } else if ast.len() == 1 {
-                                Some(ReturnType::implicit(typ))
-                            } else {
-                                None
-                            }
+                match (body_ret, else_ret) {
+                    (None, None) => None,
+                    (Some(l), Some(r)) => {
+                        let types = vec![l.typ.clone(), r.typ.clone()];
+                        let typ = self
+                            .most_specific_type(&types)?
+                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
+                        if l.is_explicit && r.is_explicit {
+                            Some(ReturnType::explicit(typ))
+                        } else if ast.len() == 1 {
+                            Some(ReturnType::implicit(typ))
+                        } else {
+                            None
                         }
-                        _ => None,
                     }
-                } else {
-                    ret
+                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
+                }
+            }
+            Some(AstNode::IfIn {
+                assignee,
+                value,
+                body,
+                else_body,
+            }) => {
+                let opt_typ = self.validate_expr(value, &scope)?;
+                let ScriptType::Opt(typ) = opt_typ else {
+                    return Err(
+                        self.fail(format!("Expected option type, found {opt_typ}"), value.loc)
+                    );
+                };
+
+                let mut inner_scope = scope.clone();
+                self.eval_assignment(assignee, &typ, &mut inner_scope)?;
+
+                // XXX DRY
+                let body_ret = self.eval_return_type(body, &inner_scope)?;
+                let else_ret = else_body
+                    .as_ref()
+                    .map(|else_body| self.eval_return_type(else_body, scope))
+                    .transpose()?
+                    .flatten();
+
+                match (body_ret, else_ret) {
+                    (None, None) => None,
+                    (Some(l), Some(r)) => {
+                        let types = vec![l.typ.clone(), r.typ.clone()];
+                        let typ = self
+                            .most_specific_type(&types)?
+                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
+                        if l.is_explicit && r.is_explicit {
+                            Some(ReturnType::explicit(typ))
+                        } else if ast.len() == 1 {
+                            Some(ReturnType::implicit(typ))
+                        } else {
+                            None
+                        }
+                    }
+                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
                 }
             }
             Some(_) => None,
@@ -532,14 +651,21 @@ impl<'a> Validator<'a> {
     fn validate_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptType> {
         match expr.as_ref() {
             Expression::Number(_) => Ok(ScriptType::Int),
-            Expression::String(_) => Ok(ScriptType::Str),
+            Expression::Str(_) => Ok(ScriptType::Str),
             Expression::True => Ok(ScriptType::Bool),
             Expression::False => Ok(ScriptType::Bool),
             Expression::Arguments => Ok(ScriptType::Tuple(scope.arguments.clone())),
-            Expression::StringInterpolate(parts) => {
+            Expression::String(parts) => {
                 for (part, offset) in parts {
                     let inner = Self::with_offset(self.src, *offset);
-                    let _typ = inner.validate_expr(part, scope)?;
+                    let typ = inner.validate_expr(part, scope)?;
+                    match &typ {
+                        ScriptType::Opt(t) => {
+                            return Err(self.fail(format!("Expected {t} got {typ}"), part.loc));
+                        }
+                        ScriptType::State(t) => todo!("Error for printing state({t})"),
+                        _ => (),
+                    }
                 }
                 Ok(ScriptType::Str)
             }
@@ -613,7 +739,7 @@ impl<'a> Validator<'a> {
                 }
                 Some(TypeDefinition::EnumDefinition(def)) => {
                     if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
-                        if var.params.0.is_empty() {
+                        if var.params.is_none() {
                             Ok(ScriptType::Enum(Arc::clone(def)))
                         } else {
                             Ok(ScriptType::EnumVariant(Arc::clone(def), var.name.clone()))
@@ -656,7 +782,7 @@ impl<'a> Validator<'a> {
             }
             Expression::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
-                if ScriptType::Bool.accepts(&typ) {
+                if !ScriptType::Bool.accepts(&typ) {
                     return Err(self.fail(format!("Expected boolean, found {typ}"), expr.loc));
                 }
                 Ok(ScriptType::Bool)
@@ -707,10 +833,17 @@ impl<'a> Validator<'a> {
                 }
                 Ok(typ)
             }
-            Expression::Addition(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
-            Expression::Subtraction(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
-            Expression::Multiplication(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
-            Expression::Division(lhs, rhs) => self.validate_arithmetic(scope, lhs, rhs),
+            Expression::Addition(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
+            Expression::Subtraction(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
+            Expression::Multiplication(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
+            Expression::Division(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
+            Expression::Try(inner) => {
+                let inner_typ = self.validate_expr(inner, scope)?;
+                match inner_typ {
+                    ScriptType::Opt(inner) => Ok(*inner),
+                    _ => Err(self.fail(format!("Expected optional, found {inner_typ}"), inner.loc)),
+                }
+            }
             Expression::Call { subject, arguments } => match subject.as_ref().as_ref() {
                 Expression::Ref(name) => match name.as_str() {
                     "state" => {
@@ -780,8 +913,15 @@ impl<'a> Validator<'a> {
                         }
                         Some(TypeDefinition::EnumDefinition(def)) => {
                             if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
-                                self.validate_arguments(&var.params, arguments, scope)?;
-                                Ok(ScriptType::Enum(Arc::clone(def)))
+                                if let Some(params) = &var.params {
+                                    self.validate_arguments(params, arguments, scope)?;
+                                    Ok(ScriptType::Enum(Arc::clone(def)))
+                                } else {
+                                    Err(self.fail(
+                                        format!("Variant not callable: {}::{}", def.name, name),
+                                        expr.loc,
+                                    ))
+                                }
                             } else {
                                 Err(self.fail(
                                     format!("Variant not found: {name} in {}", def.name),
@@ -832,6 +972,11 @@ impl<'a> Validator<'a> {
                             self.validate_arguments(&formal, arguments, scope)?;
                             Ok(ScriptType::List(typ.clone()))
                         }
+                        (ScriptType::List(typ), "find") => {
+                            let formal = TupleType(vec![TupleItemType::unnamed(*typ.clone())]);
+                            self.validate_arguments(&formal, arguments, scope)?;
+                            Ok(ScriptType::Opt(typ.clone()))
+                        }
                         (ScriptType::List(typ), "sum") if ScriptType::Int.accepts(typ) => {
                             // No arguments allowed
                             self.validate_arguments(&TupleType::identity(), arguments, scope)?;
@@ -859,7 +1004,7 @@ impl<'a> Validator<'a> {
                                     })
                                     .transpose()?
                                 {
-                                    // XXX FIXME This should all just be hendled in 'ScriptType::accepts'
+                                    // XXX FIXME This should all just be handled in 'ScriptType::accepts'
                                     if let ScriptType::Function { ret, params } = first.as_ref() {
                                         if params.0.len() != 1 {
                                             return Err(self.fail(
@@ -1015,9 +1160,9 @@ impl<'a> Validator<'a> {
 
     fn validate_arithmetic(
         &self,
-        scope: &Scope,
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
+        scope: &Scope,
     ) -> Result<ScriptType> {
         let l = self.validate_expr(lhs, scope)?;
         let r = self.validate_expr(rhs, scope)?;
@@ -1150,6 +1295,10 @@ impl<'a> Validator<'a> {
             TypeExpression::List(inner) => {
                 let inner = self.eval_type_expr(inner.as_ref(), scope)?;
                 Ok(ScriptType::List(inner.into()))
+            }
+            TypeExpression::Opt(inner) => {
+                let inner = self.eval_type_expr(inner.as_ref(), scope)?;
+                Ok(ScriptType::Opt(inner.into()))
             }
         }
     }
