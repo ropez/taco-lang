@@ -1,5 +1,6 @@
 use crate::{eval::NativeFn, validate::ScriptType};
 
+pub(crate) mod std;
 pub(crate) mod fs;
 pub(crate) mod print;
 

@@ -4,7 +4,39 @@ use std::{
     result,
 };
 
-use crate::lexer::Loc;
+use crate::{ident::Ident, lexer::Loc, validate::{ArgumentType, ScriptType}};
+
+pub enum ArgumentError {
+    MissingArgument(Option<Ident>),
+    WrongArgumentType(ScriptType, ArgumentType),
+    UnexpectedArgument(ArgumentType),
+}
+
+// Promote ArgumentError to "Error" below
+
+impl ArgumentError {
+    pub(crate) fn into_source_error(self, source: &str, loc: Loc) -> Error {
+        match self {
+            ArgumentError::MissingArgument(ident) => {
+                if let Some(ident) = ident {
+                    Error::new(format!("Missing argument: {ident}"), source, Loc::start())
+                } else {
+                    Error::new(format!("Missing argument"), source, loc)
+                }
+            }
+            ArgumentError::WrongArgumentType(expected, argument) => Error::new(
+                format!("Expected {expected}, found {}", argument.value.as_ref()),
+                source,
+                argument.value.loc,
+            ),
+            ArgumentError::UnexpectedArgument(arg) => Error::new(
+                "Unexpected argument".into(),
+                source,
+                arg.value.loc
+            ),
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub struct Error {
@@ -16,7 +48,11 @@ pub struct Error {
 impl Error {
     pub fn new(message: String, source: &str, loc: Loc) -> Self {
         let details = format_error_details(source, loc).unwrap_or_default();
-        Self { message, loc, details }
+        Self {
+            message,
+            loc,
+            details,
+        }
     }
 }
 
@@ -37,10 +73,7 @@ impl error::Error for Error {}
 
 pub type Result<T> = result::Result<T, Error>;
 
-fn format_error_details(
-    source: &str,
-    loc: Loc,
-) -> result::Result<Vec<String>, fmt::Error> {
+fn format_error_details(source: &str, loc: Loc) -> result::Result<Vec<String>, fmt::Error> {
     let mut ret = Vec::new();
 
     let first_line = source[..loc.start].lines().count();

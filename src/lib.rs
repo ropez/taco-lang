@@ -37,6 +37,12 @@ where
     let mut validator = Validator::new(src);
     let mut engine = Engine::default();
 
+    for (name, f) in extensions::std::create() {
+        let name = name.as_str();
+        validator = validator.with_native(name, Arc::clone(&f));
+        engine = engine.with_native(name, Arc::clone(&f));
+    }
+
     for (name, f) in extensions::fs::create() {
         let name = name.as_str();
         validator = validator.with_global(name, f.script_type);

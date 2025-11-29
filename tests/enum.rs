@@ -115,7 +115,7 @@ fn fails_for_missing_value() {
 
     match check_output(src) {
         Ok(out) => panic!("Expected error, got {out}"),
-        Err(err) => assert_eq!(err.message, "Expected VacationPlan got VacationPlan::TravelTo"),
+        Err(err) => assert_eq!(err.message, "Expected VacationPlan, found VacationPlan::TravelTo"),
     };
 }
 

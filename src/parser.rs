@@ -64,7 +64,7 @@ pub enum Expression {
     False,
     Arguments,
     List(Vec<Src<Expression>>),
-    Tuple(Arguments), // Should probably be (Option(name), expr)
+    Tuple(Src<Vec<ArgumentExpression>>),
     Not(Box<Src<Expression>>),
     Equal(Box<Src<Expression>>, Box<Src<Expression>>),
     NotEqual(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -83,7 +83,7 @@ pub enum Expression {
     Try(Box<Src<Expression>>),
     Call {
         subject: Box<Src<Expression>>,
-        arguments: Box<ArgumentsKind>,
+        arguments: Box<CallExpression>,
     },
     Access {
         subject: Box<Src<Expression>>,
@@ -92,12 +92,12 @@ pub enum Expression {
 }
 
 #[derive(Debug)]
-pub struct Argument {
+pub struct ArgumentExpression {
     pub(crate) name: Option<Ident>,
-    pub(crate) expr: Src<Expression>,
+    pub(crate) expr: Src<Expression>, // Src outside?
 }
 
-impl Argument {
+impl ArgumentExpression {
     pub fn new(name: Option<Ident>, expr: Src<Expression>) -> Self {
         Self { name, expr }
     }
@@ -112,14 +112,8 @@ impl Argument {
 }
 
 #[derive(Debug)]
-pub struct Arguments {
-    pub(crate) args: Vec<Argument>,
-    pub(crate) loc: Loc,
-}
-
-#[derive(Debug)]
-pub enum ArgumentsKind {
-    Inline(Arguments),
+pub enum CallExpression {
+    Inline(Src<Vec<ArgumentExpression>>),
     Destructure(Src<Expression>),
     DestructureImplicit(Loc),
 }
@@ -129,12 +123,12 @@ pub enum TypeExpression {
     Scalar(Ident),
     List(Box<Src<TypeExpression>>),
     Opt(Box<Src<TypeExpression>>),
-    Tuple(Vec<Parameter>),
+    Tuple(Vec<ParamExpression>),
 }
 
 #[derive(Debug)]
 pub struct Function {
-    pub(crate) params: Vec<Parameter>,
+    pub(crate) params: Vec<ParamExpression>,
     pub(crate) type_expr: Option<Src<TypeExpression>>,
     pub(crate) body: Vec<AstNode>,
 }
@@ -142,11 +136,11 @@ pub struct Function {
 #[derive(Debug)]
 pub struct Record {
     pub(crate) name: Ident,
-    pub(crate) params: Vec<Parameter>,
+    pub(crate) params: Vec<ParamExpression>,
 }
 
 #[derive(Debug)]
-pub struct Parameter {
+pub struct ParamExpression {
     pub(crate) name: Option<Ident>,
     pub(crate) type_expr: Src<TypeExpression>,
 }
@@ -160,7 +154,7 @@ pub struct Enumeration {
 #[derive(Debug)]
 pub struct Variant {
     pub(crate) name: Ident,
-    pub(crate) params: Option<Vec<Parameter>>,
+    pub(crate) params: Option<Vec<ParamExpression>>,
 }
 
 #[derive(Debug)]
@@ -238,6 +232,9 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
                     let r = self.expect_kind(TokenKind::RightParen)?;
+
+                    // XXX Allow "implicit" type expression, and require it for implicit return:
+                    // fun foo(): { 42 }
 
                     let type_expr = if self.next_if_kind(&TokenKind::Colon).is_some() {
                         Some(self.parse_type_expr()?)
@@ -568,7 +565,7 @@ impl<'a> Parser<'a> {
                                 let expr = Src::new(
                                     Expression::Call {
                                         subject: lhs.into(),
-                                        arguments: ArgumentsKind::DestructureImplicit(a.loc).into(),
+                                        arguments: CallExpression::DestructureImplicit(a.loc).into(),
                                     },
                                     loc,
                                 );
@@ -580,7 +577,7 @@ impl<'a> Parser<'a> {
                                 let expr = Src::new(
                                     Expression::Call {
                                         subject: lhs.into(),
-                                        arguments: ArgumentsKind::Destructure(expr).into(),
+                                        arguments: CallExpression::Destructure(expr).into(),
                                     },
                                     loc,
                                 );
@@ -594,7 +591,7 @@ impl<'a> Parser<'a> {
                             let expr = Src::new(
                                 Expression::Call {
                                     subject: lhs.into(),
-                                    arguments: ArgumentsKind::Inline(arguments).into(),
+                                    arguments: CallExpression::Inline(arguments).into(),
                                 },
                                 loc,
                             );
@@ -631,7 +628,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_params(&mut self, until: TokenKind) -> Result<Vec<Parameter>> {
+    fn parse_params(&mut self, until: TokenKind) -> Result<Vec<ParamExpression>> {
         let mut params = Vec::new();
 
         loop {
@@ -649,7 +646,7 @@ impl<'a> Parser<'a> {
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let type_expr = self.parse_type_expr()?;
-                    params.push(Parameter {
+                    params.push(ParamExpression {
                         name: Some(name),
                         type_expr,
                     });
@@ -657,14 +654,14 @@ impl<'a> Parser<'a> {
                     let type_expr = Src::new(TypeExpression::Scalar(name), t.loc);
                     let type_expr = self.parse_type_suffix(type_expr)?;
 
-                    params.push(Parameter {
+                    params.push(ParamExpression {
                         name: None,
                         type_expr,
                     });
                 }
             } else {
                 let type_expr = self.parse_type_expr()?;
-                params.push(Parameter {
+                params.push(ParamExpression {
                     name: None,
                     type_expr,
                 });
@@ -751,7 +748,7 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn parse_args(&mut self, start_loc: Loc) -> Result<Arguments> {
+    fn parse_args(&mut self, start_loc: Loc) -> Result<Src<Vec<ArgumentExpression>>> {
         let mut args = Vec::new();
 
         loop {
@@ -766,15 +763,15 @@ impl<'a> Parser<'a> {
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let value = self.parse_expression(0)?;
-                    args.push(Argument::named(name.clone(), value));
+                    args.push(ArgumentExpression::named(name.clone(), value));
                 } else {
                     let expr = self.handle_identifier_expr(name.clone(), t.loc, 0)?;
 
-                    args.push(Argument::unnamed(expr));
+                    args.push(ArgumentExpression::unnamed(expr));
                 }
             } else {
                 let expr = self.parse_expression(0)?;
-                args.push(Argument::unnamed(expr));
+                args.push(ArgumentExpression::unnamed(expr));
             }
 
             let kind = self.peek_kind();
@@ -793,7 +790,7 @@ impl<'a> Parser<'a> {
 
         let end = self.expect_kind(TokenKind::RightParen)?;
         let loc = wrap_locations(start_loc, end.loc);
-        Ok(Arguments { args, loc })
+        Ok(Src::new(args, loc))
     }
 
     fn parse_type_expr(&mut self) -> Result<Src<TypeExpression>> {
@@ -980,8 +977,8 @@ impl<'a> Parser<'a> {
     }
 
     fn fail(&self, msg: &str, loc: Loc) -> Error {
-        use std::backtrace::Backtrace;
-        println!("{}", Backtrace::force_capture());
+        // use std::backtrace::Backtrace;
+        // println!("{}", Backtrace::force_capture());
         Error::new(msg.into(), self.src, loc)
     }
 

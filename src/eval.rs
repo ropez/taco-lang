@@ -5,12 +5,13 @@ use std::{
 };
 
 use crate::{
+    extensions::std::NativeFunction,
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
     lexer::Src,
     parser::{
-        ArgumentsKind, Assignee, AstNode, Enumeration, Expression, Function, Parameter, Record,
-        TypeExpression,
+        Assignee, AstNode, CallExpression, Enumeration, Expression, Function, ParamExpression,
+        Record, TypeExpression,
     },
 };
 
@@ -154,7 +155,7 @@ impl Display for ScriptValue {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub enum Callable {
     ScriptFunction {
         function: Arc<Function>,
@@ -165,7 +166,33 @@ pub enum Callable {
         def: Arc<Enumeration>,
         index: usize,
     },
+    NativeFunction(Arc<Mutex<Box<dyn NativeFn>>>),
+    NativeFunction2(Arc<dyn NativeFunction>),
     Parse(Arc<Record>), // XXX
+}
+
+impl fmt::Debug for Callable {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ScriptFunction {
+                function,
+                captured_scope,
+            } => f
+                .debug_struct("ScriptFunction")
+                .field("function", function)
+                .field("captured_scope", captured_scope)
+                .finish(),
+            Self::Record(arg0) => f.debug_tuple("Record").field(arg0).finish(),
+            Self::EnumVariant { def, index } => f
+                .debug_struct("EnumVariant")
+                .field("def", def)
+                .field("index", index)
+                .finish(),
+            Self::NativeFunction(_) => f.debug_tuple("NativeFunction").finish(),
+            Self::NativeFunction2(_) => write!(f, "[native function]"),
+            Self::Parse(arg0) => f.debug_tuple("Parse").field(arg0).finish(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -268,23 +295,46 @@ impl fmt::Debug for Scope {
     }
 }
 
-#[derive(Default)]
 pub struct Engine {
-    globals: HashMap<Ident, Mutex<Box<dyn NativeFn>>>,
+    globals: HashMap<Ident, ScriptValue>,
+}
+
+impl Default for Engine {
+    fn default() -> Self {
+        let mut globals = HashMap::default();
+
+        Self { globals }
+    }
 }
 
 impl Engine {
+    pub fn with_native(self, name: impl Into<Ident>, f: Arc<dyn NativeFunction>) -> Self {
+        let mut globals = self.globals;
+        globals.insert(
+            name.into(),
+            ScriptValue::Callable(Callable::NativeFunction2(f)),
+        );
+        Self { globals }
+    }
+
     pub fn with_global<F>(self, name: impl Into<Ident>, val: F) -> Self
     where
         F: NativeFn + 'static,
     {
         let mut globals = self.globals;
-        globals.insert(name.into(), Mutex::new(Box::new(val)));
+        globals.insert(
+            name.into(),
+            ScriptValue::Callable(Callable::NativeFunction(Arc::new(Mutex::new(Box::new(
+                val,
+            ))))),
+        );
         Self { globals }
     }
 
     pub fn eval(&self, ast: &[AstNode]) {
-        self.eval_block(ast, Scope::default());
+        let mut scope = Scope::default();
+        scope.locals.extend(self.globals.clone());
+        self.eval_block(ast, scope);
     }
 
     fn eval_block(&self, ast: &[AstNode], mut scope: Scope) -> Completion {
@@ -436,7 +486,7 @@ impl Engine {
             }
             Expression::Tuple(s) => {
                 let items = s
-                    .args
+                    .as_ref()
                     .iter()
                     .map(|arg| {
                         let value = self.eval_expr(&arg.expr, scope);
@@ -625,53 +675,22 @@ impl Engine {
     fn eval_call(
         &self,
         subject: &Src<Expression>,
-        arguments: &ArgumentsKind,
+        arguments: &CallExpression,
         scope: &Scope,
     ) -> ScriptValue {
         let arguments = self.eval_args(arguments, scope);
+
         match subject.as_ref() {
-            Expression::Ref(name) => match name.as_str() {
-                "state" => {
-                    let arg = &arguments.0.first().expect("state arg").value;
-                    ScriptValue::State(Arc::new(RwLock::new(arg.clone())))
+            Expression::Ref(_) => {
+                // XXX This should be the entire body of this function
+                let val = self.eval_expr(subject, scope);
+
+                if let ScriptValue::Callable(callable) = &val {
+                    self.eval_callable(callable, &arguments)
+                } else {
+                    panic!("Expected a callable, got: {val:?}")
                 }
-                _ => {
-                    if let Some(val) = scope.locals.get(name) {
-                        match val {
-                            ScriptValue::Callable(Callable::ScriptFunction {
-                                function,
-                                captured_scope,
-                            }) => {
-                                let mut inner_scope = Scope::clone(captured_scope);
-                                let values = transform_args(&function.params, &arguments);
-                                for item in &values.0 {
-                                    if let Some(name) = &item.name {
-                                        inner_scope.set_local(name.clone(), item.value.clone());
-                                    }
-                                }
-                                inner_scope.arguments = Arc::new(values);
-                                match self.eval_block(&function.body, inner_scope) {
-                                    Completion::EndOfBlock => ScriptValue::None,
-                                    Completion::ExplicitReturn(v) => v,
-                                    Completion::ImpliedReturn(v) => v,
-                                }
-                            }
-                            _ => panic!("Expected function, found {val:?}"),
-                        }
-                    } else if let Some(rec) = scope.records.get(name) {
-                        let values = transform_args(&rec.params, &arguments);
-                        ScriptValue::Rec {
-                            def: Arc::clone(rec),
-                            value: Arc::new(values),
-                        }
-                    } else if let Some(func) = self.globals.get(name) {
-                        let mut func = func.lock().unwrap();
-                        func(&arguments)
-                    } else {
-                        panic!("Undefined function: {subject:?}")
-                    }
-                }
-            },
+            }
             Expression::PrefixedName(prefix, name) => {
                 if let Some(def) = scope.records.get(prefix) {
                     match name.as_str() {
@@ -898,7 +917,7 @@ impl Engine {
                 inner_scope.arguments = Arc::new(values);
 
                 match self.eval_block(&function.body, inner_scope) {
-                    Completion::EndOfBlock => ScriptValue::identity(),
+                    Completion::EndOfBlock => ScriptValue::None,
                     Completion::ExplicitReturn(v) => v,
                     Completion::ImpliedReturn(v) => v,
                 }
@@ -940,21 +959,26 @@ impl Engine {
                     value: Arc::new(values),
                 }
             }
+            Callable::NativeFunction(func) => {
+                let mut func = func.lock().unwrap();
+                func(arguments)
+            }
+            Callable::NativeFunction2(func) => func.call(arguments),
         }
     }
 
-    fn eval_args(&self, arguments: &ArgumentsKind, scope: &Scope) -> Arc<Tuple> {
+    fn eval_args(&self, arguments: &CallExpression, scope: &Scope) -> Arc<Tuple> {
         match arguments {
-            ArgumentsKind::Inline(arguments) => {
+            CallExpression::Inline(arguments) => {
                 let items: Vec<_> = arguments
-                    .args
+                    .as_ref()
                     .iter()
                     .map(|a| TupleItem::new(a.name.clone(), self.eval_expr(&a.expr, scope)))
                     .collect();
 
                 Arc::new(Tuple(items))
             }
-            ArgumentsKind::Destructure(expr) => {
+            CallExpression::Destructure(expr) => {
                 let arg = self.eval_expr(expr, scope);
                 match &arg {
                     ScriptValue::Tuple(tuple) => Arc::clone(tuple),
@@ -962,7 +986,7 @@ impl Engine {
                     _ => panic!("Expected a tuple, found {arg}"),
                 }
             }
-            ArgumentsKind::DestructureImplicit(_) => Arc::clone(&scope.arguments),
+            CallExpression::DestructureImplicit(_) => Arc::clone(&scope.arguments),
         }
     }
 }
@@ -979,7 +1003,7 @@ impl Engine {
 // Inside foo(), we will receive a tuple with named items (a: int, b: int).
 // This also allows named arguments at call-site to be order differently than
 // inside the function, or even before positional arguments.
-fn transform_args(params: &[Parameter], args: &Tuple) -> Tuple {
+fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
     let mut items = Vec::new();
 
     let mut positional = args.0.iter().filter(|arg| arg.name.is_none());
@@ -1002,7 +1026,7 @@ fn transform_args(params: &[Parameter], args: &Tuple) -> Tuple {
         }
     }
 
-    fn transform_value(par: &Parameter, arg: &TupleItem) -> ScriptValue {
+    fn transform_value(par: &ParamExpression, arg: &TupleItem) -> ScriptValue {
         match (par.type_expr.as_ref(), &arg.value) {
             (TypeExpression::Tuple(t), ScriptValue::Tuple(tup)) => {
                 let applied = transform_args(t, tup);
