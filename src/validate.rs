@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::{ArgumentError, Error, Result},
-    extensions::std::NativeFunction,
+    extensions::NativeFunction,
     fmt::fmt_tuple,
     ident::Ident,
     lexer::{Loc, Src},
@@ -69,6 +69,7 @@ impl ScriptType {
     fn accepts(&self, other: &ScriptType) -> bool {
         match (self, other) {
             (ScriptType::State(_), _) => false,
+            (ScriptType::Generic, _) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
@@ -186,8 +187,12 @@ impl From<Vec<TupleItemType>> for TupleType {
 }
 
 impl TupleType {
-    const fn identity() -> Self {
+    pub const fn identity() -> Self {
         Self(Vec::new())
+    }
+
+    pub fn from_single(item: ScriptType) -> Self {
+        Self(vec![TupleItemType::unnamed(item)])
     }
 
     fn accepts(&self, other: &TupleType) -> bool {
@@ -903,12 +908,14 @@ impl<'a> Validator<'a> {
                             Ok(*ret.clone())
                         }
                         Some(ScriptType::NativeFunction(t)) => {
-                            if let CallExpressionType::Inline(arguments) = arguments {
-                                t.0.check_arguments(arguments.as_ref())
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))
-                            } else {
-                                todo!("Not inline arguments")
-                            }
+                            let params = t.0.arguments_type();
+                            let found_type = self
+                                .validate_arguments(&params, &arguments, scope)
+                                .map_err(|err| err.into_source_error(self.src, expr.loc))?;
+
+                            let ret = resolve_generic(t.0.return_type(), found_type)
+                                .map_err(|_| self.fail("Unresolved generic".into(), expr.loc))?;
+                            Ok(ret)
                         }
                         Some(t) => {
                             Err(self.fail(format!("Expected a callable, found {t}"), subject.loc))
@@ -1268,10 +1275,10 @@ impl<'a> Validator<'a> {
         params: &TupleType,
         arguments: &CallExpressionType,
         scope: &Scope,
-    ) -> result::Result<(), ArgumentError> {
-        match arguments {
+    ) -> result::Result<Option<ScriptType>, ArgumentError> {
+        let found_type = match arguments {
             CallExpressionType::Inline(arguments) => {
-                self.validate_inline_args(params, arguments)?;
+                self.validate_inline_args(params, arguments)?
             }
             CallExpressionType::Destructure(t) => {
                 let arg = ArgumentExpressionType {
@@ -1279,6 +1286,7 @@ impl<'a> Validator<'a> {
                     value: t.clone(),
                 };
                 self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
+                None
             }
             CallExpressionType::DestructureImplicit(loc) => {
                 let typ = scope.arguments.clone();
@@ -1287,18 +1295,20 @@ impl<'a> Validator<'a> {
                     value: Src::new(ScriptType::Tuple(typ), *loc),
                 };
                 self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
+                None
             }
-        }
-        Ok(())
+        };
+        Ok(found_type)
     }
 
     fn validate_inline_args(
         &self,
         formal: &TupleType,
         arguments: &[ArgumentExpressionType],
-    ) -> result::Result<(), ArgumentError> {
+    ) -> result::Result<Option<ScriptType>, ArgumentError> {
         // For each formal: If args contain named, take it, else take next unnamed
         let mut positional = arguments.iter().filter(|arg| arg.name.is_none());
+        let mut found_type = None;
 
         for par in formal.0.iter() {
             if let Some(name) = &par.name {
@@ -1315,6 +1325,9 @@ impl<'a> Validator<'a> {
                 }
             } else if let Some(arg) = positional.next() {
                 self.validate_single_arg(&par.value, arg)?;
+                if let ScriptType::Generic = par.value {
+                    found_type = Some(arg.value.cloned())
+                }
             } else {
                 return Err(ArgumentError::MissingArgument(None));
             }
@@ -1324,7 +1337,7 @@ impl<'a> Validator<'a> {
             return Err(ArgumentError::UnexpectedArgument(arg.clone()));
         }
 
-        Ok(())
+        Ok(found_type)
     }
 
     fn validate_single_arg(
@@ -1477,5 +1490,22 @@ impl<'a> Validator<'a> {
 
     fn fail(&self, msg: String, loc: Loc) -> Error {
         Error::new(msg, self.src, loc.shift_right(self.offset))
+    }
+}
+
+fn resolve_generic(
+    t: ScriptType,
+    found_type: Option<ScriptType>,
+) -> result::Result<ScriptType, ()> {
+    match t {
+        ScriptType::Generic => {
+            let ret = found_type.ok_or(())?;
+            Ok(ret)
+        }
+        ScriptType::State(inner) => Ok(ScriptType::State(
+            resolve_generic(*inner, found_type)?.into(),
+        )),
+        // TODO List, Tuple...
+        other => Ok(other),
     }
 }

@@ -4,12 +4,12 @@ use std::{
     result,
 };
 
-use crate::{ident::Ident, lexer::Loc, validate::{ArgumentType, ScriptType}};
+use crate::{ident::Ident, lexer::Loc, validate::{ArgumentExpressionType, ScriptType}};
 
 pub enum ArgumentError {
     MissingArgument(Option<Ident>),
-    WrongArgumentType(ScriptType, ArgumentType),
-    UnexpectedArgument(ArgumentType),
+    WrongArgumentType(ScriptType, ArgumentExpressionType),
+    UnexpectedArgument(ArgumentExpressionType),
 }
 
 // Promote ArgumentError to "Error" below

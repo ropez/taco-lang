@@ -1,20 +1,23 @@
-use std::{collections::HashMap, fs};
+use std::{collections::HashMap, fs, sync::Arc};
 
 use crate::{
     eval::{ScriptValue, Tuple},
-    extensions::ExtensionFunction,
-    validate::{TupleItemType, TupleType, ScriptType},
+    extensions::NativeFunction,
+    validate::{ScriptType, TupleType},
 };
 
-pub fn create() -> HashMap<String, ExtensionFunction> {
-    let mut ext = HashMap::new();
+struct ReadFunc;
 
-    let read_type = ScriptType::Function {
-        params: TupleType::from(vec![TupleItemType::unnamed(ScriptType::Str)]),
-        ret: Box::new(ScriptType::Str),
-    };
+impl NativeFunction for ReadFunc {
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::Str)
+    }
 
-    let read_fn = move |arguments: &Tuple| {
+    fn return_type(&self) -> ScriptType {
+        ScriptType::Str
+    }
+
+    fn call(&self, arguments: &Tuple) -> ScriptValue {
         let Some(name) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };
@@ -28,27 +31,24 @@ pub fn create() -> HashMap<String, ExtensionFunction> {
                 todo!("Return errors from extensions")
             }
         }
-    };
+    }
+}
 
-    ext.insert(
-        "read".into(),
-        ExtensionFunction {
-            script_type: read_type.clone(),
-            func: Box::new(read_fn),
-        },
-    );
+struct JsonFunc;
+
+impl NativeFunction for JsonFunc {
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::List(ScriptType::Str.into()))
+    }
+
+    fn return_type(&self) -> ScriptType {
+        ScriptType::Str
+    }
 
     // We need "json" to be a method, so that it can handle different types of data.
     // Maybe extenstions need to "plug in" to the type system/analyzer.
 
-    let json_type = ScriptType::Function {
-        params: TupleType::from(vec![TupleItemType::unnamed(ScriptType::List(
-            ScriptType::Str.into(),
-        ))]),
-        ret: Box::new(ScriptType::Str),
-    };
-
-    let json_fn = move |arguments: &Tuple| {
+    fn call(&self, arguments: &Tuple) -> ScriptValue {
         let Some(value) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };
@@ -73,15 +73,14 @@ pub fn create() -> HashMap<String, ExtensionFunction> {
                 todo!("Return errors from extensions")
             }
         }
-    };
+    }
+}
 
-    ext.insert(
-        "json".into(),
-        ExtensionFunction {
-            script_type: json_type.clone(),
-            func: Box::new(json_fn),
-        },
-    );
+pub fn create() -> HashMap<String, Arc<dyn NativeFunction>> {
+    let mut ext: HashMap<String, Arc<dyn NativeFunction>> = HashMap::new();
+
+    ext.insert("read".into(), Arc::new(ReadFunc));
+    ext.insert("json".into(), Arc::new(JsonFunc));
 
     ext
 }

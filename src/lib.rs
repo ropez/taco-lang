@@ -37,7 +37,7 @@ where
     let mut validator = Validator::new(src);
     let mut engine = Engine::default();
 
-    for (name, f) in extensions::std::create() {
+    for (name, f) in extensions::state::create() {
         let name = name.as_str();
         validator = validator.with_native(name, Arc::clone(&f));
         engine = engine.with_native(name, Arc::clone(&f));
@@ -45,14 +45,14 @@ where
 
     for (name, f) in extensions::fs::create() {
         let name = name.as_str();
-        validator = validator.with_global(name, f.script_type);
-        engine = engine.with_global(name, f.func);
+        validator = validator.with_native(name, Arc::clone(&f));
+        engine = engine.with_native(name, Arc::clone(&f));
     }
 
     for (name, f) in extensions::print::create(out) {
         let name = name.as_str();
-        validator = validator.with_global(name, f.script_type);
-        engine = engine.with_global(name, f.func);
+        validator = validator.with_native(name, Arc::clone(&f));
+        engine = engine.with_native(name, Arc::clone(&f));
     }
 
     validator.validate(&ast)?;

@@ -1,12 +1,19 @@
-use crate::{eval::NativeFn, validate::ScriptType};
+use crate::{eval::{ScriptValue, Tuple}, validate::{ScriptType, TupleType}};
 
-pub(crate) mod std;
+pub(crate) mod state;
 pub(crate) mod fs;
 pub(crate) mod print;
 
 // XXX An extension probably needs to be more than just collection of functions
 
-pub struct ExtensionFunction {
-    pub script_type: ScriptType,
-    pub func: Box<dyn NativeFn>,
+pub trait NativeFunction {
+    fn arguments_type(&self) -> TupleType {
+        TupleType::identity()
+    }
+    fn return_type(&self) -> ScriptType {
+        ScriptType::identity()
+    }
+
+    fn call(&self, arguments: &Tuple) -> ScriptValue; // Later: Result<ScriptValue, ScriptError>
 }
+

@@ -6,53 +6,58 @@ use std::{
 
 use crate::{
     eval::{ScriptValue, Tuple},
-    extensions::ExtensionFunction,
-    validate::{TupleItemType, TupleType, ScriptType},
+    extensions::NativeFunction,
+    validate::{ScriptType, TupleType},
 };
 
-pub fn create<O>(out: Arc<Mutex<O>>) -> HashMap<String, ExtensionFunction>
+struct PrintFunc<O>
 where
     O: io::Write + 'static,
 {
-    let print_type = ScriptType::Function {
-        params: TupleType::from(vec![TupleItemType::unnamed(ScriptType::Str)]),
-        ret: Box::new(ScriptType::identity()),
-    };
+    out: Arc<Mutex<O>>,
+    newline: bool,
+}
 
-    let mut ext = HashMap::new();
+impl<O> NativeFunction for PrintFunc<O>
+where
+    O: io::Write + 'static,
+{
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::Str)
+    }
 
-    let print_out = out.clone();
-    let print_fn = move |arguments: &Tuple| {
+    fn call(&self, arguments: &Tuple) -> ScriptValue {
         if let Some(arg) = arguments.at(0) {
-            let mut out = print_out.lock().unwrap();
+            let mut out = self.out.lock().unwrap();
             write!(out, "{arg}").unwrap();
+            if self.newline {
+                writeln!(out).unwrap();
+            }
         }
         ScriptValue::identity()
-    };
+    }
+}
+
+pub fn create<O>(out: Arc<Mutex<O>>) -> HashMap<String, Arc<dyn NativeFunction>>
+where
+    O: io::Write + 'static,
+{
+    let mut ext: HashMap<String, Arc<dyn NativeFunction>> = HashMap::new();
 
     ext.insert(
         "print".into(),
-        ExtensionFunction {
-            script_type: print_type.clone(),
-            func: Box::new(print_fn),
-        },
+        Arc::new(PrintFunc {
+            out: Arc::clone(&out),
+            newline: false,
+        }),
     );
-
-    let println_out = out.clone();
-    let println_fn = move |arguments: &Tuple| {
-        if let Some(arg) = arguments.at(0) {
-            let mut out = println_out.lock().unwrap();
-            writeln!(out, "{arg}").unwrap();
-        }
-        ScriptValue::identity()
-    };
 
     ext.insert(
         "println".into(),
-        ExtensionFunction {
-            script_type: print_type.clone(),
-            func: Box::new(println_fn),
-        },
+        Arc::new(PrintFunc {
+            out: Arc::clone(&out),
+            newline: true,
+        }),
     );
 
     ext

@@ -1,11 +1,11 @@
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
-    sync::{Arc, Mutex, RwLock},
+    sync::{Arc, RwLock},
 };
 
 use crate::{
-    extensions::std::NativeFunction,
+    extensions::NativeFunction,
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
     lexer::Src,
@@ -166,8 +166,7 @@ pub enum Callable {
         def: Arc<Enumeration>,
         index: usize,
     },
-    NativeFunction(Arc<Mutex<Box<dyn NativeFn>>>),
-    NativeFunction2(Arc<dyn NativeFunction>),
+    NativeFunction(Arc<dyn NativeFunction>),
     Parse(Arc<Record>), // XXX
 }
 
@@ -188,8 +187,7 @@ impl fmt::Debug for Callable {
                 .field("def", def)
                 .field("index", index)
                 .finish(),
-            Self::NativeFunction(_) => f.debug_tuple("NativeFunction").finish(),
-            Self::NativeFunction2(_) => write!(f, "[native function]"),
+            Self::NativeFunction(_) => write!(f, "[native function]"),
             Self::Parse(arg0) => f.debug_tuple("Parse").field(arg0).finish(),
         }
     }
@@ -277,9 +275,6 @@ pub(crate) struct Scope {
     arguments: Arc<Tuple>,
 }
 
-pub trait NativeFn: FnMut(&Tuple) -> ScriptValue {}
-impl<T: FnMut(&Tuple) -> ScriptValue> NativeFn for T {}
-
 impl Scope {
     fn set_local(&mut self, name: Ident, value: ScriptValue) {
         // Make sure we never assign a value to '_'
@@ -312,21 +307,7 @@ impl Engine {
         let mut globals = self.globals;
         globals.insert(
             name.into(),
-            ScriptValue::Callable(Callable::NativeFunction2(f)),
-        );
-        Self { globals }
-    }
-
-    pub fn with_global<F>(self, name: impl Into<Ident>, val: F) -> Self
-    where
-        F: NativeFn + 'static,
-    {
-        let mut globals = self.globals;
-        globals.insert(
-            name.into(),
-            ScriptValue::Callable(Callable::NativeFunction(Arc::new(Mutex::new(Box::new(
-                val,
-            ))))),
+            ScriptValue::Callable(Callable::NativeFunction(f)),
         );
         Self { globals }
     }
@@ -959,11 +940,7 @@ impl Engine {
                     value: Arc::new(values),
                 }
             }
-            Callable::NativeFunction(func) => {
-                let mut func = func.lock().unwrap();
-                func(arguments)
-            }
-            Callable::NativeFunction2(func) => func.call(arguments),
+            Callable::NativeFunction(func) => func.call(arguments),
         }
     }
 
