@@ -6,8 +6,7 @@ use std::{
 };
 
 use crate::{
-    error::{ArgumentError, Error, Result},
-    extensions::NativeFunction,
+    error::{Error, TypeError},
     fmt::fmt_tuple,
     ident::Ident,
     lexer::{Loc, Src},
@@ -15,7 +14,13 @@ use crate::{
         ArgumentExpression, Assignee, AstNode, CallExpression, Expression, ParamExpression,
         TypeExpression,
     },
+    stdlib::{
+        NativeFunction, NativeMethod,
+        list::{ListFind, ListPush, ListSort, ListUnzip},
+    },
 };
+
+type Result<T> = result::Result<T, Src<TypeError>>;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ScriptType {
@@ -77,6 +82,41 @@ impl ScriptType {
             (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
             (ScriptType::Enum(l), ScriptType::Enum(r)) => Arc::ptr_eq(l, r),
             (ScriptType::Enum(_), ScriptType::EnumVariant(_, _)) => false,
+            (
+                ScriptType::Function {
+                    params: lp,
+                    ret: lr,
+                },
+                ScriptType::Function {
+                    params: rp,
+                    ret: rr,
+                },
+            ) => rp.accepts(lp) && lr.accepts(rr),
+            // (
+            //     ScriptType::Function {
+            //         params: lp,
+            //         ret: lr,
+            //     },
+            //     r @ ScriptType::Rec { name, params: rp },
+            // ) => rp.accepts(lp) && lr.accepts(r),
+            (
+                ScriptType::Function {
+                    params: lp,
+                    ret: lr,
+                },
+                ScriptType::EnumVariant(a, b),
+            ) => {
+                let variant = a.variants.iter().find(|v| v.name == *b);
+                if let Some(variant) = variant {
+                    if let Some(rp) = &variant.params {
+                        rp.accepts(lp) && lr.accepts(&ScriptType::Enum(Arc::clone(a)))
+                    } else {
+                        false
+                    }
+                } else {
+                    false
+                }
+            }
 
             // If a function returns str?, it can also optionally call another function that
             // returns str?. This doesn't turn into "str??", it's always just a value nor no value.
@@ -134,6 +174,7 @@ impl Display for ScriptType {
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::Rec { name, params } => write!(f, "{name}{params}"),
             Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
+            Self::Generic => write!(f, "T"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -159,8 +200,8 @@ struct EnumVariantType {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TupleItemType {
-    name: Option<Ident>,
-    value: ScriptType,
+    pub name: Option<Ident>,
+    pub value: ScriptType,
 }
 
 impl TupleItemType {
@@ -193,6 +234,10 @@ impl TupleType {
 
     pub fn from_single(item: ScriptType) -> Self {
         Self(vec![TupleItemType::unnamed(item)])
+    }
+
+    pub fn items(&self) -> &[TupleItemType] {
+        &self.0
     }
 
     fn accepts(&self, other: &TupleType) -> bool {
@@ -266,7 +311,7 @@ impl Src<Vec<ArgumentExpressionType>> {
 // call expression before validation.
 #[derive(Debug)]
 pub enum CallExpressionType {
-    Inline(Vec<ArgumentExpressionType>),
+    Inline(Src<Vec<ArgumentExpressionType>>),
     Destructure(Src<ScriptType>),
     DestructureImplicit(Loc),
 }
@@ -347,7 +392,6 @@ impl ReturnType {
 
 pub struct Validator<'a> {
     src: &'a str,
-    offset: usize,
     globals: HashMap<Ident, ScriptType>,
 }
 
@@ -355,7 +399,6 @@ impl<'a> Validator<'a> {
     pub fn new(src: &'a str) -> Self {
         Self {
             src,
-            offset: 0,
             globals: Default::default(),
         }
     }
@@ -375,17 +418,13 @@ impl<'a> Validator<'a> {
         Self { globals, ..self }
     }
 
-    pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
-        self.validate_block(ast, Scope::with_globals(&self.globals))?;
+    pub fn validate(&self, ast: &[AstNode]) -> result::Result<(), Error> {
+        self.validate_block(ast, Scope::with_globals(&self.globals))
+            .map_err(|err| {
+                let loc = err.loc;
+                err.into_inner().into_source_error(self.src, loc)
+            })?;
         Ok(())
-    }
-
-    fn with_offset(src: &'a str, offset: usize) -> Self {
-        Self {
-            src,
-            offset,
-            globals: Default::default(),
-        }
     }
 
     fn validate_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<Scope> {
@@ -429,19 +468,18 @@ impl<'a> Validator<'a> {
                             .map(|t| t.loc)
                             .unwrap_or(Loc::start());
                         if let Some(ret) = found_ret_type {
-                            return Err(self.fail(
-                                format!(
-                                    "Incompatible return type: Expected {typ}, found {found_type}"
-                                ),
-                                loc,
-                            ));
+                            return Err(TypeError::InvalidReturnType {
+                                expected: typ.clone(),
+                                actual: found_type,
+                            }
+                            .at(loc));
                         } else {
                             let loc = fun
                                 .type_expr
                                 .as_ref()
                                 .map(|t| t.loc)
                                 .unwrap_or(Loc::start());
-                            return Err(self.fail("Missing return statement".into(), loc));
+                            return Err(TypeError::MissingReturnStatement.at(loc));
                         }
                     }
 
@@ -501,7 +539,7 @@ impl<'a> Validator<'a> {
 
                     match iterable_typ {
                         ScriptType::EmptyList => {
-                            return Err(self.fail("List is always empty".into(), iterable.loc));
+                            return Err(TypeError::EmptyList.at(iterable.loc));
                         }
                         ScriptType::List(inner) => {
                             let mut inner_scope = scope.clone();
@@ -514,8 +552,7 @@ impl<'a> Validator<'a> {
                             self.validate_block(body, inner_scope)?;
                         }
                         _ => {
-                            let msg = format!("Expected iterable, found {iterable_typ}");
-                            return Err(self.fail(msg, iterable.loc));
+                            return Err(TypeError::InvalidIterable(iterable_typ).at(iterable.loc));
                         }
                     }
                 }
@@ -526,7 +563,11 @@ impl<'a> Validator<'a> {
                 } => {
                     let typ = self.validate_expr(cond, &scope)?;
                     if !ScriptType::Bool.accepts(&typ) {
-                        return Err(self.fail(format!("Expected boolean, found {typ}"), cond.loc));
+                        return Err(TypeError::InvalidArgumentType {
+                            expected: ScriptType::Bool,
+                            actual: typ.clone(),
+                        }
+                        .at(cond.loc));
                     }
 
                     self.validate_block(body, scope.clone())?;
@@ -543,9 +584,7 @@ impl<'a> Validator<'a> {
                 } => {
                     let opt_typ = self.validate_expr(value, &scope)?;
                     let ScriptType::Opt(typ) = opt_typ else {
-                        return Err(
-                            self.fail(format!("Expected option type, found {opt_typ}"), value.loc)
-                        );
+                        return Err(TypeError::InvalidOptional(opt_typ).at(value.loc));
                     };
 
                     let mut inner_scope = scope.clone();
@@ -564,13 +603,19 @@ impl<'a> Validator<'a> {
                         let typ = self.validate_expr(expr, &scope)?;
                         match &scope.ret {
                             None => {
-                                return Err(self.fail("Unexpected return value".into(), expr.loc));
+                                return Err(TypeError::InvalidReturnType {
+                                    expected: ScriptType::identity(),
+                                    actual: typ,
+                                }
+                                .at(expr.loc));
                             }
                             Some(r) => {
                                 if !r.accepts(&typ) {
-                                    return Err(
-                                        self.fail(format!("Expected {r}, found {typ}"), expr.loc)
-                                    );
+                                    return Err(TypeError::InvalidReturnType {
+                                        expected: r.clone(),
+                                        actual: typ,
+                                    }
+                                    .at(expr.loc));
                                 }
                             }
                         }
@@ -579,7 +624,8 @@ impl<'a> Validator<'a> {
                             None => {}
                             Some(ScriptType::Opt(_)) => {}
                             Some(_) => {
-                                return Err(self.fail("Expected return value".into(), Loc::start()));
+                                // XXX Location
+                                return Err(TypeError::MissingReturnStatement.at(Loc::start()));
                             }
                         }
                     }
@@ -645,9 +691,7 @@ impl<'a> Validator<'a> {
             }) => {
                 let opt_typ = self.validate_expr(value, &scope)?;
                 let ScriptType::Opt(typ) = opt_typ else {
-                    return Err(
-                        self.fail(format!("Expected option type, found {opt_typ}"), value.loc)
-                    );
+                    return Err(TypeError::InvalidOptional(opt_typ).at(value.loc));
                 };
 
                 let mut inner_scope = scope.clone();
@@ -710,11 +754,18 @@ impl<'a> Validator<'a> {
             Expression::Arguments => Ok(ScriptType::Tuple(scope.arguments.clone())),
             Expression::String(parts) => {
                 for (part, offset) in parts {
-                    let inner = Self::with_offset(self.src, *offset);
-                    let typ = inner.validate_expr(part, scope)?;
+                    let inner = Self::new(self.src); // XXX Inner doesn't use src
+                    let typ = inner.validate_expr(part, scope).map_err(|err| {
+                        let loc = err.loc.shift_right(*offset);
+                        Src::new(err.into_inner(), loc)
+                    })?;
                     match &typ {
                         ScriptType::Opt(t) => {
-                            return Err(self.fail(format!("Expected {t} got {typ}"), part.loc));
+                            return Err(TypeError::InvalidArgumentType {
+                                expected: *t.clone(),
+                                actual: typ,
+                            }
+                            .at(part.loc));
                         }
                         ScriptType::State(t) => todo!("Error for printing state({t})"),
                         _ => (),
@@ -758,12 +809,11 @@ impl<'a> Validator<'a> {
                             })
                         }
                         TypeDefinition::EnumDefinition(_) => {
-                            Err(self
-                                .fail(format!("Expected expression, found enum {ident}"), expr.loc))
+                            Err(TypeError::InvalidExpression.at(expr.loc))
                         }
                     }
                 } else {
-                    Err(self.fail(format!("Undefined reference: {ident}"), expr.loc))
+                    Err(TypeError::UndefinedReference(ident.clone()).at(expr.loc))
                 }
             }
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
@@ -784,10 +834,11 @@ impl<'a> Validator<'a> {
                                 ret: ret.into(),
                             })
                         }
-                        _ => Err(self.fail(
-                            format!("Method not found: '{name}' for {rec_name}"),
-                            expr.loc,
-                        )),
+                        _ => Err(TypeError::UndefinedMethod {
+                            type_name: rec_name.clone(),
+                            method_name: name.clone(),
+                        }
+                        .at(expr.loc)),
                     }
                 }
                 Some(TypeDefinition::EnumDefinition(def)) => {
@@ -798,13 +849,14 @@ impl<'a> Validator<'a> {
                             Ok(ScriptType::EnumVariant(Arc::clone(def), var.name.clone()))
                         }
                     } else {
-                        Err(self.fail(
-                            format!("Variant not found: {name} in {}", def.name),
-                            expr.loc,
-                        ))
+                        Err(TypeError::UndefinedVariant {
+                            type_name: def.name.clone(),
+                            variant_name: name.clone(),
+                        }
+                        .at(expr.loc))
                     }
                 }
-                None => Err(self.fail(format!("Undefined type: {prefix}"), expr.loc)),
+                None => Err(TypeError::UndefinedReference(prefix.clone()).at(expr.loc)),
             },
             Expression::Access { subject, key } => {
                 let subject_typ = self.validate_expr(subject, scope)?;
@@ -812,31 +864,38 @@ impl<'a> Validator<'a> {
                     ScriptType::Tuple(tuple) => {
                         match tuple.0.iter().find(|a| a.name.as_ref() == Some(key)) {
                             Some(a) => Ok(a.value.clone()),
-                            None => Err(self.fail(
-                                format!("Unknown attribute: {key} on {subject_typ}"),
-                                expr.loc,
-                            )),
+                            None => Err(TypeError::UndefinedAttribute {
+                                subject: subject_typ,
+                                attr_name: key.clone(),
+                            }
+                            .at(expr.loc)),
                         }
                     }
                     ScriptType::Rec { params, .. } => {
                         match params.0.iter().find(|a| a.name.as_ref() == Some(key)) {
                             Some(a) => Ok(a.value.clone()),
-                            None => Err(self.fail(
-                                format!("Unknown attribute: {key} on {subject_typ}"),
-                                expr.loc,
-                            )),
+                            None => Err(TypeError::UndefinedAttribute {
+                                subject: subject_typ,
+                                attr_name: key.clone(),
+                            }
+                            .at(expr.loc)),
                         }
                     }
-                    _ => Err(self.fail(
-                        format!("Unknown attribute: {key} on {subject_typ}"),
-                        expr.loc,
-                    )),
+                    _ => Err(TypeError::UndefinedAttribute {
+                        subject: subject_typ,
+                        attr_name: key.clone(),
+                    }
+                    .at(expr.loc)),
                 }
             }
             Expression::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if !ScriptType::Bool.accepts(&typ) {
-                    return Err(self.fail(format!("Expected boolean, found {typ}"), expr.loc));
+                    return Err(TypeError::InvalidArgumentType {
+                        expected: ScriptType::Bool,
+                        actual: typ.clone(),
+                    }
+                    .at(expr.loc));
                 }
                 Ok(ScriptType::Bool)
             }
@@ -845,7 +904,11 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if !(l.accepts(&r) || r.accepts(&l)) {
-                    return Err(self.fail(format!("Expected {l}, found {r}"), rhs.loc));
+                    return Err(TypeError::InvalidArgumentType {
+                        expected: l,
+                        actual: r,
+                    }
+                    .at(rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -858,10 +921,10 @@ impl<'a> Validator<'a> {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if !ScriptType::Int.accepts(&l) {
-                    return Err(self.fail(format!("Expected number, found {l}"), lhs.loc));
+                    return Err(TypeError::expected_number(l.clone()).at(lhs.loc));
                 }
                 if !ScriptType::Int.accepts(&r) {
-                    return Err(self.fail(format!("Expected number, found {r}"), rhs.loc));
+                    return Err(TypeError::expected_number(r.clone()).at(rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -870,11 +933,11 @@ impl<'a> Validator<'a> {
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
 
-                if l != ScriptType::Int {
-                    return Err(self.fail(format!("Expected number, found {l}"), lhs.loc));
+                if !ScriptType::Int.accepts(&l) {
+                    return Err(TypeError::expected_number(l.clone()).at(lhs.loc));
                 }
-                if r != ScriptType::Int {
-                    return Err(self.fail(format!("Expected number, found {r}"), rhs.loc));
+                if !ScriptType::Int.accepts(&r) {
+                    return Err(TypeError::expected_number(r.clone()).at(rhs.loc));
                 }
 
                 Ok(ScriptType::Range)
@@ -882,7 +945,7 @@ impl<'a> Validator<'a> {
             Expression::Negate(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if !ScriptType::Int.accepts(&typ) {
-                    return Err(self.fail(format!("Expected number, found {typ}"), expr.loc));
+                    return Err(TypeError::expected_number(typ.clone()).at(expr.loc));
                 }
                 Ok(typ)
             }
@@ -894,7 +957,7 @@ impl<'a> Validator<'a> {
                 let inner_typ = self.validate_expr(inner, scope)?;
                 match inner_typ {
                     ScriptType::Opt(inner) => Ok(*inner),
-                    _ => Err(self.fail(format!("Expected optional, found {inner_typ}"), inner.loc)),
+                    _ => Err(TypeError::InvalidOptional(inner_typ).at(inner.loc)),
                 }
             }
             Expression::Call { subject, arguments } => {
@@ -902,40 +965,33 @@ impl<'a> Validator<'a> {
                 match subject.as_ref().as_ref() {
                     Expression::Ref(name) => match scope.get_local(name) {
                         Some(ScriptType::Function { params, ret }) => {
-                            self.validate_arguments(params, &arguments, scope)
-                                .map_err(|err| err.into_source_error(self.src, expr.loc))?;
-
+                            self.validate_arguments(params, &arguments, scope)?;
                             Ok(*ret.clone())
                         }
                         Some(ScriptType::NativeFunction(t)) => {
                             let params = t.0.arguments_type();
-                            let found_type = self
-                                .validate_arguments(&params, &arguments, scope)
-                                .map_err(|err| err.into_source_error(self.src, expr.loc))?;
+                            let found_type = self.validate_arguments(&params, &arguments, scope)?;
 
                             let ret = resolve_generic(t.0.return_type(), found_type)
-                                .map_err(|_| self.fail("Unresolved generic".into(), expr.loc))?;
+                                .map_err(|_| TypeError::UnresolvedGeneric.at(expr.loc))?;
                             Ok(ret)
                         }
-                        Some(t) => {
-                            Err(self.fail(format!("Expected a callable, found {t}"), subject.loc))
-                        }
+                        Some(t) => Err(TypeError::InvalidCallable(t.clone()).at(subject.loc)),
                         None => match scope.types.get(name) {
                             Some(TypeDefinition::RecDefinition { params, name }) => {
-                                self.validate_arguments(params, &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
+                                self.validate_arguments(params, &arguments, scope)?;
 
                                 Ok(ScriptType::Rec {
                                     params: params.clone(),
                                     name: name.clone(),
                                 })
                             }
-                            Some(TypeDefinition::EnumDefinition(_)) => Err(self.fail(
-                                format!("Expected a callable, found enum {name}"),
-                                subject.loc,
-                            )),
+                            Some(TypeDefinition::EnumDefinition(t)) => {
+                                Err(TypeError::InvalidCallable(ScriptType::Enum(Arc::clone(t)))
+                                    .at(subject.loc))
+                            }
                             None => {
-                                Err(self.fail(format!("Undefined reference: {name}"), subject.loc))
+                                Err(TypeError::UndefinedReference(name.clone()).at(subject.loc))
                             }
                         },
                     },
@@ -954,232 +1010,154 @@ impl<'a> Validator<'a> {
                                             name: rec_name.clone(),
                                         })
                                     }
-                                    _ => Err(self.fail(
-                                        format!("Method not found: '{name}' for {rec_name}"),
-                                        expr.loc,
-                                    )),
+                                    _ => Err(TypeError::UndefinedMethod {
+                                        type_name: rec_name.clone(),
+                                        method_name: name.clone(),
+                                    }
+                                    .at(expr.loc)),
                                 }
                             }
                             Some(TypeDefinition::EnumDefinition(def)) => {
                                 if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
                                     if let Some(params) = &var.params {
-                                        self.validate_arguments(params, &arguments, scope)
-                                            .map_err(|err| {
-                                                err.into_source_error(self.src, expr.loc)
-                                            })?;
+                                        self.validate_arguments(params, &arguments, scope)?;
                                         Ok(ScriptType::Enum(Arc::clone(def)))
                                     } else {
-                                        Err(self.fail(
-                                            format!("Variant not callable: {}::{}", def.name, name),
-                                            expr.loc,
-                                        ))
+                                        let subject_typ = self.eval_expr(subject, scope)?;
+                                        Err(TypeError::InvalidCallable(subject_typ.into_inner())
+                                            .at(expr.loc))
+                                        // Err(self.fail(
+                                        //     format!("Variant not callable: {}::{}", def.name, name),
+                                        //     expr.loc,
+                                        // ))
                                     }
                                 } else {
-                                    Err(self.fail(
-                                        format!("Variant not found: {name} in {}", def.name),
-                                        expr.loc,
-                                    ))
+                                    Err(TypeError::UndefinedVariant {
+                                        type_name: def.name.clone(),
+                                        variant_name: name.clone(),
+                                    }
+                                    .at(expr.loc))
                                 }
                             }
-                            None => Err(self.fail(format!("Undefined type: {prefix}"), expr.loc)),
+                            None => Err(TypeError::UndefinedReference(prefix.clone()).at(expr.loc)),
                         }
                     }
                     Expression::Access { subject, key } => {
                         let subject_typ = self.validate_expr(subject, scope)?;
                         match (&subject_typ, key.as_str()) {
                             (ScriptType::State(typ), "get") => {
-                                self.validate_arguments(&TupleType::identity(), &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
+                                self.validate_arguments(&TupleType::identity(), &arguments, scope)?;
                                 Ok(*typ.clone())
                             }
                             (ScriptType::State(typ), "set") => {
                                 // Simulate normal function call
                                 let formal = TupleType(vec![TupleItemType::unnamed(*typ.clone())]);
-                                self.validate_arguments(&formal, &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
+                                self.validate_arguments(&formal, &arguments, scope)?;
                                 Ok(ScriptType::identity())
                             }
                             (ScriptType::EmptyList, "push") => {
-                                if let CallExpressionType::Inline(inline_arguments) = &arguments {
-                                    // "Promote" list based on the first argument type
-                                    if let Some(arg) = inline_arguments.first() {
-                                        // XXX Variadic args not supported (but allowed in runtime)
-                                        let formal = TupleType(vec![TupleItemType::unnamed(
-                                            arg.value.as_ref().clone(),
-                                        )]);
-                                        self.validate_arguments(&formal, &arguments, scope)
-                                            .map_err(|err| {
-                                                err.into_source_error(self.src, expr.loc)
-                                            })?;
-                                        Ok(ScriptType::List(arg.value.cloned().into()))
-                                    } else {
-                                        Ok(ScriptType::EmptyList)
-                                    }
+                                let formal = TupleType::from_single(ScriptType::Generic);
+                                let found_type =
+                                    self.validate_arguments(&formal, &arguments, scope)?;
+                                if let Some(generic) = found_type {
+                                    Ok(ScriptType::List(generic.into()))
                                 } else {
-                                    // Should be possible to do this for any argument type
-                                    Err(self
-                                        .fail(format!("Expected one inline argument"), expr.loc))
+                                    Ok(ScriptType::EmptyList)
                                 }
                             }
-                            (ScriptType::List(typ), "push") => {
-                                // XXX Variadic args not supported (but allowed in runtime)
-                                let formal = TupleType(vec![TupleItemType::unnamed(*typ.clone())]);
-                                self.validate_arguments(&formal, &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
-                                Ok(ScriptType::List(typ.clone()))
+                            (ScriptType::List(_), "push") => {
+                                let formal = ListPush.arguments_type(&subject_typ);
+                                self.validate_arguments(&formal, &arguments, scope)?;
+                                ListPush
+                                    .return_type(&subject_typ)
+                                    .map_err(|err| err.at(expr.loc))
                             }
-                            (ScriptType::List(typ), "find") => {
-                                let formal = TupleType(vec![TupleItemType::unnamed(*typ.clone())]);
-                                self.validate_arguments(&formal, &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
-                                Ok(ScriptType::Opt(typ.clone()))
+                            (ScriptType::List(_), "find") => {
+                                let formal = ListFind.arguments_type(&subject_typ);
+                                self.validate_arguments(&formal, &arguments, scope)?;
+                                ListFind
+                                    .return_type(&subject_typ)
+                                    .map_err(|err| err.at(expr.loc))
                             }
                             (ScriptType::List(typ), "sum") if ScriptType::Int.accepts(typ) => {
                                 // No arguments allowed
-                                self.validate_arguments(&TupleType::identity(), &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
+                                self.validate_arguments(&TupleType::identity(), &arguments, scope)?;
                                 Ok(ScriptType::Int)
                             }
                             (ScriptType::List(typ), "sort") if ScriptType::Int.accepts(typ) => {
-                                // No arguments allowed
-                                self.validate_arguments(&TupleType::identity(), &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
-                                Ok(ScriptType::List(typ.clone()))
+                                let formal = ListSort.arguments_type(&subject_typ);
+                                self.validate_arguments(&formal, &arguments, scope)?;
+                                ListSort
+                                    .return_type(&subject_typ)
+                                    .map_err(|err| err.at(expr.loc))
                             }
                             (ScriptType::EmptyList, "map") => {
                                 // TODO This should be a warning, "function is never called"
                                 Ok(ScriptType::EmptyList)
                             }
                             (ScriptType::List(typ), "map") => {
-                                if let CallExpressionType::Inline(inline_arguments) = arguments {
-                                    if let Some(first) = inline_arguments.first() {
-                                        // XXX FIXME This should all just be handled in 'ScriptType::accepts'
-                                        if let ScriptType::Function { ret, params } =
-                                            first.value.as_ref()
-                                        {
-                                            if params.0.len() != 1 {
-                                                return Err(self.fail(
-                                                    "Expected function to take one argument".into(),
-                                                    first.value.loc,
-                                                ));
-                                            }
-                                            if let Some(par) = params.0.first() {
-                                                if !par.value.accepts(typ.as_ref()) {
-                                                    return Err(self.fail(
-                                                        format!("Expected function to take {typ}"),
-                                                        first.value.loc,
-                                                    ));
-                                                }
-                                                Ok(ScriptType::List(ret.clone()))
-                                            } else {
-                                                Err(self.fail(
-                                                    "Expected function to take one argument".into(),
-                                                    first.value.loc,
-                                                ))
-                                            }
-                                        } else {
-                                            Err(self.fail(
-                                                format!(
-                                                    "Expected function, found {}",
-                                                    first.value.as_ref()
-                                                ),
-                                                expr.loc,
-                                            ))
-                                        }
-                                    } else {
-                                        Err(self
-                                            .fail("Expected one inline argument".into(), expr.loc))
-                                    }
+                                let formal = TupleType::from_single(ScriptType::Function {
+                                    params: TupleType::from_single(*typ.clone()),
+                                    ret: ScriptType::Generic.into(),
+                                });
+
+                                let generic =
+                                    self.validate_arguments(&formal, &arguments, scope)?;
+                                if let Some(generic) = generic {
+                                    Ok(ScriptType::List(generic.into()))
                                 } else {
-                                    Err(self.fail("Expected one inline argument".into(), expr.loc))
+                                    todo!("No generic found in: {arguments:?}")
                                 }
                             }
                             (ScriptType::List(typ), "map_to") => {
                                 let Some(tuple_typ) = typ.as_tuple() else {
-                                    return Err(self.fail(
-                                        format!("Expected a list of tuples, found {subject_typ}"),
-                                        subject.loc,
-                                    ));
+                                    return Err(
+                                        TypeError::InvalidMapTo(subject_typ).at(subject.loc)
+                                    );
                                 };
 
-                                if let CallExpressionType::Inline(inline_arguments) = arguments {
-                                    if let Some(first) = inline_arguments.first() {
-                                        if let Some((params, ret)) =
-                                            first.value.as_ref().as_callable()
-                                        {
-                                            if !params.accepts(tuple_typ) {
-                                                return Err(self.fail(
-                                                            format!(
-                                                                "Expected a function with arguments {tuple_typ}"
-                                                            ),
-                                                            first.value.loc,
-                                                        ));
-                                            }
+                                let formal = TupleType::from_single(ScriptType::Function {
+                                    params: tuple_typ.clone(),
+                                    ret: ScriptType::Generic.into(),
+                                });
 
-                                            Ok(ScriptType::List(Box::new(ScriptType::clone(
-                                                ret.as_ref(),
-                                            ))))
-                                        } else {
-                                            Err(self.fail(
-                                                format!(
-                                                    "Expected function, found {}",
-                                                    first.value.as_ref()
-                                                ),
-                                                expr.loc,
-                                            ))
-                                        }
-                                    } else {
-                                        Err(self
-                                            .fail("Expected one inline argument".into(), expr.loc))
-                                    }
+                                let generic =
+                                    self.validate_arguments(&formal, &arguments, scope)?;
+                                if let Some(generic) = generic {
+                                    Ok(ScriptType::List(generic.into()))
                                 } else {
-                                    Err(self.fail("Expected one inline argument".into(), expr.loc))
+                                    todo!("No generic found in: {arguments:?}")
                                 }
                             }
                             (ScriptType::List(typ), "unzip") => {
                                 // No arguments allowed
-                                self.validate_arguments(&TupleType::identity(), &arguments, scope)
-                                    .map_err(|err| err.into_source_error(self.src, expr.loc))?;
+                                let formal = ListUnzip.arguments_type(&subject_typ);
+                                self.validate_arguments(&formal, &arguments, scope)?;
 
-                                // [(int, int)] -> ([int], [int])
-                                if let Some(tuple) = typ.as_tuple() {
-                                    let types = tuple
-                                        .0
-                                        .iter()
-                                        .map(|t| {
-                                            TupleItemType::unnamed(ScriptType::List(Box::new(
-                                                t.value.clone(),
-                                            )))
-                                        })
-                                        .collect();
-
-                                    Ok(ScriptType::Tuple(TupleType(types)))
-                                } else {
-                                    Err(self.fail(
-                                        format!("Expected list of tuples, found {typ}"),
-                                        expr.loc,
-                                    ))
-                                }
+                                ListUnzip
+                                    .return_type(&subject_typ)
+                                    .map_err(|err| err.at(expr.loc))
                             }
 
                             // XXX Using empty list [], as a placeholder for a "static method"
                             (ScriptType::EmptyList, "zip") => {
-                                // XXX FIXME: Unnecessary restriction
+                                // XXX Supports variable arguments, which can't be defined in type system
                                 if let CallExpressionType::Inline(inline_arguments) = arguments {
                                     let items = inline_arguments
+                                        .into_inner()
                                         .into_iter()
                                         .map(|arg| match arg.value.as_ref() {
                                             ScriptType::List(inner) => Ok(TupleItemType::new(
                                                 arg.name,
                                                 inner.as_ref().clone(),
                                             )),
-                                            _ => Err(self.fail(
-                                                format!(
-                                                    "Expected list, found {}",
-                                                    arg.value.as_ref()
-                                                ),
-                                                arg.value.loc,
-                                            )),
+                                            _ => Err(TypeError::InvalidArgumentType {
+                                                expected: ScriptType::List(
+                                                    ScriptType::identity().into(),
+                                                ), // XXX
+                                                actual: arg.value.as_ref().clone(),
+                                            }
+                                            .at(arg.value.loc)),
                                         })
                                         .collect::<Result<Vec<_>>>()?;
 
@@ -1187,7 +1165,7 @@ impl<'a> Validator<'a> {
                                     let inner = ScriptType::Tuple(tuple);
                                     Ok(ScriptType::List(inner.into()))
                                 } else {
-                                    Err(self.fail("Expected inline arguments".into(), expr.loc))
+                                    Err(TypeError::InvalidExpression.at(expr.loc)) // XXX Shouldn't be an error
                                 }
                             }
                             (ScriptType::Str, "lines") => {
@@ -1201,11 +1179,18 @@ impl<'a> Validator<'a> {
 
                                 Ok(subject_typ.clone())
                             }
-                            _ => Err(self
-                                .fail(format!("Unknown method: {key} on {subject_typ}"), expr.loc)),
+                            _ => Err(TypeError::UndefinedMethod {
+                                type_name: format!("{subject_typ}").as_str().into(), // XXX
+                                method_name: key.clone(),
+                            }
+                            .at(expr.loc)),
                         }
                     }
-                    _ => Err(self.fail("Call not allowed here".into(), expr.loc)),
+                    _ => {
+                        let subject_typ = self.eval_expr(subject, scope)?;
+                        let loc = subject_typ.loc;
+                        Err(TypeError::InvalidCallable(subject_typ.into_inner()).at(loc))
+                    }
                 }
             }
         }
@@ -1221,10 +1206,10 @@ impl<'a> Validator<'a> {
         let r = self.validate_expr(rhs, scope)?;
 
         if l != ScriptType::Int {
-            return Err(self.fail(format!("Expected number, found {l}"), lhs.loc));
+            return Err(TypeError::expected_number(l).at(lhs.loc));
         }
         if r != ScriptType::Int {
-            return Err(self.fail(format!("Expected number, found {r}"), rhs.loc));
+            return Err(TypeError::expected_number(r).at(rhs.loc));
         }
 
         Ok(ScriptType::Int)
@@ -1238,7 +1223,7 @@ impl<'a> Validator<'a> {
         let res = match arguments {
             CallExpression::Inline(arguments) => {
                 let inline = self.eval_inline_args(arguments, scope)?;
-                CallExpressionType::Inline(inline.into_inner())
+                CallExpressionType::Inline(inline)
             }
             CallExpression::Destructure(expr) => {
                 let typ = self.eval_expr(expr, scope)?;
@@ -1275,7 +1260,7 @@ impl<'a> Validator<'a> {
         params: &TupleType,
         arguments: &CallExpressionType,
         scope: &Scope,
-    ) -> result::Result<Option<ScriptType>, ArgumentError> {
+    ) -> Result<Option<ScriptType>> {
         let found_type = match arguments {
             CallExpressionType::Inline(arguments) => {
                 self.validate_inline_args(params, arguments)?
@@ -1304,16 +1289,16 @@ impl<'a> Validator<'a> {
     fn validate_inline_args(
         &self,
         formal: &TupleType,
-        arguments: &[ArgumentExpressionType],
-    ) -> result::Result<Option<ScriptType>, ArgumentError> {
+        arguments: &Src<Vec<ArgumentExpressionType>>,
+    ) -> Result<Option<ScriptType>> {
         // For each formal: If args contain named, take it, else take next unnamed
-        let mut positional = arguments.iter().filter(|arg| arg.name.is_none());
+        let mut positional = arguments.as_ref().iter().filter(|arg| arg.name.is_none());
         let mut found_type = None;
 
         for par in formal.0.iter() {
             if let Some(name) = &par.name {
                 if let Some(arg) = arguments
-                    // .as_ref()
+                    .as_ref()
                     .iter()
                     .find(|a| a.name.as_ref() == Some(name))
                 {
@@ -1321,34 +1306,56 @@ impl<'a> Validator<'a> {
                 } else if let Some(arg) = positional.next() {
                     self.validate_single_arg(&par.value, arg)?;
                 } else {
-                    return Err(ArgumentError::MissingArgument(Some(name.clone())));
+                    return Err(TypeError::MissingArgument {
+                        name: Some(name.clone()),
+                        expected: formal.clone(),
+                        actual: arguments.clone().into_tuple_type(),
+                    }
+                    .at(arguments.loc));
                 }
             } else if let Some(arg) = positional.next() {
                 self.validate_single_arg(&par.value, arg)?;
                 if let ScriptType::Generic = par.value {
                     found_type = Some(arg.value.cloned())
                 }
+                if let ScriptType::Function { ret, params: _ } = &par.value {
+                    if let ScriptType::Generic = ret.as_ref() {
+                        if let ScriptType::Function { ret: a, params: _ } = arg.value.as_ref() {
+                            found_type = Some(*a.clone())
+                        } else if let ScriptType::EnumVariant(a, b) = arg.value.as_ref() {
+                            found_type = Some(ScriptType::Enum(Arc::clone(a)));
+                        }
+                    }
+                }
             } else {
-                return Err(ArgumentError::MissingArgument(None));
+                return Err(TypeError::MissingArgument {
+                    name: None,
+                    expected: formal.clone(),
+                    actual: arguments.clone().into_tuple_type(),
+                }
+                .at(arguments.loc));
             }
         }
 
-        if let Some(arg) = positional.next() {
-            return Err(ArgumentError::UnexpectedArgument(arg.clone()));
+        if let Some(_) = positional.next() {
+            return Err(TypeError::UnexpectedArgument {
+                expected: formal.clone(),
+                actual: arguments.clone().into_tuple_type(),
+            }
+            .at(arguments.loc));
         }
 
         Ok(found_type)
     }
 
-    fn validate_single_arg(
-        &self,
-        formal: &ScriptType,
-        arg: &ArgumentExpressionType,
-    ) -> result::Result<(), ArgumentError> {
+    fn validate_single_arg(&self, formal: &ScriptType, arg: &ArgumentExpressionType) -> Result<()> {
         if !formal.accepts(arg.value.as_ref()) {
-            return Err(ArgumentError::WrongArgumentType(
-                formal.clone(),
-                arg.clone(),
+            return Err(Src::new(
+                TypeError::InvalidArgumentType {
+                    expected: formal.clone(),
+                    actual: arg.value.cloned(),
+                },
+                arg.value.loc,
             ));
         }
         Ok(())
@@ -1368,7 +1375,7 @@ impl<'a> Validator<'a> {
                     Some(TypeDefinition::EnumDefinition(def)) => {
                         Ok(ScriptType::Enum(Arc::clone(def)))
                     }
-                    None => Err(self.fail(format!("Unknown type: {ident}"), type_expr.loc)),
+                    None => Err(TypeError::UndefinedReference(ident.clone()).at(type_expr.loc)),
                 },
             },
             TypeExpression::Tuple(params) => {
@@ -1399,14 +1406,11 @@ impl<'a> Validator<'a> {
                 if t.as_ref().accepts(typ.as_ref()) {
                     typ = t;
                 } else if !typ.as_ref().accepts(t.as_ref()) {
-                    return Err(self.fail(
-                        format!(
-                            "Found incompatible types: {} and {}",
-                            t.as_ref(),
-                            typ.as_ref()
-                        ),
-                        t.loc,
-                    ));
+                    return Err(TypeError::InvalidArgumentType {
+                        expected: typ.cloned(),
+                        actual: t.cloned(),
+                    }
+                    .at(t.loc));
                 }
             }
             Ok(Some(typ.clone()))
@@ -1436,10 +1440,7 @@ impl<'a> Validator<'a> {
                     self.eval_destruction(pattern, lhs.loc, params, scope)?
                 }
                 _ => {
-                    return Err(self.fail(
-                        format!("Unexpected tuple pattern, can't destructure {other}"),
-                        lhs.loc,
-                    ));
+                    return Err(TypeError::InvalidDestructure(other.clone()).at(lhs.loc));
                 }
             },
         }
@@ -1463,33 +1464,31 @@ impl<'a> Validator<'a> {
                 } else if let Some(item) = positional.next() {
                     self.eval_assignment(assignee, &item.value, scope)?;
                 } else {
-                    return Err(self.fail(
-                        format!("Element '{name}' not found in {other}"),
-                        assignee.loc,
-                    ));
+                    return Err(TypeError::MissingDestructureArgument {
+                        name: Some(name.clone()),
+                        actual: other.clone(),
+                    }
+                    .at(assignee.loc));
                 }
             } else if let Some(item) = positional.next() {
                 self.eval_assignment(assignee, &item.value, scope)?;
             } else {
-                return Err(self.fail(
-                    format!("Missing positional argument in {other}"),
-                    assignee.loc,
-                ));
+                return Err(TypeError::MissingDestructureArgument {
+                    name: None,
+                    actual: other.clone(),
+                }
+                .at(assignee.loc));
             }
         }
 
         if positional.next().is_some() {
-            return Err(self.fail(
-                format!("Pattern did not contain enough positional params {other}"),
-                loc,
-            ));
+            return Err(TypeError::UnexpectedDestructureArgument {
+                actual: other.clone(),
+            }
+            .at(loc));
         }
 
         Ok(())
-    }
-
-    fn fail(&self, msg: String, loc: Loc) -> Error {
-        Error::new(msg, self.src, loc.shift_right(self.offset))
     }
 }
 
@@ -1505,7 +1504,7 @@ fn resolve_generic(
         ScriptType::State(inner) => Ok(ScriptType::State(
             resolve_generic(*inner, found_type)?.into(),
         )),
-        // TODO List, Tuple...
+        ScriptType::Function { params: _, ret } => resolve_generic(*ret, found_type),
         other => Ok(other),
     }
 }

@@ -80,7 +80,7 @@ fn test_return_not_allowed_outside_function() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Unexpected return value")
+        Err(err) => assert_eq!(err.message, "Unexpected return value: Expected no value, found 'int'")
     }
 }
 
@@ -94,7 +94,7 @@ fn test_return_not_allowed_in_contitional_outside_function() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Unexpected return value")
+        Err(err) => assert_eq!(err.message, "Unexpected return value: Expected no value, found 'int'")
     }
 }
 
@@ -138,7 +138,7 @@ fn test_explicit_return_wrong_type() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Expected bool, found int")
+        Err(err) => assert_eq!(err.message, "Incompatible return type: Expected 'bool', found 'int'")
     }
 }
 
@@ -152,7 +152,7 @@ fn test_implied_return_wrong_type() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Incompatible return type: Expected bool, found int")
+        Err(err) => assert_eq!(err.message, "Incompatible return type: Expected 'bool', found 'int'")
     }
 }
 
@@ -306,7 +306,7 @@ fn test_missing_return_statement_in_one_condition() {
         Ok(_) => panic!("Expected error"),
         Err(err) => {
             println!("{err}");
-            assert_eq!(err.message, "Incompatible return type: Expected str, found str?")
+            assert_eq!(err.message, "Incompatible return type: Expected 'str', found 'str?'")
         }
     }
 }
@@ -479,7 +479,7 @@ fn test_missing_argument_name_in_destruction() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!("Element 'count' not found in (fruit: str, amount: int)", err.message),
+        Err(err) => assert_eq!("Missing value for 'count': Found '(fruit: str, amount: int)'", err.message),
     }
 }
 

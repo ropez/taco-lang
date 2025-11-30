@@ -1,10 +1,16 @@
-use std::{collections::HashMap, fs, sync::Arc};
+use std::fs;
 
 use crate::{
-    eval::{ScriptValue, Tuple},
-    extensions::NativeFunction,
+    Builder,
+    interpreter::{ScriptValue, Tuple},
+    stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
 };
+
+pub fn build(builder: &mut Builder) {
+    builder.add_function("read".into(), ReadFunc);
+    builder.add_function("json".into(), JsonFunc);
+}
 
 struct ReadFunc;
 
@@ -58,7 +64,7 @@ impl NativeFunction for JsonFunc {
                 let mut s = String::new();
 
                 s.push_str("[");
-                let mut iter = list.iter();
+                let mut iter = list.items().iter();
                 if let Some(val) = iter.next() {
                     match val {
                         ScriptValue::String(v) => s.push_str(v),
@@ -74,13 +80,4 @@ impl NativeFunction for JsonFunc {
             }
         }
     }
-}
-
-pub fn create() -> HashMap<String, Arc<dyn NativeFunction>> {
-    let mut ext: HashMap<String, Arc<dyn NativeFunction>> = HashMap::new();
-
-    ext.insert("read".into(), Arc::new(ReadFunc));
-    ext.insert("json".into(), Arc::new(JsonFunc));
-
-    ext
 }

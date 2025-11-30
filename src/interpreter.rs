@@ -1,3 +1,5 @@
+#![allow(clippy::arc_with_non_send_sync)]
+
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
@@ -5,13 +7,17 @@ use std::{
 };
 
 use crate::{
-    extensions::NativeFunction,
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
     lexer::Src,
     parser::{
         Assignee, AstNode, CallExpression, Enumeration, Expression, Function, ParamExpression,
         Record, TypeExpression,
+    },
+    stdlib::{
+        NativeFunction, NativeMethod,
+        list::{List, ListFind, ListPush, ListSort, ListSum, ListUnzip, list_zip},
+        state::{StateGet, StateSet},
     },
 };
 
@@ -21,7 +27,7 @@ pub enum ScriptValue {
     String(Arc<str>),
     Number(i64),
     Range(i64, i64),
-    List(Arc<Vec<ScriptValue>>),
+    List(Arc<List>),
     Tuple(Arc<Tuple>),
 
     NaN,
@@ -78,9 +84,9 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_iterable(&self) -> &Vec<ScriptValue> {
+    pub fn as_iterable(&self) -> &[ScriptValue] {
         match self {
-            Self::List(items) => items,
+            Self::List(list) => list.items(),
             _ => panic!("Expected iterable, found {self}"),
         }
     }
@@ -123,9 +129,9 @@ impl Display for ScriptValue {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
             },
-            ScriptValue::List(items) => {
+            ScriptValue::List(list) => {
                 write!(f, "[")?;
-                fmt_inner_list(f, items)?;
+                fmt_inner_list(f, list.items())?;
                 write!(f, "]")?;
                 Ok(())
             }
@@ -195,20 +201,23 @@ impl fmt::Debug for Callable {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct TupleItem {
-    name: Option<Ident>,
-    value: ScriptValue,
+    pub name: Option<Ident>,
+    pub value: ScriptValue,
 }
 
 impl TupleItem {
-    pub fn new(name: Option<Ident>, value: ScriptValue) -> Self {
-        Self { name, value }
+    pub fn new(name: Option<Ident>, value: impl Into<ScriptValue>) -> Self {
+        Self {
+            name,
+            value: value.into(),
+        }
     }
 
-    pub fn named(name: Ident, value: ScriptValue) -> Self {
+    pub fn named(name: Ident, value: impl Into<ScriptValue>) -> Self {
         Self::new(Some(name), value)
     }
 
-    pub fn unnamed(value: ScriptValue) -> Self {
+    pub fn unnamed(value: impl Into<ScriptValue>) -> Self {
         Self::new(None, value)
     }
 }
@@ -217,8 +226,16 @@ impl TupleItem {
 pub struct Tuple(Vec<TupleItem>);
 
 impl Tuple {
-    const fn identity() -> Self {
+    pub const fn identity() -> Self {
         Self(Vec::new())
+    }
+
+    pub fn new(items: Vec<TupleItem>) -> Self {
+        Self(items)
+    }
+
+    pub fn items(&self) -> &[TupleItem] {
+        &self.0
     }
 
     pub fn is_empty(&self) -> bool {
@@ -290,19 +307,12 @@ impl fmt::Debug for Scope {
     }
 }
 
-pub struct Engine {
+#[derive(Default)]
+pub struct Interpreter {
     globals: HashMap<Ident, ScriptValue>,
 }
 
-impl Default for Engine {
-    fn default() -> Self {
-        let mut globals = HashMap::default();
-
-        Self { globals }
-    }
-}
-
-impl Engine {
+impl Interpreter {
     pub fn with_native(self, name: impl Into<Ident>, f: Arc<dyn NativeFunction>) -> Self {
         let mut globals = self.globals;
         globals.insert(
@@ -312,13 +322,13 @@ impl Engine {
         Self { globals }
     }
 
-    pub fn eval(&self, ast: &[AstNode]) {
+    pub fn execute(&self, ast: &[AstNode]) {
         let mut scope = Scope::default();
         scope.locals.extend(self.globals.clone());
-        self.eval_block(ast, scope);
+        self.execute_block(ast, scope);
     }
 
-    fn eval_block(&self, ast: &[AstNode], mut scope: Scope) -> Completion {
+    fn execute_block(&self, ast: &[AstNode], mut scope: Scope) -> Completion {
         for node in ast {
             match node {
                 AstNode::Assignment { assignee, value } => {
@@ -346,12 +356,12 @@ impl Engine {
                 } => {
                     let iterable = self.eval_expr(iterable, &scope);
                     match iterable {
-                        ScriptValue::List(ref items) => {
-                            for item in items.as_ref() {
+                        ScriptValue::List(ref list) => {
+                            for item in list.items() {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident.clone(), item.clone());
                                 if let Completion::ExplicitReturn(val) =
-                                    self.eval_block(body, scope)
+                                    self.execute_block(body, scope)
                                 {
                                     return Completion::ExplicitReturn(val);
                                 }
@@ -362,7 +372,7 @@ impl Engine {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident.clone(), ScriptValue::Number(v));
                                 if let Completion::ExplicitReturn(val) =
-                                    self.eval_block(body, scope)
+                                    self.execute_block(body, scope)
                                 {
                                     return Completion::ExplicitReturn(val);
                                 }
@@ -388,7 +398,7 @@ impl Engine {
                     };
 
                     if let Some(branch) = branch {
-                        match self.eval_block(branch, scope) {
+                        match self.execute_block(branch, scope) {
                             Completion::ExplicitReturn(val) => {
                                 return Completion::ExplicitReturn(val);
                             }
@@ -412,7 +422,7 @@ impl Engine {
                     let branch = if val { Some(body) } else { else_body.as_ref() };
                     if let Some(block) = branch {
                         let mut scope = scope.clone();
-                        match self.eval_block(block, scope) {
+                        match self.execute_block(block, scope) {
                             Completion::ExplicitReturn(val) => {
                                 return Completion::ExplicitReturn(val);
                             }
@@ -463,7 +473,7 @@ impl Engine {
             Expression::Arguments => ScriptValue::Tuple(Arc::clone(&scope.arguments)),
             Expression::List(s) => {
                 let values = s.iter().map(|i| self.eval_expr(i, scope)).collect();
-                ScriptValue::List(Arc::new(values))
+                ScriptValue::List(Arc::new(List::new(values)))
             }
             Expression::Tuple(s) => {
                 let items = s
@@ -721,127 +731,31 @@ impl Engine {
             Expression::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
                 match (&subject, key.as_str()) {
-                    (ScriptValue::State(state), "get") => {
-                        let v = state.read().unwrap();
-                        v.clone()
-                    }
-                    (ScriptValue::State(state), "set") => {
-                        if let Some(val) = arguments.at(0) {
-                            let mut v = state.write().unwrap();
-                            *v = val.clone();
-                        }
-                        ScriptValue::identity()
-                    }
-                    (ScriptValue::List(values), "push") => {
-                        // This is the Copy on Write feature of the language in play.
-                        // Can we avoid copy, if we see that the original will not be used again?
-                        let mut res = Vec::clone(values);
-                        for arg in &arguments.0 {
-                            res.push(arg.value.clone());
-                        }
-                        ScriptValue::List(Arc::new(res))
-                    }
-                    (ScriptValue::List(values), "find") => {
-                        let val = arguments.single();
-                        let opt_val = values.iter().find(|v| ScriptValue::eq(v, val));
-                        opt_val.cloned().unwrap_or(ScriptValue::None)
-                    }
-                    (ScriptValue::List(list), "unzip") => {
-                        // TODO These methods should create "stream" or "iterator" instead of just copying the whole list up-front
-
-                        let tuples: Vec<_> = list.iter().map(|arg| arg.as_tuple()).collect();
-
-                        let mut lists = Vec::new();
-
-                        let tuple = if let Some(first) = tuples.first() {
-                            for it in &first.0 {
-                                lists.push(vec![it.value.clone()]);
-                            }
-
-                            for tuple in &tuples[1..] {
-                                for (i, it) in tuple.0.iter().enumerate() {
-                                    lists[i].push(it.value.clone());
-                                }
-                            }
-
-                            let items = lists
-                                .into_iter()
-                                .map(|l| TupleItem::unnamed(ScriptValue::List(Arc::new(l))))
-                                .collect();
-                            Tuple(items)
-                        } else {
-                            Tuple::identity()
-                        };
-
-                        ScriptValue::Tuple(Arc::new(tuple))
-                    }
-                    (ScriptValue::List(_), "zip") => {
-                        // Input should be empty
-
-                        let lists: Vec<_> = arguments
-                            .0
-                            .iter()
-                            .map(|arg| arg.value.as_iterable())
-                            .collect();
-
-                        let mut tuples = Vec::new();
-                        let len = lists.iter().map(|l| l.len()).min().unwrap_or_default();
-                        for i in 0..len {
-                            let mut items = Vec::new();
-
-                            for l in &lists {
-                                items.push(TupleItem::unnamed(l[i].clone()));
-                            }
-
-                            tuples.push(Tuple(items));
-                        }
-
-                        let values = tuples
-                            .into_iter()
-                            .map(Arc::new)
-                            .map(ScriptValue::Tuple)
-                            .collect();
-
-                        ScriptValue::List(Arc::new(values))
-                    }
-                    (ScriptValue::List(list), "sum") => {
-                        if list.iter().any(|v| v.is_nan()) {
-                            ScriptValue::NaN
-                        } else {
-                            ScriptValue::Number(
-                                list.iter()
-                                    .map(|val| val.as_number())
-                                    .reduce(|n, a| n + a)
-                                    .unwrap_or_default(),
-                            )
-                        }
-                    }
-                    (ScriptValue::List(list), "sort") => {
-                        let mut values: Vec<_> = list.iter().map(|val| val.as_number()).collect();
-
-                        values.sort();
-
-                        let values = values.into_iter().map(ScriptValue::Number).collect();
-
-                        ScriptValue::List(Arc::new(values))
-                    }
+                    (ScriptValue::State(_), "get") => StateGet.call(&subject, &arguments),
+                    (ScriptValue::State(_), "set") => StateSet.call(&subject, &arguments),
+                    (ScriptValue::List(_), "push") => ListPush.call(&subject, &arguments),
+                    (ScriptValue::List(_), "find") => ListFind.call(&subject, &arguments),
+                    (ScriptValue::List(_), "unzip") => ListUnzip.call(&subject, &arguments),
+                    (ScriptValue::List(_), "zip") => list_zip(&arguments),
+                    (ScriptValue::List(_), "sum") => ListSum.call(&subject, &arguments),
+                    (ScriptValue::List(_), "sort") => ListSort.call(&subject, &arguments),
                     (ScriptValue::List(list), "map") => {
                         let callable = arguments.single().as_callable();
                         let mut mapped = Vec::new();
-                        for item in list.as_ref() {
+                        for item in list.items() {
                             let value = self.eval_callable(callable, &item.to_single_argument());
                             mapped.push(value);
                         }
-                        ScriptValue::List(Arc::new(mapped))
+                        ScriptValue::List(Arc::new(List::new(mapped)))
                     }
                     (ScriptValue::List(list), "map_to") => {
                         let callable = arguments.single().as_callable();
                         let mut mapped = Vec::new();
-                        for item in list.as_ref() {
+                        for item in list.items() {
                             let value = self.eval_callable(callable, &item.as_tuple());
                             mapped.push(value);
                         }
-                        ScriptValue::List(Arc::new(mapped))
+                        ScriptValue::List(Arc::new(List::new(mapped)))
                     }
                     (
                         ScriptValue::Rec {
@@ -873,7 +787,7 @@ impl Engine {
                             .filter(|l| !l.is_empty())
                             .map(|l| ScriptValue::String(Arc::from(l)))
                             .collect();
-                        ScriptValue::List(Arc::new(lines))
+                        ScriptValue::List(Arc::new(List::new(lines)))
                     }
                     _ => panic!("Unknown method: {key} on {subject:?}"),
                 }
@@ -897,7 +811,7 @@ impl Engine {
                 }
                 inner_scope.arguments = Arc::new(values);
 
-                match self.eval_block(&function.body, inner_scope) {
+                match self.execute_block(&function.body, inner_scope) {
                     Completion::EndOfBlock => ScriptValue::None,
                     Completion::ExplicitReturn(v) => v,
                     Completion::ImpliedReturn(v) => v,

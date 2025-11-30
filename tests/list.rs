@@ -163,7 +163,7 @@ fn test_invalid_list_type_in_return() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Incompatible return type: Expected [bool], found [[]]"),
+        Err(err) => assert_eq!(err.message, "Incompatible return type: Expected '[bool]', found '[[]]'"),
     };
 }
 
@@ -297,3 +297,18 @@ fn test_find_no_item() {
     };
 }
 
+#[test]
+fn test_sort_numbers() {
+    let src = r#"
+        numbers = [16, 27, 3, 32, 11, 17, 34]
+        sorted = numbers.sort().sort()
+
+        println("$numbers")
+        println("$sorted")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("[16, 27, 3, 32, 11, 17, 34]\n[3, 11, 16, 17, 27, 32, 34]\n", out),
+        Err(err) => panic!("{err}"),
+    };
+}
