@@ -4,37 +4,140 @@ use std::{
     result,
 };
 
-use crate::{ident::Ident, lexer::Loc, validate::{ArgumentExpressionType, ScriptType}};
+use crate::{
+    ident::Ident,
+    lexer::{Loc, Src},
+    validate::{ScriptType, TupleType},
+};
 
-pub enum ArgumentError {
-    MissingArgument(Option<Ident>),
-    WrongArgumentType(ScriptType, ArgumentExpressionType),
-    UnexpectedArgument(ArgumentExpressionType),
+#[derive(Clone)]
+pub enum TypeError {
+    InvalidExpression,
+    UndefinedReference(Ident),
+    UndefinedMethod {
+        type_name: Ident,
+        method_name: Ident,
+    },
+    UndefinedVariant {
+        type_name: Ident,
+        variant_name: Ident,
+    },
+    UndefinedAttribute {
+        subject: ScriptType,
+        attr_name: Ident,
+    },
+    InvalidArgumentType {
+        expected: ScriptType,
+        actual: ScriptType,
+    },
+    MissingArgument {
+        name: Option<Ident>,
+        expected: TupleType,
+        actual: TupleType,
+    },
+    UnexpectedArgument {
+        expected: TupleType,
+        actual: TupleType,
+    },
+    MissingDestructureArgument {
+        name: Option<Ident>,
+        actual: TupleType,
+    },
+    UnexpectedDestructureArgument {
+        actual: TupleType,
+    },
+    InvalidDestructure(ScriptType),
+    InvalidIterable(ScriptType),
+    InvalidOptional(ScriptType),
+    InvalidCallable(ScriptType),
+    InvalidMapTo(ScriptType),
+    InvalidReturnType {
+        expected: ScriptType,
+        actual: ScriptType,
+    },
+    UnresolvedGeneric,
+    MissingReturnStatement,
+    EmptyList,
 }
 
 // Promote ArgumentError to "Error" below
 
-impl ArgumentError {
+impl TypeError {
+    pub fn expected_number(actual: ScriptType) -> Self {
+        Self::InvalidArgumentType {
+            expected: ScriptType::Int,
+            actual,
+        }
+    }
+
+    pub fn at(self, loc: Loc) -> Src<Self> {
+        Src::new(self, loc)
+    }
+
     pub(crate) fn into_source_error(self, source: &str, loc: Loc) -> Error {
-        match self {
-            ArgumentError::MissingArgument(ident) => {
-                if let Some(ident) = ident {
-                    Error::new(format!("Missing argument: {ident}"), source, Loc::start())
+        let msg = match self {
+            TypeError::UndefinedReference(ident) => format!("Undefined reference: {ident}"),
+            TypeError::UndefinedMethod {
+                type_name,
+                method_name,
+            } => format!("Method not found: '{method_name}' for {type_name}"),
+            TypeError::UndefinedVariant {
+                type_name,
+                variant_name,
+            } => format!("Variant not found: {variant_name} in {type_name}"),
+            TypeError::UndefinedAttribute { subject, attr_name } => {
+                format!("Attribute not found: {attr_name} in {subject}")
+            }
+            TypeError::InvalidArgumentType { expected, actual } => {
+                format!("Expected '{expected}', found '{actual}'")
+            }
+            TypeError::MissingArgument {
+                name,
+                expected,
+                actual,
+            } => {
+                if let Some(ident) = name {
+                    format!("Missing argument '{ident}': Expected '{expected}', found '{actual}'")
                 } else {
-                    Error::new(format!("Missing argument"), source, loc)
+                    format!("Missing positional argument: Expected '{expected}', found '{actual}'")
                 }
             }
-            ArgumentError::WrongArgumentType(expected, argument) => Error::new(
-                format!("Expected {expected}, found {}", argument.value.as_ref()),
-                source,
-                argument.value.loc,
-            ),
-            ArgumentError::UnexpectedArgument(arg) => Error::new(
-                "Unexpected argument".into(),
-                source,
-                arg.value.loc
-            ),
-        }
+            TypeError::UnexpectedArgument { expected, actual } => {
+                format!("Unexpected argument. Expected {expected}, found {actual}")
+            }
+            TypeError::MissingDestructureArgument { name, actual } => {
+                if let Some(ident) = name {
+                    format!("Missing value for '{ident}': Found '{actual}'")
+                } else {
+                    format!("Missing value: Found '{actual}'")
+                }
+            }
+            TypeError::UnexpectedDestructureArgument { actual } => {
+                format!("Too many values found. Found {actual}")
+            }
+            TypeError::InvalidReturnType { expected, actual } => {
+                if expected == ScriptType::identity() {
+                    format!("Unexpected return value: Expected no value, found '{actual}'")
+                } else {
+                    format!("Incompatible return type: Expected '{expected}', found '{actual}'")
+                }
+            }
+            TypeError::MissingReturnStatement => "Missing return statement".into(),
+            TypeError::EmptyList => "List is always empty".into(),
+            TypeError::InvalidExpression => "Expected expression".into(),
+            TypeError::InvalidDestructure(actual) => {
+                format!("Invalid destructure: Expected a tuple, found '{actual}'")
+            }
+            TypeError::InvalidIterable(actual) => format!("Expected iterable, found '{actual}'"),
+            TypeError::InvalidOptional(actual) => format!("Expected option type, found '{actual}'"),
+            TypeError::InvalidCallable(actual) => format!("Expected a callable, found '{actual}'"),
+            TypeError::InvalidMapTo(actual) => {
+                format!("Expected a list of tuples, found '{actual}'")
+            }
+            TypeError::UnresolvedGeneric => "Unresolved generic".into(),
+        };
+
+        Error::new(msg, source, loc)
     }
 }
 

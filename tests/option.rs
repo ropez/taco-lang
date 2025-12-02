@@ -11,7 +11,7 @@ fn test_expected_str_found_opt() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Expected str, found str?"),
+        Err(err) => assert_eq!(err.message, "Expected 'str', found 'str?'"),
     };
 }
 
@@ -26,7 +26,7 @@ fn test_expected_int_found_opt() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Expected int, found int?"),
+        Err(err) => assert_eq!(err.message, "Expected 'int', found 'int?'"),
     };
 }
 
@@ -39,7 +39,7 @@ fn test_unexpected_opt_str_in_interp() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Expected str got str?"),
+        Err(err) => assert_eq!(err.message, "Expected 'str', found 'str?'"),
     };
 }
 
@@ -52,7 +52,7 @@ fn test_unexpected_opt_int_in_interp() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Expected int got int?"),
+        Err(err) => assert_eq!(err.message, "Expected 'int', found 'int?'"),
     };
 }
 

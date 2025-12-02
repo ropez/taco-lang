@@ -9,7 +9,7 @@ use multipeek::{IteratorExt, MultiPeek};
 use crate::{
     error::{Error, Result},
     ident::Ident,
-    interp::{self, StringTokenKind},
+    interpopation::{self, StringTokenKind},
     lexer::{self, Loc, Src, Token, TokenKind},
 };
 
@@ -565,7 +565,8 @@ impl<'a> Parser<'a> {
                                 let expr = Src::new(
                                     Expression::Call {
                                         subject: lhs.into(),
-                                        arguments: CallExpression::DestructureImplicit(a.loc).into(),
+                                        arguments: CallExpression::DestructureImplicit(a.loc)
+                                            .into(),
                                     },
                                     loc,
                                 );
@@ -987,7 +988,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_string(&self, src: &str, loc: Loc) -> Result<Src<Expression>> {
-        let parts = interp::tokenise_string(src);
+        let parts = interpopation::tokenise_string(src);
 
         if parts.is_empty() {
             return Ok(Src::new(Expression::Str("".into()), loc));

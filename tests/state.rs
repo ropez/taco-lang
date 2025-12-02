@@ -48,4 +48,3 @@ fn test_get_and_set_primitive() {
 
     assert_eq!("20", out);
 }
-

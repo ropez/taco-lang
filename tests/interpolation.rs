@@ -90,5 +90,4 @@ fn test_variable_names() {
         Ok(out) => assert_eq!("ok", out),
         Err(err) => panic!("{err}"),
     };
-
 }

@@ -14,7 +14,6 @@ fn test_parse_unnamed_record() {
         Ok(out) => assert_eq!("Point(100, 200)", out),
         Err(err) => panic!("{err}"),
     };
-
 }
 
 #[test]
@@ -31,7 +30,6 @@ fn test_parse_named_record() {
         Ok(out) => assert_eq!("Point(x: 100, y: 200)", out),
         Err(err) => panic!("{err}"),
     };
-
 }
 
 #[test]
@@ -55,4 +53,3 @@ fn test_parse_list() {
         Err(err) => panic!("{err}"),
     };
 }
-

@@ -111,7 +111,10 @@ struct Tokenizer<'a> {
 
 impl<'a> Tokenizer<'a> {
     fn new(src: &'a str) -> Self {
-        Self { src, loc: Loc::start() }
+        Self {
+            src,
+            loc: Loc::start(),
+        }
     }
 
     fn next_token(&mut self) -> Result<Option<Token>> {

@@ -15,4 +15,3 @@ fn test_range() {
 
     assert_eq!("3\n4\n5\n", out);
 }
-

@@ -55,29 +55,26 @@ fn test_print_lists() {
     };
 }
 
-
 #[test]
 fn test_empty_list_promotes() {
     let src = r#"
         a = []
 
+        println(typeof(a))
+
         if true {
-            a = a.push("foo") # Promotes [] to [str]
-            for it in a {
-                println(it)
-            }
+            a = a.push("foo")
+            println(typeof(a))
         }
 
         if true {
             a = a.push(10) # Promotes [] to [int]
-            for it in a {
-                println("$it")
-            }
+            println(typeof(a))
         }
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!("foo\n10\n", out),
+        Ok(out) => assert_eq!("[]\n[str]\n[int]\n", out),
         Err(err) => panic!("{err}"),
     };
 }
@@ -117,7 +114,10 @@ fn test_empty_list_promotes_list_items() {
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!("1: [[10]]\n2: [[10], []]\n3: [[42], []]\n4: [[], [42]]\n", out),
+        Ok(out) => assert_eq!(
+            "1: [[10]]\n2: [[10], []]\n3: [[42], []]\n4: [[], [42]]\n",
+            out
+        ),
         Err(err) => panic!("{err}"),
     };
 }
@@ -163,7 +163,10 @@ fn test_invalid_list_type_in_return() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Incompatible return type: Expected [bool], found [[]]"),
+        Err(err) => assert_eq!(
+            err.message,
+            "Incompatible return type: Expected '[bool]', found '[[]]'"
+        ),
     };
 }
 
@@ -297,3 +300,34 @@ fn test_find_no_item() {
     };
 }
 
+#[test]
+fn test_sum_of_numbers() {
+    let src = r#"
+        numbers = [16, 27, 3, 32, 11, 17, 34]
+
+        print("${numbers.sum() * 1}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("140", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+#[test]
+fn test_sort_numbers() {
+    let src = r#"
+        numbers = [16, 27, 3, 32, 11, 17, 34]
+        sorted = numbers.sort().sort()
+
+        println("$numbers")
+        println("$sorted")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!(
+            "[16, 27, 3, 32, 11, 17, 34]\n[3, 11, 16, 17, 27, 32, 34]\n",
+            out
+        ),
+        Err(err) => panic!("{err}"),
+    };
+}

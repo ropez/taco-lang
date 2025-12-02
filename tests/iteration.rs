@@ -62,6 +62,3 @@ fn test_empty_list_is_allowed() {
         Err(err) => panic!("{err}"),
     };
 }
-
-
-

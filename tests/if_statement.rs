@@ -1,4 +1,3 @@
-
 use taco::check_output;
 
 #[test]

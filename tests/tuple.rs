@@ -250,7 +250,9 @@ fn test_named_destruction_fails() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(err) => assert_eq!(err.message, "Element 'b' not found in (a: int, x: int)"),
+        Err(err) => assert_eq!(
+            err.message,
+            "Missing value for 'b': Found '(a: int, x: int)'"
+        ),
     };
 }
-

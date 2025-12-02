@@ -4,6 +4,7 @@ use taco::check_output;
 fn test_simple_map() {
     let src = r#"
         fun double(a: int) { a + a }
+        fun foo(a: str) { a }
 
         result = [1, 2, 3].map(double)
 
@@ -44,6 +45,9 @@ fn function_must_take_correct_arguments() {
 
     match check_output(src) {
         Ok(_) => panic!("Expected error"),
-        Err(out) => assert_eq!(out.message, "Expected function to take int"),
+        Err(out) => assert_eq!(
+            out.message,
+            "Expected 'fun(int): T', found 'fun(a: str): str'"
+        ),
     };
 }

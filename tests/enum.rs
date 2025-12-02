@@ -57,8 +57,8 @@ fn test_comparison_not_allowed_for_different_enums() {
         Ok(_) => panic!("Expected error"),
         Err(err) => {
             println!("{err}");
-            assert_eq!(err.message, "Expected Hero, found Villain")
-        },
+            assert_eq!(err.message, "Expected 'Hero', found 'Villain'")
+        }
     };
 }
 
@@ -115,7 +115,10 @@ fn fails_for_missing_value() {
 
     match check_output(src) {
         Ok(out) => panic!("Expected error, got {out}"),
-        Err(err) => assert_eq!(err.message, "Expected VacationPlan, found VacationPlan::TravelTo"),
+        Err(err) => assert_eq!(
+            err.message,
+            "Expected 'VacationPlan', found 'VacationPlan::TravelTo'"
+        ),
     };
 }
 
@@ -142,7 +145,7 @@ fn fails_for_unexpected_call() {
 
     match check_output(src) {
         Ok(out) => panic!("Expected error, got {out}"),
-        Err(err) => assert_eq!(err.message, "Variant not callable: VacationPlan::StayAtHome"),
+        Err(err) => assert_eq!(err.message, "Expected a callable, found 'VacationPlan'"),
     };
 }
 
@@ -164,7 +167,6 @@ fn test_apply_arguments_from_tuple() {
         Ok(out) => assert_eq!(out, "Person(name: per, age: 42)"),
         Err(err) => panic!("{err}"),
     };
-
 }
 
 #[test]
@@ -186,10 +188,12 @@ fn test_pass_variant_as_function() {
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!(out, "[Person(name: per, age: 42), Person(name: kari, age: 36)]"),
+        Ok(out) => assert_eq!(
+            out,
+            "[Person(name: per, age: 42), Person(name: kari, age: 36)]"
+        ),
         Err(err) => panic!("{err}"),
     };
-
 }
 
 #[test]
@@ -221,4 +225,3 @@ fn test_apply_params() {
         Err(err) => panic!("{err}"),
     }
 }
-

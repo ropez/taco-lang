@@ -1,12 +1,12 @@
 use std::{
-    collections::HashMap,
     io,
     sync::{Arc, Mutex},
 };
 
 use crate::{
-    eval::{ScriptValue, Tuple},
-    extensions::NativeFunction,
+    Builder,
+    interpreter::{ScriptValue, Tuple},
+    stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
 };
 
@@ -38,27 +38,23 @@ where
     }
 }
 
-pub fn create<O>(out: Arc<Mutex<O>>) -> HashMap<String, Arc<dyn NativeFunction>>
+pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)
 where
     O: io::Write + 'static,
 {
-    let mut ext: HashMap<String, Arc<dyn NativeFunction>> = HashMap::new();
-
-    ext.insert(
+    builder.add_function(
         "print".into(),
-        Arc::new(PrintFunc {
+        PrintFunc {
             out: Arc::clone(&out),
             newline: false,
-        }),
+        },
     );
 
-    ext.insert(
+    builder.add_function(
         "println".into(),
-        Arc::new(PrintFunc {
+        PrintFunc {
             out: Arc::clone(&out),
             newline: true,
-        }),
+        },
     );
-
-    ext
 }

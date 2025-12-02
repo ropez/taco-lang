@@ -120,7 +120,6 @@ fn test_record_with_unnamed_params() {
         Ok(out) => assert_eq!(out, "Person(foo@bar.com, per)\nper\n"),
         Err(err) => panic!("{err}"),
     };
-
 }
 
 #[test]
@@ -138,7 +137,6 @@ fn test_apply_arguments_from_tuple() {
         Ok(out) => assert_eq!(out, "Person(name: per, age: 42)"),
         Err(err) => panic!("{err}"),
     };
-
 }
 
 #[test]
@@ -157,10 +155,12 @@ fn test_pass_record_as_function() {
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!(out, "[Person(name: per, age: 42), Person(name: kari, age: 36)]"),
+        Ok(out) => assert_eq!(
+            out,
+            "[Person(name: per, age: 42), Person(name: kari, age: 36)]"
+        ),
         Err(err) => panic!("{err}"),
     };
-
 }
 
 #[test]
@@ -189,4 +189,3 @@ fn test_apply_params() {
         Err(err) => panic!("{err}"),
     }
 }
-
