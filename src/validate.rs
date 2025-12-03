@@ -1,23 +1,15 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Display},
-    result,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Display, result, sync::Arc};
 
 use crate::{
     error::{Error, TypeError},
     fmt::fmt_tuple,
-    ident::Ident,
+    ident::{Ident, global},
     lexer::{Loc, Src},
     parser::{
         ArgumentExpression, Assignee, AstNode, CallExpression, Expression, ParamExpression,
         TypeExpression,
     },
-    stdlib::{
-        NativeFunction, NativeMethodType,
-        state::{StateGet, StateSet},
-    },
+    stdlib::{NativeFunctionRef, NativeMethodRef},
 };
 
 type Result<T> = result::Result<T, Src<TypeError>>;
@@ -43,42 +35,12 @@ pub enum ScriptType {
         params: TupleType, // XXX Remove this and look up definition like Enum
     },
     State(Box<ScriptType>),
-    NativeFunction(NativeFunctionType),
-    NativeMethodBound(NativeMethodTypeWrapper, Box<ScriptType>),
+    NativeFunction(NativeFunctionRef),
+    NativeMethodBound(NativeMethodRef, Box<ScriptType>),
 
     // Special type used to represent a "generic", e.g. state(x: T): [T] is represented as
     // Function ( params: (Generic), ret: List<Generic> }
     Generic,
-}
-
-#[derive(Clone)]
-struct NativeFunctionType(Arc<dyn NativeFunction>);
-
-impl fmt::Debug for NativeFunctionType {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[native function]")
-    }
-}
-
-impl PartialEq for NativeFunctionType {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-#[derive(Clone)]
-struct NativeMethodTypeWrapper(Arc<dyn NativeMethodType>);
-
-impl fmt::Debug for NativeMethodTypeWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[native function]")
-    }
-}
-
-impl PartialEq for NativeMethodTypeWrapper {
-    fn eq(&self, other: &Self) -> bool {
-        Arc::ptr_eq(&self.0, &other.0)
-    }
 }
 
 impl ScriptType {
@@ -176,13 +138,13 @@ impl ScriptType {
                 }
             }
             ScriptType::NativeFunction(func) => {
-                let params = func.0.arguments_type();
-                let ret = func.0.return_type();
+                let params = func.arguments_type();
+                let ret = func.return_type();
                 Ok((params.clone(), ret))
             }
             ScriptType::NativeMethodBound(method, subject_typ) => {
-                let params = method.0.arguments_type(subject_typ)?;
-                let ret = method.0.return_type(subject_typ)?;
+                let params = method.arguments_type(subject_typ)?;
+                let ret = method.return_type(subject_typ)?;
                 Ok((params.clone(), ret))
             }
             _ => Err(TypeError::InvalidCallable(self.clone())),
@@ -420,54 +382,32 @@ impl ReturnType {
     }
 }
 
-pub struct Validator<'a> {
-    src: &'a str,
+#[derive(Default)]
+pub struct Validator {
     globals: HashMap<Ident, ScriptType>,
-    list_methods: HashMap<Ident, NativeMethodTypeWrapper>,
+    methods: HashMap<(Ident, Ident), NativeMethodRef>,
 }
 
-impl<'a> Validator<'a> {
-    pub fn new(src: &'a str) -> Self {
-        Self {
-            src,
-            globals: Default::default(),
-            list_methods: HashMap::new(),
-        }
-    }
-
-    pub(crate) fn with_functions(
-        self,
-        functions: &HashMap<Ident, Arc<dyn NativeFunction>>,
-    ) -> Self {
+impl Validator {
+    pub(crate) fn with_functions(self, functions: HashMap<Ident, NativeFunctionRef>) -> Self {
         let mut globals = self.globals;
-        for (name, f) in functions {
-            globals.insert(
-                name.clone(),
-                ScriptType::NativeFunction(NativeFunctionType(Arc::clone(f))),
-            );
-        }
+        globals.extend(
+            functions
+                .into_iter()
+                .map(|(name, f)| (name, ScriptType::NativeFunction(f))),
+        );
         Self { globals, ..self }
     }
 
-    pub(crate) fn with_list_method(
-        self,
-        name: impl Into<Ident>,
-        f: Arc<dyn NativeMethodType>,
-    ) -> Self {
-        let mut list_methods = self.list_methods;
-        list_methods.insert(name.into(), NativeMethodTypeWrapper(f));
-        Self {
-            list_methods,
-            ..self
-        }
+    pub(crate) fn with_methods(self, more: HashMap<(Ident, Ident), NativeMethodRef>) -> Self {
+        let mut methods = self.methods;
+        methods.extend(more);
+
+        Self { methods, ..self }
     }
 
-    pub fn validate(&self, ast: &[AstNode]) -> result::Result<(), Error> {
-        self.validate_block(ast, Scope::with_globals(&self.globals))
-            .map_err(|err| {
-                let loc = err.loc;
-                err.into_inner().into_source_error(self.src, loc)
-            })?;
+    pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
+        self.validate_block(ast, Scope::with_globals(&self.globals))?;
         Ok(())
     }
 
@@ -488,6 +428,17 @@ impl<'a> Validator<'a> {
                         .transpose()?;
 
                     let mut inner = scope.clone();
+
+                    // XXX Recursive function: For recursive functions, we need to include the
+                    // function itself in the inner scope. There must be some kind of check that
+                    // we can't call recursively, unless return type is explicit.
+                    // XXX Also, we should probably have all functions in scope, included functions
+                    // declared below.
+                    // Probably, we need to have separate scope for "locals" and "functions" (which
+                    // must be a lexical scope instead)
+                    // Or maybe recusrive functions are not supported? Is that actually more work
+                    // then supporting them?
+
                     for arg in &params.0 {
                         if let Some(name) = &arg.name {
                             inner.set_local(name.clone(), arg.value.clone());
@@ -924,29 +875,39 @@ impl<'a> Validator<'a> {
                             .at(expr.loc)),
                         }
                     }
-                    ScriptType::State(_) => match key.as_str() {
-                        "get" => {
-                            let p: Arc<dyn NativeMethodType> = Arc::new(StateGet);
+                    ScriptType::State(_) => {
+                        let full_key = (Ident::from(global::STATE), key.clone());
+                        if let Some(method) = self.methods.get(&full_key) {
                             Ok(ScriptType::NativeMethodBound(
-                                NativeMethodTypeWrapper(p),
+                                method.clone(),
                                 subject_typ.into(),
                             ))
+                        } else {
+                            Err(TypeError::UndefinedAttribute {
+                                subject: subject_typ,
+                                attr_name: key.clone(),
+                            }
+                            .at(expr.loc))
                         }
-                        "set" => {
-                            let p: Arc<dyn NativeMethodType> = Arc::new(StateSet);
-                            Ok(ScriptType::NativeMethodBound(
-                                NativeMethodTypeWrapper(p),
-                                subject_typ.into(),
-                            ))
-                        }
-                        _ => Err(TypeError::UndefinedAttribute {
-                            subject: subject_typ,
-                            attr_name: key.clone(),
-                        }
-                        .at(expr.loc)),
-                    },
+                    }
                     ScriptType::List(_) | ScriptType::EmptyList => {
-                        if let Some(method) = self.list_methods.get(key) {
+                        let full_key = (Ident::from(global::LIST), key.clone());
+                        if let Some(method) = self.methods.get(&full_key) {
+                            Ok(ScriptType::NativeMethodBound(
+                                method.clone(),
+                                subject_typ.into(),
+                            ))
+                        } else {
+                            Err(TypeError::UndefinedAttribute {
+                                subject: subject_typ,
+                                attr_name: key.clone(),
+                            }
+                            .at(expr.loc))
+                        }
+                    }
+                    ScriptType::Str => {
+                        let full_key = (Ident::from(global::STRING), key.clone());
+                        if let Some(method) = self.methods.get(&full_key) {
                             Ok(ScriptType::NativeMethodBound(
                                 method.clone(),
                                 subject_typ.into(),
@@ -1070,7 +1031,6 @@ impl<'a> Validator<'a> {
                                 Err(TypeError::InvalidExpression.at(expr.loc)) // XXX Shouldn't be an error
                             }
                         }
-                        (ScriptType::Str, "lines") => Ok(ScriptType::list_of(ScriptType::Str)),
                         (ScriptType::Rec { params, .. }, "with") => {
                             // let args = self.eval_args(arguments, scope)?;
 

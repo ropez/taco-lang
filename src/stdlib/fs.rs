@@ -2,14 +2,14 @@ use std::fs;
 
 use crate::{
     Builder,
-    interpreter::{ScriptValue, Tuple},
+    interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("read".into(), ReadFunc);
-    builder.add_function("json".into(), JsonFunc);
+    builder.add_function("read", ReadFunc);
+    builder.add_function("json", JsonFunc);
 }
 
 struct ReadFunc;
@@ -23,7 +23,7 @@ impl NativeFunction for ReadFunc {
         ScriptType::Str
     }
 
-    fn call(&self, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         let Some(name) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };
@@ -54,7 +54,7 @@ impl NativeFunction for JsonFunc {
     // We need "json" to be a method, so that it can handle different types of data.
     // Maybe extenstions need to "plug in" to the type system/analyzer.
 
-    fn call(&self, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         let Some(value) = arguments.at(0) else {
             todo!("Return errors from extensions")
         };

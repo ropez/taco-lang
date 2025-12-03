@@ -3,7 +3,7 @@ use std::sync::Arc;
 use crate::{
     error::TypeError,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
-    stdlib::{NativeFunction, NativeMethod, NativeMethodType},
+    stdlib::{NativeFunction, NativeMethod},
     validate::{ScriptType, TupleItemType, TupleType},
 };
 
@@ -28,7 +28,7 @@ impl From<List> for ScriptValue {
 
 pub(crate) struct ListPush;
 impl ListMethod for ListPush {
-    fn list_call(&self, subject: &List, arguments: &Tuple) -> ScriptValue {
+    fn list_call(&self, _: &Interpreter, subject: &List, arguments: &Tuple) -> ScriptValue {
         // This is the Copy on Write feature of the language in play.
         // Can we avoid copy, if we see that the original will not be used again?
         let mut res = Vec::clone(&subject.0);
@@ -37,9 +37,7 @@ impl ListMethod for ListPush {
         }
         List::new(res).into()
     }
-}
 
-impl ListMethodType for ListPush {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         // XXX Variadic args not supported (but allowed in call)
         Ok(TupleType::from_single(inner.clone()))
@@ -50,7 +48,7 @@ impl ListMethodType for ListPush {
     }
 }
 
-trait ListMethodType {
+trait ListMethod {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         let _ = inner;
         Ok(TupleType::identity())
@@ -68,14 +66,17 @@ trait ListMethodType {
     fn empty_list_return_type(&self) -> Result<ScriptType, TypeError> {
         self.list_return_type(&ScriptType::Generic)
     }
-}
 
-trait ListMethod {
-    fn list_call(&self, subject: &List, arguments: &Tuple) -> ScriptValue;
+    fn list_call(
+        &self,
+        interpreter: &Interpreter,
+        subject: &List,
+        arguments: &Tuple,
+    ) -> ScriptValue;
 }
 
 pub(crate) struct ListFind;
-impl ListMethodType for ListFind {
+impl ListMethod for ListFind {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         Ok(TupleType::from_single(inner.clone()))
     }
@@ -83,10 +84,8 @@ impl ListMethodType for ListFind {
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::Opt(Box::new(inner.clone())))
     }
-}
 
-impl ListMethod for ListFind {
-    fn list_call(&self, list: &List, arguments: &Tuple) -> ScriptValue {
+    fn list_call(&self, _: &Interpreter, list: &List, arguments: &Tuple) -> ScriptValue {
         let val = arguments.single();
         let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, val));
         opt_val.cloned().unwrap_or(ScriptValue::None)
@@ -95,7 +94,7 @@ impl ListMethod for ListFind {
 
 pub(crate) struct ListUnzip;
 impl ListMethod for ListUnzip {
-    fn list_call(&self, subject: &List, _arguments: &Tuple) -> ScriptValue {
+    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
         // TODO These methods should create "stream" or "iterator" instead of just copying the whole list up-front
 
         let tuples: Vec<_> = subject.0.iter().map(|arg| arg.as_tuple()).collect();
@@ -124,9 +123,7 @@ impl ListMethod for ListUnzip {
 
         ScriptValue::Tuple(Arc::new(tuple))
     }
-}
 
-impl ListMethodType for ListUnzip {
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         let Some(tuple_typ) = inner.as_tuple() else {
             return Err(TypeError::InvalidMapTo(inner.clone()));
@@ -144,7 +141,7 @@ impl ListMethodType for ListUnzip {
 
 pub(crate) struct ListZip;
 impl NativeFunction for ListZip {
-    fn call(&self, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         let lists: Vec<_> = arguments
             .items()
             .iter()
@@ -175,7 +172,7 @@ impl NativeFunction for ListZip {
 
 pub(crate) struct ListSum;
 impl ListMethod for ListSum {
-    fn list_call(&self, subject: &List, _arguments: &Tuple) -> ScriptValue {
+    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
         if subject.items().iter().any(|v| v.is_nan()) {
             ScriptValue::NaN
         } else {
@@ -189,9 +186,7 @@ impl ListMethod for ListSum {
             )
         }
     }
-}
 
-impl ListMethodType for ListSum {
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         match inner {
             ScriptType::Int => Ok(ScriptType::Int),
@@ -202,7 +197,7 @@ impl ListMethodType for ListSum {
 
 pub(crate) struct ListSort;
 impl ListMethod for ListSort {
-    fn list_call(&self, subject: &List, _arguments: &Tuple) -> ScriptValue {
+    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
         let mut values: Vec<_> = subject.items().iter().map(|val| val.as_number()).collect();
 
         values.sort();
@@ -211,16 +206,14 @@ impl ListMethod for ListSort {
 
         List::new(values).into()
     }
-}
 
-impl ListMethodType for ListSort {
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::List(Box::new(inner.clone())))
     }
 }
 
-pub(crate) struct ListMapType;
-impl ListMethodType for ListMapType {
+pub(crate) struct ListMap;
+impl ListMethod for ListMap {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         Ok(TupleType::from_single(ScriptType::Function {
             params: TupleType::from_single(inner.clone()),
@@ -231,24 +224,25 @@ impl ListMethodType for ListMapType {
     fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::list_of(ScriptType::Generic))
     }
-}
 
-// XXX Requires splitting into separate traits for validation ond evaluation (or more Arc and Mutex)
-pub(crate) struct ListMap<'a>(pub(crate) &'a Interpreter);
-impl ListMethod for ListMap<'_> {
-    fn list_call(&self, subject: &List, arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        interpreter: &Interpreter,
+        subject: &List,
+        arguments: &Tuple,
+    ) -> ScriptValue {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
-            let value = self.0.eval_callable(callable, &item.to_single_argument());
+            let value = interpreter.eval_callable(callable, &item.to_single_argument());
             mapped.push(value);
         }
         ScriptValue::List(Arc::new(List::new(mapped)))
     }
 }
 
-pub(crate) struct ListMapToType;
-impl ListMethodType for ListMapToType {
+pub(crate) struct ListMapTo;
+impl ListMethod for ListMapTo {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         let Some(tuple_typ) = inner.as_tuple() else {
             return Err(TypeError::InvalidMapTo(inner.clone()));
@@ -262,15 +256,17 @@ impl ListMethodType for ListMapToType {
     fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::list_of(ScriptType::Generic))
     }
-}
 
-pub(crate) struct ListMapTo<'a>(pub(crate) &'a Interpreter);
-impl ListMethod for ListMapTo<'_> {
-    fn list_call(&self, subject: &List, arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        interpreter: &Interpreter,
+        subject: &List,
+        arguments: &Tuple,
+    ) -> ScriptValue {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
-            let value = self.0.eval_callable(callable, &item.as_tuple());
+            let value = interpreter.eval_callable(callable, &item.as_tuple());
             mapped.push(value);
         }
         ScriptValue::List(Arc::new(List::new(mapped)))
@@ -281,19 +277,19 @@ impl<T> NativeMethod for T
 where
     T: ListMethod,
 {
-    fn call(&self, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        subject: &ScriptValue,
+        arguments: &Tuple,
+    ) -> ScriptValue {
         if let ScriptValue::List(list) = subject {
-            self.list_call(list, arguments)
+            self.list_call(interpreter, list, arguments)
         } else {
             panic!("Not a list")
         }
     }
-}
 
-impl<T> NativeMethodType for T
-where
-    T: ListMethodType,
-{
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
         match subject {
             ScriptType::EmptyList => self.empty_list_arguments_type(),

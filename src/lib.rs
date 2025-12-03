@@ -6,12 +6,13 @@ use std::{
 
 use crate::{
     error::Result,
-    ident::Ident,
+    ident::{Ident, global},
     interpreter::Interpreter,
     parser::Parser,
     stdlib::{
-        NativeFunction, NativeMethod,
-        list::{ListFind, ListMapToType, ListMapType, ListPush, ListSort, ListSum, ListUnzip},
+        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
+        list::{ListFind, ListMap, ListMapTo, ListPush, ListSort, ListSum, ListUnzip},
+        string::StringLines,
     },
     validate::Validator,
 };
@@ -52,8 +53,20 @@ where
     stdlib::fs::build(&mut builder);
     stdlib::type_of::build(&mut builder);
 
-    let validator = builder.build_validator(src);
-    validator.validate(&ast)?;
+    builder.add_method(global::LIST, "push", ListPush);
+    builder.add_method(global::LIST, "find", ListFind);
+    builder.add_method(global::LIST, "unzip", ListUnzip);
+    builder.add_method(global::LIST, "sum", ListSum);
+    builder.add_method(global::LIST, "sort", ListSort);
+    builder.add_method(global::LIST, "map", ListMap);
+    builder.add_method(global::LIST, "map_to", ListMapTo);
+    builder.add_method(global::STRING, "lines", StringLines);
+
+    let validator = builder.build_validator();
+    validator.validate(&ast).map_err(|err| {
+        let loc = err.loc;
+        err.into_inner().into_source_error(src, loc)
+    })?;
 
     let interpreter = builder.build_interpreter();
     interpreter.execute(&ast);
@@ -63,41 +76,36 @@ where
 
 #[derive(Default)]
 struct Builder {
-    functions: HashMap<Ident, Arc<dyn NativeFunction>>,
-    methods: HashMap<Ident, Arc<dyn NativeMethod>>,
+    functions: HashMap<Ident, NativeFunctionRef>,
+    methods: HashMap<(Ident, Ident), NativeMethodRef>,
 }
 
 impl Builder {
-    pub fn add_function<T>(&mut self, name: Ident, func: T)
+    pub fn add_function<T>(&mut self, name: impl Into<Ident>, func: T)
     where
         T: NativeFunction + 'static,
     {
-        self.functions.insert(name, Arc::new(func));
+        self.functions
+            .insert(name.into(), NativeFunctionRef::from(func));
     }
 
-    pub fn add_method<T>(&mut self, name: Ident, method: T)
+    pub fn add_method<T>(&mut self, ns: impl Into<Ident>, name: impl Into<Ident>, method: T)
     where
         T: NativeMethod + 'static,
     {
-        self.methods.insert(name, Arc::new(method));
+        self.methods
+            .insert((ns.into(), name.into()), NativeMethodRef::from(method));
     }
 
-    fn build_validator<'a>(&self, src: &'a str) -> Validator<'a> {
-        let mut validator = Validator::new(src).with_functions(&self.functions);
-
-        // XXX
-        validator = validator.with_list_method("push", Arc::new(ListPush));
-        validator = validator.with_list_method("find", Arc::new(ListFind));
-        validator = validator.with_list_method("sort", Arc::new(ListSort));
-        validator = validator.with_list_method("unzip", Arc::new(ListUnzip));
-        validator = validator.with_list_method("sum", Arc::new(ListSum));
-        validator = validator.with_list_method("map", Arc::new(ListMapType));
-        validator = validator.with_list_method("map_to", Arc::new(ListMapToType));
-
-        validator
+    fn build_validator(&self) -> Validator {
+        Validator::default()
+            .with_functions(self.functions.clone())
+            .with_methods(self.methods.clone())
     }
 
     fn build_interpreter(&self) -> Interpreter {
-        Interpreter::default().with_functions(&self.functions)
+        Interpreter::default()
+            .with_functions(self.functions.clone())
+            .with_methods(self.methods.clone())
     }
 }

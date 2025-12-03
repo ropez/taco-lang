@@ -20,3 +20,11 @@ impl Display for Ident {
         self.0.fmt(f)
     }
 }
+
+pub(crate) mod global {
+    pub(crate) const LIST: &str = "__list__";
+    pub(crate) const STRING: &str = "__string__";
+
+    // XXX Extension doesn't belong here
+    pub(crate) const STATE: &str = "__state__";
+}

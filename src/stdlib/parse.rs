@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    interpreter::{ScriptValue, Tuple, TupleItem},
+    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     parser::Record,
     stdlib::NativeFunction,
 };
@@ -17,7 +17,7 @@ impl ParseFunc {
 }
 
 impl NativeFunction for ParseFunc {
-    fn call(&self, arguments: &crate::interpreter::Tuple) -> crate::interpreter::ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         if let Some(ScriptValue::String(s)) = arguments.first() {
             let mut nums = s.split_whitespace().map(|t| t.parse::<i64>().unwrap());
             let mut values = Vec::new();

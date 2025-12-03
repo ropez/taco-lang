@@ -3,15 +3,16 @@ use std::sync::{Arc, RwLock};
 use crate::{
     Builder,
     error::TypeError,
-    interpreter::{ScriptValue, Tuple},
-    stdlib::{NativeFunction, NativeMethod, NativeMethodType},
+    ident::global,
+    interpreter::{Interpreter, ScriptValue, Tuple},
+    stdlib::{NativeFunction, NativeMethod},
     validate::{ScriptType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("state".into(), MakeState);
-    builder.add_method("get".into(), StateGet);
-    builder.add_method("set".into(), StateSet);
+    builder.add_function("state", MakeState);
+    builder.add_method(global::STATE, "get", StateGet);
+    builder.add_method(global::STATE, "set", StateSet);
 }
 
 struct MakeState;
@@ -23,14 +24,14 @@ impl NativeFunction for MakeState {
         ScriptType::State(ScriptType::Generic.into())
     }
 
-    fn call(&self, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         let arg = arguments.first().expect("state arg");
         ScriptValue::State(Arc::new(RwLock::new(arg.clone())))
     }
 }
 
 pub(crate) struct StateGet;
-impl NativeMethodType for StateGet {
+impl NativeMethod for StateGet {
     fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
         if let ScriptType::State(inner) = subject {
             Ok(*inner.clone())
@@ -38,10 +39,8 @@ impl NativeMethodType for StateGet {
             panic!("Not a state")
         }
     }
-}
 
-impl NativeMethod for StateGet {
-    fn call(&self, subject: &ScriptValue, _arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, subject: &ScriptValue, _arguments: &Tuple) -> ScriptValue {
         if let ScriptValue::State(state) = subject {
             let v = state.read().unwrap();
             v.clone()
@@ -52,7 +51,7 @@ impl NativeMethod for StateGet {
 }
 
 pub(crate) struct StateSet;
-impl NativeMethodType for StateSet {
+impl NativeMethod for StateSet {
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
         if let ScriptType::State(inner) = subject {
             Ok(TupleType::from_single(*inner.clone()))
@@ -60,10 +59,8 @@ impl NativeMethodType for StateSet {
             panic!("Not a state")
         }
     }
-}
 
-impl NativeMethod for StateSet {
-    fn call(&self, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
         if let ScriptValue::State(state) = subject {
             if let Some(val) = arguments.at(0) {
                 let mut v = state.write().unwrap();

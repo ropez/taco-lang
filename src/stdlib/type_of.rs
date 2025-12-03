@@ -1,24 +1,24 @@
 use crate::{
     Builder,
-    interpreter::ScriptValue,
+    interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeFunction,
     validate::{ScriptType, TupleItemType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("typeof".into(), TypeOfFunc);
+    builder.add_function("typeof", TypeOfFunc);
 }
 
 struct TypeOfFunc;
 
 impl NativeFunction for TypeOfFunc {
-    fn call(&self, arguments: &crate::interpreter::Tuple) -> crate::interpreter::ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         let arg = arguments.single();
         let s = format!("{}", arg.to_type());
         ScriptValue::String(s.into())
     }
 
-    fn arguments_type(&self) -> crate::validate::TupleType {
+    fn arguments_type(&self) -> TupleType {
         TupleType::from_single(ScriptType::Generic)
     }
 
@@ -48,9 +48,6 @@ impl ScriptValue {
 
                 ScriptType::Tuple(TupleType::from(items))
             }
-            // ScriptValue::Callable(f) => {
-            //     f.
-            // }
             _ => todo!("to_type for {self:?}"),
         }
     }

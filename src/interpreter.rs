@@ -1,5 +1,3 @@
-#![allow(clippy::arc_with_non_send_sync)]
-
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
@@ -8,17 +6,15 @@ use std::{
 
 use crate::{
     fmt::{fmt_inner_list, fmt_tuple},
-    ident::Ident,
+    ident::{Ident, global},
     lexer::Src,
     parser::{
         Assignee, AstNode, CallExpression, Enumeration, Expression, Function, ParamExpression,
         Record, TypeExpression,
     },
     stdlib::{
-        NativeFunction, NativeMethod,
-        list::{
-            List, ListFind, ListMap, ListMapTo, ListPush, ListSort, ListSum, ListUnzip, ListZip,
-        },
+        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
+        list::{List, ListZip},
         parse::ParseFunc,
         state::{StateGet, StateSet},
     },
@@ -60,8 +56,8 @@ pub enum ScriptValue {
         def: Arc<Enumeration>,
         index: usize,
     },
-    NativeFunction(NativeFunctionWrapper),
-    NativeMethod(Arc<BoundMethod>),
+    NativeFunction(NativeFunctionRef),
+    NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
 
     State(Arc<RwLock<ScriptValue>>),
 }
@@ -164,27 +160,6 @@ impl Display for ScriptValue {
             ScriptValue::NaN => write!(f, "NaN"),
             _ => todo!("Display impl for {self:?}"),
         }
-    }
-}
-
-#[derive(Clone)]
-pub struct NativeFunctionWrapper(Arc<dyn NativeFunction>);
-
-impl fmt::Debug for NativeFunctionWrapper {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[native function]")
-    }
-}
-
-#[derive(Clone)]
-pub struct BoundMethod {
-    subject: ScriptValue,
-    method: Arc<dyn NativeMethod>,
-}
-
-impl fmt::Debug for BoundMethod {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[native function]")
     }
 }
 
@@ -299,21 +274,35 @@ impl fmt::Debug for Scope {
 #[derive(Default)]
 pub struct Interpreter {
     globals: HashMap<Ident, ScriptValue>,
+
+    methods: HashMap<(Ident, Ident), NativeMethodRef>,
 }
 
 impl Interpreter {
-    pub(crate) fn with_functions(
-        self,
-        functions: &HashMap<Ident, Arc<dyn NativeFunction>>,
-    ) -> Self {
+    pub(crate) fn with_functions(self, functions: HashMap<Ident, NativeFunctionRef>) -> Self {
         let mut globals = self.globals;
         for (name, f) in functions {
-            globals.insert(
-                name.clone(),
-                ScriptValue::NativeFunction(NativeFunctionWrapper(Arc::clone(f))),
-            );
+            globals.insert(name, ScriptValue::NativeFunction(f));
         }
-        Self { globals }
+        Self { globals, ..self }
+    }
+
+    pub(crate) fn with_methods(self, more: HashMap<(Ident, Ident), NativeMethodRef>) -> Self {
+        let mut methods = self.methods;
+        methods.extend(more);
+
+        Self { methods, ..self }
+    }
+
+    pub(crate) fn with_method(
+        self,
+        namespace: impl Into<Ident>,
+        name: impl Into<Ident>,
+        method: NativeMethodRef,
+    ) -> Self {
+        let mut methods = self.methods;
+        methods.insert((namespace.into(), name.into()), method);
+        Self { methods, ..self }
     }
 
     pub fn execute(&self, ast: &[AstNode]) {
@@ -494,7 +483,7 @@ impl Interpreter {
                     match name.as_str() {
                         "parse" => {
                             let func = ParseFunc::new(Arc::clone(v));
-                            ScriptValue::NativeFunction(NativeFunctionWrapper(Arc::new(func)))
+                            ScriptValue::NativeFunction(NativeFunctionRef::new(Arc::new(func)))
                         }
                         _ => panic!("Unexpected expression {prefix}::{name}"),
                     }
@@ -524,35 +513,38 @@ impl Interpreter {
             Expression::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
 
-                fn make_func(subject: ScriptValue, method: Arc<dyn NativeMethod>) -> ScriptValue {
-                    ScriptValue::NativeMethod(Arc::new(BoundMethod { subject, method }))
+                fn make_func(subject: Box<ScriptValue>, method: NativeMethodRef) -> ScriptValue {
+                    ScriptValue::NativeMethodBound(method, subject)
                 }
 
                 match (&subject, key.as_str()) {
-                    (ScriptValue::State(_), "get") => {
-                        make_func(subject.clone(), Arc::new(StateGet))
-                    }
-                    (ScriptValue::State(_), "set") => {
-                        make_func(subject.clone(), Arc::new(StateSet))
-                    }
-                    (ScriptValue::List(_), "push") => {
-                        make_func(subject.clone(), Arc::new(ListPush))
-                    }
-                    (ScriptValue::List(_), "find") => {
-                        make_func(subject.clone(), Arc::new(ListFind))
-                    }
-                    (ScriptValue::List(_), "unzip") => {
-                        make_func(subject.clone(), Arc::new(ListUnzip))
-                    }
+                    (ScriptValue::State(_), "get") => make_func(
+                        subject.clone().into(),
+                        NativeMethodRef::new(Arc::new(StateGet)),
+                    ),
+                    (ScriptValue::State(_), "set") => make_func(
+                        subject.clone().into(),
+                        NativeMethodRef::new(Arc::new(StateSet)),
+                    ),
                     (ScriptValue::List(_), "zip") => {
-                        ScriptValue::NativeFunction(NativeFunctionWrapper(Arc::new(ListZip)))
+                        ScriptValue::NativeFunction(NativeFunctionRef::new(Arc::new(ListZip)))
                     }
-                    (ScriptValue::List(_), "sum") => make_func(subject.clone(), Arc::new(ListSum)),
-                    (ScriptValue::List(_), "sort") => {
-                        make_func(subject.clone(), Arc::new(ListSort))
+                    (ScriptValue::List(_), _) => {
+                        let full_key = (Ident::from(global::LIST), key.clone());
+                        if let Some(method) = self.methods.get(&full_key) {
+                            ScriptValue::NativeMethodBound(method.clone(), subject.into())
+                        } else {
+                            panic!("No such attribute {key} for {subject}");
+                        }
                     }
-                    // (ScriptValue::List(_), "map") => make_func(subject.clone(), Arc::new(ListMap(self))),
-                    // (ScriptValue::List(_), "map_to") => make_func(subject.clone(), Arc::new(ListMapTo(self))),
+                    (ScriptValue::String(_), _) => {
+                        let full_key = (Ident::from(global::STRING), key.clone());
+                        if let Some(method) = self.methods.get(&full_key) {
+                            ScriptValue::NativeMethodBound(method.clone(), subject.into())
+                        } else {
+                            panic!("No such attribute {key} for {subject}");
+                        }
+                    }
                     (ScriptValue::Tuple(tuple), _) => {
                         match tuple.0.iter().find(|p| p.name.as_ref() == Some(key)) {
                             Some(value) => value.value.clone(),
@@ -703,8 +695,6 @@ impl Interpreter {
         if let Expression::Access { subject, key } = subject.as_ref() {
             let subject = self.eval_expr(subject, scope);
             match (&subject, key.as_str()) {
-                (ScriptValue::List(_), "map") => ListMap(self).call(&subject, &arguments),
-                (ScriptValue::List(_), "map_to") => ListMapTo(self).call(&subject, &arguments),
                 (
                     ScriptValue::Rec {
                         def: rec,
@@ -728,14 +718,6 @@ impl Interpreter {
                         def: Arc::clone(rec),
                         value: Arc::new(Tuple(values)),
                     }
-                }
-                (ScriptValue::String(s), "lines") => {
-                    let lines = s
-                        .lines()
-                        .filter(|l| !l.is_empty())
-                        .map(|l| ScriptValue::String(Arc::from(l)))
-                        .collect();
-                    ScriptValue::List(Arc::new(List::new(lines)))
                 }
                 _ => {
                     // XXX This should be the entire body of this function
@@ -789,8 +771,10 @@ impl Interpreter {
                     value: Arc::new(values),
                 }
             }
-            ScriptValue::NativeFunction(func) => func.0.call(arguments),
-            ScriptValue::NativeMethod(v) => v.method.call(&v.subject, arguments),
+            ScriptValue::NativeFunction(func) => func.call(self, arguments),
+            ScriptValue::NativeMethodBound(method, subject) => {
+                method.call(self, subject, arguments)
+            }
             _ => panic!("Expected a callable, got: {callable:?}"),
         }
     }
