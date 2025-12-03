@@ -18,10 +18,10 @@ pub fn build(builder: &mut Builder) {
 struct MakeState;
 impl NativeFunction for MakeState {
     fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Generic)
+        TupleType::from_single(ScriptType::Generic(1))
     }
     fn return_type(&self) -> ScriptType {
-        ScriptType::State(ScriptType::Generic.into())
+        ScriptType::State(ScriptType::Generic(1).into())
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {

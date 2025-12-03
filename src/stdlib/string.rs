@@ -1,8 +1,10 @@
 use std::sync::Arc;
 
 use crate::{
+    error::TypeError,
     interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::{NativeMethod, list::List},
+    validate::ScriptType,
 };
 
 pub(crate) struct StringLines;
@@ -18,5 +20,9 @@ impl NativeMethod for StringLines {
         } else {
             panic!("Not a string")
         }
+    }
+
+    fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::list_of(ScriptType::Str))
     }
 }

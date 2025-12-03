@@ -11,7 +11,8 @@ use crate::{
     parser::Parser,
     stdlib::{
         NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
-        list::{ListFind, ListMap, ListMapTo, ListPush, ListSort, ListSum, ListUnzip},
+        list::{ListFind, ListMap, ListMapTo, ListPush, ListSort, ListSum, ListUnzip, ListZip},
+        record::RecordWithMethod,
         string::StringLines,
     },
     validate::Validator,
@@ -53,6 +54,9 @@ where
     stdlib::fs::build(&mut builder);
     stdlib::type_of::build(&mut builder);
 
+    // XXX Namespace for functions (List::zip)
+    builder.add_function("zip", ListZip);
+
     builder.add_method(global::LIST, "push", ListPush);
     builder.add_method(global::LIST, "find", ListFind);
     builder.add_method(global::LIST, "unzip", ListUnzip);
@@ -61,6 +65,7 @@ where
     builder.add_method(global::LIST, "map", ListMap);
     builder.add_method(global::LIST, "map_to", ListMapTo);
     builder.add_method(global::STRING, "lines", StringLines);
+    builder.add_method(global::REC, "with", RecordWithMethod);
 
     let validator = builder.build_validator();
     validator.validate(&ast).map_err(|err| {

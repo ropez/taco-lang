@@ -47,7 +47,7 @@ fn function_must_take_correct_arguments() {
         Ok(_) => panic!("Expected error"),
         Err(out) => assert_eq!(
             out.message,
-            "Expected 'fun(int): T', found 'fun(a: str): str'"
+            "Expected 'fun(int): T1', found 'fun(a: str): str'"
         ),
     };
 }

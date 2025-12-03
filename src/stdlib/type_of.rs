@@ -19,7 +19,7 @@ impl NativeFunction for TypeOfFunc {
     }
 
     fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Generic)
+        TupleType::from_single(ScriptType::Generic(1))
     }
 
     fn return_type(&self) -> crate::validate::ScriptType {

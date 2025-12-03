@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display, result, sync::Arc};
 
 use crate::{
-    error::{Error, TypeError},
+    error::TypeError,
     fmt::fmt_tuple,
     ident::{Ident, global},
     lexer::{Loc, Src},
@@ -40,7 +40,7 @@ pub enum ScriptType {
 
     // Special type used to represent a "generic", e.g. state(x: T): [T] is represented as
     // Function ( params: (Generic), ret: List<Generic> }
-    Generic,
+    Generic(u16),
 }
 
 impl ScriptType {
@@ -56,7 +56,7 @@ impl ScriptType {
     fn accepts(&self, other: &ScriptType) -> bool {
         match (self, other) {
             (ScriptType::State(_), _) => false,
-            (ScriptType::Generic, _) => true,
+            (ScriptType::Generic(_), _) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
@@ -166,7 +166,7 @@ impl Display for ScriptType {
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::Rec { name, params } => write!(f, "{name}{params}"),
             Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
-            Self::Generic => write!(f, "T"),
+            Self::Generic(n) => write!(f, "T{n}"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -230,6 +230,10 @@ impl TupleType {
 
     pub fn items(&self) -> &[TupleItemType] {
         &self.0
+    }
+
+    pub fn get_named_item(&self, name: &Ident) -> Option<&TupleItemType> {
+        self.items().iter().find(|a| a.name.as_ref() == Some(name))
     }
 
     fn accepts(&self, other: &TupleType) -> bool {
@@ -404,6 +408,17 @@ impl Validator {
         methods.extend(more);
 
         Self { methods, ..self }
+    }
+
+    fn get_method(&self, subject: &ScriptType, name: &Ident) -> Option<&NativeMethodRef> {
+        let ns = match subject {
+            ScriptType::Str => global::STRING,
+            ScriptType::Rec { .. } => global::REC, // XXX Should also support user-defined methods on the rec's own name
+            ScriptType::EmptyList | ScriptType::List(_) => global::LIST,
+            ScriptType::State(_) => global::STATE,
+            _ => todo!("NS for {subject}"),
+        };
+        self.methods.get(&(ns.into(), name.clone()))
     }
 
     pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
@@ -853,78 +868,24 @@ impl Validator {
                 None => Err(TypeError::UndefinedReference(prefix.clone()).at(expr.loc)),
             },
             Expression::Access { subject, key } => {
-                let subject_typ = self.validate_expr(subject, scope)?;
-                match &subject_typ {
-                    ScriptType::Tuple(tuple) => {
-                        match tuple.0.iter().find(|a| a.name.as_ref() == Some(key)) {
-                            Some(a) => Ok(a.value.clone()),
-                            None => Err(TypeError::UndefinedAttribute {
-                                subject: subject_typ,
-                                attr_name: key.clone(),
-                            }
-                            .at(expr.loc)),
-                        }
-                    }
-                    ScriptType::Rec { params, .. } => {
-                        match params.0.iter().find(|a| a.name.as_ref() == Some(key)) {
-                            Some(a) => Ok(a.value.clone()),
-                            None => Err(TypeError::UndefinedAttribute {
-                                subject: subject_typ,
-                                attr_name: key.clone(),
-                            }
-                            .at(expr.loc)),
-                        }
-                    }
-                    ScriptType::State(_) => {
-                        let full_key = (Ident::from(global::STATE), key.clone());
-                        if let Some(method) = self.methods.get(&full_key) {
-                            Ok(ScriptType::NativeMethodBound(
-                                method.clone(),
-                                subject_typ.into(),
-                            ))
-                        } else {
-                            Err(TypeError::UndefinedAttribute {
-                                subject: subject_typ,
-                                attr_name: key.clone(),
-                            }
-                            .at(expr.loc))
-                        }
-                    }
-                    ScriptType::List(_) | ScriptType::EmptyList => {
-                        let full_key = (Ident::from(global::LIST), key.clone());
-                        if let Some(method) = self.methods.get(&full_key) {
-                            Ok(ScriptType::NativeMethodBound(
-                                method.clone(),
-                                subject_typ.into(),
-                            ))
-                        } else {
-                            Err(TypeError::UndefinedAttribute {
-                                subject: subject_typ,
-                                attr_name: key.clone(),
-                            }
-                            .at(expr.loc))
-                        }
-                    }
-                    ScriptType::Str => {
-                        let full_key = (Ident::from(global::STRING), key.clone());
-                        if let Some(method) = self.methods.get(&full_key) {
-                            Ok(ScriptType::NativeMethodBound(
-                                method.clone(),
-                                subject_typ.into(),
-                            ))
-                        } else {
-                            Err(TypeError::UndefinedAttribute {
-                                subject: subject_typ,
-                                attr_name: key.clone(),
-                            }
-                            .at(expr.loc))
-                        }
-                    }
-                    _ => Err(TypeError::UndefinedAttribute {
-                        subject: subject_typ,
+                let subject = self.validate_expr(subject, scope)?;
+                if let Some(tuple) = subject.as_tuple()
+                    && let Some(item) = tuple.get_named_item(key)
+                {
+                    return Ok(item.value.clone());
+                }
+
+                if let Some(method) = self.get_method(&subject, key) {
+                    Ok(ScriptType::NativeMethodBound(
+                        method.clone(),
+                        subject.into(),
+                    ))
+                } else {
+                    Err(TypeError::UndefinedAttribute {
+                        subject,
                         attr_name: key.clone(),
                     }
-                    .at(expr.loc)),
+                    .at(expr.loc))
                 }
             }
             Expression::Not(expr) => {
@@ -1000,73 +961,18 @@ impl Validator {
                 }
             }
             Expression::Call { subject, arguments } => {
-                let outer_subject = subject;
                 let arguments = self.eval_call_expr(arguments, scope)?;
 
-                if let Expression::Access { subject, key } = subject.as_ref().as_ref() {
-                    let subject_typ = self.validate_expr(subject, scope)?;
-                    match (&subject_typ, key.as_str()) {
-                        // XXX Using empty list [], as a placeholder for a "static method"
-                        (ScriptType::EmptyList, "zip") => {
-                            // XXX Supports variable arguments, which can't be defined in type system
-                            if let CallExpressionType::Inline(inline_arguments) = arguments {
-                                let items = inline_arguments
-                                    .into_inner()
-                                    .into_iter()
-                                    .map(|arg| match arg.value.as_ref() {
-                                        ScriptType::List(inner) => {
-                                            Ok(TupleItemType::new(arg.name, inner.as_ref().clone()))
-                                        }
-                                        _ => Err(TypeError::InvalidArgumentType {
-                                            expected: ScriptType::list_of(ScriptType::identity()), // XXX
-                                            actual: arg.value.as_ref().clone(),
-                                        }
-                                        .at(arg.value.loc)),
-                                    })
-                                    .collect::<Result<Vec<_>>>()?;
-
-                                let tuple = TupleType(items);
-                                Ok(ScriptType::list_of(ScriptType::Tuple(tuple)))
-                            } else {
-                                Err(TypeError::InvalidExpression.at(expr.loc)) // XXX Shouldn't be an error
-                            }
-                        }
-                        (ScriptType::Rec { params, .. }, "with") => {
-                            // let args = self.eval_args(arguments, scope)?;
-
-                            // XXX FIXME Non-mandatory args:
-                            // self.validate_arguments(&formal, arguments, scope)?;
-
-                            Ok(subject_typ.clone())
-                        }
-                        _ => {
-                            // XXX This should be the entire implementation of Expression::Call
-                            let outer_subject_type = self.eval_expr(outer_subject, scope)?;
-                            let (params, ret) = outer_subject_type
-                                .as_ref()
-                                .as_callable()
-                                .map_err(|err| err.at(expr.loc))?;
-                            let found_type = self.validate_arguments(&params, &arguments, scope)?;
-                            if let Ok(generic) = resolve_generic(ret, found_type) {
-                                Ok(generic)
-                            } else {
-                                todo!("No generic found in: {arguments:?}")
-                            }
-                        }
-                    }
+                let subject = self.eval_expr(subject, scope)?;
+                let (params, ret) = subject
+                    .as_ref()
+                    .as_callable()
+                    .map_err(|err| err.at(expr.loc))?;
+                let found_types = self.validate_arguments(&params, &arguments, scope)?;
+                if let Ok(generic) = resolve_generic(ret, &found_types) {
+                    Ok(generic)
                 } else {
-                    // XXX This should be the entire implementation of Expression::Call
-                    let subject_typ = self.eval_expr(subject, scope)?;
-                    let (params, ret) = subject_typ
-                        .as_ref()
-                        .as_callable()
-                        .map_err(|err| err.at(expr.loc))?;
-                    let found_type = self.validate_arguments(&params, &arguments, scope)?;
-                    if let Ok(generic) = resolve_generic(ret, found_type) {
-                        Ok(generic)
-                    } else {
-                        todo!("No generic found in: {arguments:?}")
-                    }
+                    todo!("No generic found in: {arguments:?}")
                 }
             }
         }
@@ -1136,7 +1042,7 @@ impl Validator {
         params: &TupleType,
         arguments: &CallExpressionType,
         scope: &Scope,
-    ) -> Result<Option<ScriptType>> {
+    ) -> Result<HashMap<u16, ScriptType>> {
         let found_type = match arguments {
             CallExpressionType::Inline(arguments) => {
                 self.validate_inline_args(params, arguments)?
@@ -1147,7 +1053,7 @@ impl Validator {
                     value: t.clone(),
                 };
                 self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
-                None
+                HashMap::new() // XXX
             }
             CallExpressionType::DestructureImplicit(loc) => {
                 let typ = scope.arguments.clone();
@@ -1156,7 +1062,7 @@ impl Validator {
                     value: Src::new(ScriptType::Tuple(typ), *loc),
                 };
                 self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
-                None
+                HashMap::new() // XXX
             }
         };
         Ok(found_type)
@@ -1166,10 +1072,10 @@ impl Validator {
         &self,
         formal: &TupleType,
         arguments: &Src<Vec<ArgumentExpressionType>>,
-    ) -> Result<Option<ScriptType>> {
+    ) -> Result<HashMap<u16, ScriptType>> {
         // For each formal: If args contain named, take it, else take next unnamed
         let mut positional = arguments.as_ref().iter().filter(|arg| arg.name.is_none());
-        let mut found_type = None;
+        let mut found_types = HashMap::new();
 
         for par in formal.0.iter() {
             if let Some(name) = &par.name {
@@ -1191,15 +1097,22 @@ impl Validator {
                 }
             } else if let Some(arg) = positional.next() {
                 self.validate_single_arg(&par.value, arg)?;
-                if let ScriptType::Generic = par.value {
-                    found_type = Some(arg.value.cloned())
+                if let ScriptType::Generic(n) = par.value {
+                    found_types.insert(n, arg.value.cloned());
+                }
+                if let ScriptType::List(l) = &par.value {
+                    if let ScriptType::Generic(n) = l.as_ref() {
+                        if let ScriptType::List(a) = &arg.value.as_ref() {
+                            found_types.insert(*n, a.as_ref().clone());
+                        }
+                    }
                 }
                 if let ScriptType::Function { ret, params: _ } = &par.value {
-                    if let ScriptType::Generic = ret.as_ref() {
+                    if let ScriptType::Generic(n) = ret.as_ref() {
                         if let ScriptType::Function { ret: a, params: _ } = arg.value.as_ref() {
-                            found_type = Some(*a.clone())
+                            found_types.insert(*n, *a.clone());
                         } else if let ScriptType::EnumVariant(a, b) = arg.value.as_ref() {
-                            found_type = Some(ScriptType::Enum(Arc::clone(a)));
+                            found_types.insert(*n, ScriptType::Enum(Arc::clone(a)));
                         }
                     }
                 }
@@ -1221,7 +1134,7 @@ impl Validator {
             .at(arguments.loc));
         }
 
-        Ok(found_type)
+        Ok(found_types)
     }
 
     fn validate_single_arg(&self, formal: &ScriptType, arg: &ArgumentExpressionType) -> Result<()> {
@@ -1370,18 +1283,31 @@ impl Validator {
 
 fn resolve_generic(
     t: ScriptType,
-    found_type: Option<ScriptType>,
+    found_types: &HashMap<u16, ScriptType>,
 ) -> result::Result<ScriptType, ()> {
     match t {
-        ScriptType::Generic => {
-            let ret = found_type.ok_or(())?;
-            Ok(ret)
+        ScriptType::Generic(n) => {
+            let ret = found_types.get(&n).ok_or(())?;
+            Ok(ret.clone())
         }
         ScriptType::State(inner) => Ok(ScriptType::State(
-            resolve_generic(*inner, found_type)?.into(),
+            resolve_generic(*inner, found_types)?.into(),
         )),
-        ScriptType::List(inner) => Ok(ScriptType::list_of(resolve_generic(*inner, found_type)?)),
-        ScriptType::Function { params: _, ret } => resolve_generic(*ret, found_type),
+        ScriptType::Tuple(tuple) => {
+            let items: Vec<_> = tuple
+                .items()
+                .iter()
+                .map(|it| {
+                    TupleItemType::new(
+                        it.name.clone(),
+                        resolve_generic(it.value.clone(), found_types).unwrap(),
+                    )
+                })
+                .collect();
+            Ok(ScriptType::Tuple(TupleType::from(items)))
+        }
+        ScriptType::List(inner) => Ok(ScriptType::list_of(resolve_generic(*inner, found_types)?)),
+        ScriptType::Function { params: _, ret } => resolve_generic(*ret, found_types),
         other => Ok(other),
     }
 }

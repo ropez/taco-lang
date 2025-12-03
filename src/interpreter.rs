@@ -16,7 +16,6 @@ use crate::{
         NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
         list::{List, ListZip},
         parse::ParseFunc,
-        state::{StateGet, StateSet},
     },
 };
 
@@ -78,11 +77,11 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_tuple(&self) -> Arc<Tuple> {
+    pub fn as_tuple(&self) -> Option<Arc<Tuple>> {
         match self {
-            Self::Tuple(tuple) => Arc::clone(tuple),
-            Self::Rec { value, .. } => Arc::clone(value),
-            _ => panic!("Expected tuple, found {self}"),
+            Self::Tuple(tuple) => Some(Arc::clone(tuple)),
+            Self::Rec { value, .. } => Some(Arc::clone(value)),
+            _ => None,
         }
     }
 
@@ -210,11 +209,8 @@ impl Tuple {
         self.0.first().map(|item| &item.value)
     }
 
-    pub fn get(&self, key: &Ident) -> Option<&ScriptValue> {
-        self.0
-            .iter()
-            .find(|i| i.name.as_ref() == Some(key))
-            .map(|item| &item.value)
+    pub fn get_named_item(&self, key: &Ident) -> Option<&TupleItem> {
+        self.0.iter().find(|i| i.name.as_ref() == Some(key))
     }
 
     pub fn at(&self, index: usize) -> Option<&ScriptValue> {
@@ -294,15 +290,15 @@ impl Interpreter {
         Self { methods, ..self }
     }
 
-    pub(crate) fn with_method(
-        self,
-        namespace: impl Into<Ident>,
-        name: impl Into<Ident>,
-        method: NativeMethodRef,
-    ) -> Self {
-        let mut methods = self.methods;
-        methods.insert((namespace.into(), name.into()), method);
-        Self { methods, ..self }
+    fn get_method(&self, subject: &ScriptValue, name: &Ident) -> Option<&NativeMethodRef> {
+        let ns = match subject {
+            ScriptValue::String(_) => global::STRING,
+            ScriptValue::List(_) => global::LIST,
+            ScriptValue::Rec { .. } => global::REC,
+            ScriptValue::State(_) => global::STATE,
+            _ => todo!("NS for {subject}"),
+        };
+        self.methods.get(&(ns.into(), name.clone()))
     }
 
     pub fn execute(&self, ast: &[AstNode]) {
@@ -483,7 +479,7 @@ impl Interpreter {
                     match name.as_str() {
                         "parse" => {
                             let func = ParseFunc::new(Arc::clone(v));
-                            ScriptValue::NativeFunction(NativeFunctionRef::new(Arc::new(func)))
+                            ScriptValue::NativeFunction(NativeFunctionRef::from(func))
                         }
                         _ => panic!("Unexpected expression {prefix}::{name}"),
                     }
@@ -513,61 +509,16 @@ impl Interpreter {
             Expression::Access { subject, key } => {
                 let subject = self.eval_expr(subject, scope);
 
-                fn make_func(subject: Box<ScriptValue>, method: NativeMethodRef) -> ScriptValue {
-                    ScriptValue::NativeMethodBound(method, subject)
+                if let Some(tuple) = subject.as_tuple()
+                    && let Some(it) = tuple.get_named_item(key)
+                {
+                    return it.value.clone();
                 }
 
-                match (&subject, key.as_str()) {
-                    (ScriptValue::State(_), "get") => make_func(
-                        subject.clone().into(),
-                        NativeMethodRef::new(Arc::new(StateGet)),
-                    ),
-                    (ScriptValue::State(_), "set") => make_func(
-                        subject.clone().into(),
-                        NativeMethodRef::new(Arc::new(StateSet)),
-                    ),
-                    (ScriptValue::List(_), "zip") => {
-                        ScriptValue::NativeFunction(NativeFunctionRef::new(Arc::new(ListZip)))
-                    }
-                    (ScriptValue::List(_), _) => {
-                        let full_key = (Ident::from(global::LIST), key.clone());
-                        if let Some(method) = self.methods.get(&full_key) {
-                            ScriptValue::NativeMethodBound(method.clone(), subject.into())
-                        } else {
-                            panic!("No such attribute {key} for {subject}");
-                        }
-                    }
-                    (ScriptValue::String(_), _) => {
-                        let full_key = (Ident::from(global::STRING), key.clone());
-                        if let Some(method) = self.methods.get(&full_key) {
-                            ScriptValue::NativeMethodBound(method.clone(), subject.into())
-                        } else {
-                            panic!("No such attribute {key} for {subject}");
-                        }
-                    }
-                    (ScriptValue::Tuple(tuple), _) => {
-                        match tuple.0.iter().find(|p| p.name.as_ref() == Some(key)) {
-                            Some(value) => value.value.clone(),
-                            None => panic!("{} doesn't have a property named: {}", tuple, key),
-                        }
-                    }
-                    (
-                        ScriptValue::Rec {
-                            def: rec,
-                            value: values,
-                        },
-                        _,
-                    ) => {
-                        let index = rec.params.iter().position(|p| p.name.as_ref() == Some(key));
-                        match index {
-                            None => panic!("{} doesn't have a property named: {}", rec.name, key),
-                            Some(index) => match values.at(index) {
-                                Some(value) => value.clone(),
-                                None => panic!("Index out of range"),
-                            },
-                        }
-                    }
-                    _ => panic!("Unexpected property access on {subject:?}"),
+                if let Some(method) = self.get_method(&subject, key) {
+                    ScriptValue::NativeMethodBound(method.clone(), subject.into())
+                } else {
+                    panic!("No such attribute {key} for {subject}");
                 }
             }
             Expression::Not(expr) => {
@@ -635,7 +586,11 @@ impl Interpreter {
                 }
                 val
             }
-            Expression::Call { subject, arguments } => self.eval_call(subject, arguments, scope),
+            Expression::Call { subject, arguments } => {
+                let subject = self.eval_expr(subject, scope);
+                let arguments = self.eval_args(arguments, scope);
+                self.eval_callable(&subject, &arguments)
+            }
         }
     }
 
@@ -679,56 +634,6 @@ impl Interpreter {
             (ScriptValue::NaN, ScriptValue::Number(_)) => ScriptValue::NaN,
             (ScriptValue::Number(_), ScriptValue::NaN) => ScriptValue::NaN,
             _ => panic!("Expected numbers"),
-        }
-    }
-
-    fn eval_call(
-        &self,
-        subject: &Src<Expression>,
-        arguments: &CallExpression,
-        scope: &Scope,
-    ) -> ScriptValue {
-        let arguments = self.eval_args(arguments, scope);
-
-        let outer_subject = subject;
-
-        if let Expression::Access { subject, key } = subject.as_ref() {
-            let subject = self.eval_expr(subject, scope);
-            match (&subject, key.as_str()) {
-                (
-                    ScriptValue::Rec {
-                        def: rec,
-                        value: values,
-                    },
-                    "with",
-                ) => {
-                    let mut values = values.0.clone();
-
-                    // XXX Should be possible to use "apply" here as well
-
-                    for (param, v) in rec.params.iter().zip(values.iter_mut()) {
-                        if let Some(name) = &param.name
-                            && let Some(val) = arguments.get(name)
-                        {
-                            v.value = val.clone();
-                        }
-                    }
-
-                    ScriptValue::Rec {
-                        def: Arc::clone(rec),
-                        value: Arc::new(Tuple(values)),
-                    }
-                }
-                _ => {
-                    // XXX This should be the entire body of this function
-                    let value = self.eval_expr(outer_subject, scope);
-                    self.eval_callable(&value, &arguments)
-                }
-            }
-        } else {
-            // XXX This should be the entire body of this function
-            let value = self.eval_expr(subject, scope);
-            self.eval_callable(&value, &arguments)
         }
     }
 

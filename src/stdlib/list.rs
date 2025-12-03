@@ -60,11 +60,11 @@ trait ListMethod {
     }
 
     fn empty_list_arguments_type(&self) -> Result<TupleType, TypeError> {
-        self.list_arguments_type(&ScriptType::Generic)
+        self.list_arguments_type(&ScriptType::Generic(1))
     }
 
     fn empty_list_return_type(&self) -> Result<ScriptType, TypeError> {
-        self.list_return_type(&ScriptType::Generic)
+        self.list_return_type(&ScriptType::Generic(1))
     }
 
     fn list_call(
@@ -97,7 +97,11 @@ impl ListMethod for ListUnzip {
     fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
         // TODO These methods should create "stream" or "iterator" instead of just copying the whole list up-front
 
-        let tuples: Vec<_> = subject.0.iter().map(|arg| arg.as_tuple()).collect();
+        let tuples: Vec<_> = subject
+            .items()
+            .iter()
+            .map(|arg| arg.as_tuple().expect("list containing tuples"))
+            .collect();
 
         let mut lists = Vec::new();
 
@@ -168,6 +172,24 @@ impl NativeFunction for ListZip {
 
         ScriptValue::List(Arc::new(List::new(values)))
     }
+
+    // XXX Supporting exactly two arguments only
+
+    fn arguments_type(&self) -> TupleType {
+        let args = vec![
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Generic(1))),
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Generic(2))),
+        ];
+        TupleType::from(args)
+    }
+
+    fn return_type(&self) -> ScriptType {
+        let args = vec![
+            TupleItemType::unnamed(ScriptType::Generic(1)),
+            TupleItemType::unnamed(ScriptType::Generic(2)),
+        ];
+        ScriptType::list_of(ScriptType::Tuple(TupleType::from(args)))
+    }
 }
 
 pub(crate) struct ListSum;
@@ -217,12 +239,12 @@ impl ListMethod for ListMap {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         Ok(TupleType::from_single(ScriptType::Function {
             params: TupleType::from_single(inner.clone()),
-            ret: ScriptType::Generic.into(),
+            ret: ScriptType::Generic(1).into(),
         }))
     }
 
     fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::list_of(ScriptType::Generic))
+        Ok(ScriptType::list_of(ScriptType::Generic(1)))
     }
 
     fn list_call(
@@ -249,12 +271,12 @@ impl ListMethod for ListMapTo {
         };
         Ok(TupleType::from_single(ScriptType::Function {
             params: tuple_typ.clone(),
-            ret: ScriptType::Generic.into(),
+            ret: ScriptType::Generic(1).into(),
         }))
     }
 
     fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::list_of(ScriptType::Generic))
+        Ok(ScriptType::list_of(ScriptType::Generic(1)))
     }
 
     fn list_call(
@@ -266,7 +288,8 @@ impl ListMethod for ListMapTo {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
-            let value = interpreter.eval_callable(callable, &item.as_tuple());
+            let tuple = item.as_tuple().expect("list of tuples");
+            let value = interpreter.eval_callable(callable, &tuple);
             mapped.push(value);
         }
         ScriptValue::List(Arc::new(List::new(mapped)))

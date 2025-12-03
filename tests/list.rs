@@ -229,12 +229,59 @@ fn test_zip_combines_two_lists() {
 
         heroes = [ "fred", "barney" ]
 
-        zipped = [].zip(fruits, heroes, [1, 2, 3])
+        zipped = zip(fruits, heroes)
         print("$zipped")
     "#;
 
     match check_output(src) {
-        Ok(out) => assert_eq!("[(apple, fred, 1), (orange, barney, 2)]", out),
+        Ok(out) => assert_eq!("[(apple, fred), (orange, barney)]", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_zip_combines_different_typed_lists() {
+    let src = r#"
+        heroes = [ "fred", "barney" ]
+
+        score = [
+            (100, 120)
+            (110, 100)
+        ]
+
+        zipped = zip(heroes, score)
+        print("$zipped")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("[(fred, (100, 120)), (barney, (110, 100))]", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_zip_infers_type_correctly() {
+    let src = r#"
+        heroes = [ "fred", "barney" ]
+
+        score = [
+            (100, 120)
+            (110, 100)
+        ]
+
+        zipped = zip(heroes, score)
+        print(typeof(zipped))
+
+        # static type check:
+        for it in zipped {
+            (s, (a, b)) = it
+            s.lines()
+            a + b + 10
+        }
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("[(str, (int, int))]", out),
         Err(err) => panic!("{err}"),
     };
 }

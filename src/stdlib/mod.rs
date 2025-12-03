@@ -14,6 +14,7 @@ pub(crate) mod fs;
 pub(crate) mod list;
 pub(crate) mod parse;
 pub(crate) mod print;
+pub(crate) mod record;
 pub(crate) mod state;
 pub(crate) mod string;
 pub(crate) mod type_of;
