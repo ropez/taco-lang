@@ -13,6 +13,7 @@ pub fn build(builder: &mut Builder) {
     builder.add_function("state", MakeState);
     builder.add_method(global::STATE, "get", StateGet);
     builder.add_method(global::STATE, "set", StateSet);
+    builder.add_method(global::STATE, "update", StateUpdate);
 }
 
 struct MakeState;
@@ -60,13 +61,63 @@ impl NativeMethod for StateSet {
         }
     }
 
+    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
+        if let ScriptType::State(inner) = subject {
+            Ok(*inner.clone())
+        } else {
+            panic!("Not a state")
+        }
+    }
+
     fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
         if let ScriptValue::State(state) = subject {
-            if let Some(val) = arguments.at(0) {
+            let val = arguments.single();
+            {
                 let mut v = state.write().unwrap();
                 *v = val.clone();
             }
-            ScriptValue::identity()
+            state.read().unwrap().clone()
+        } else {
+            panic!("Not a state")
+        }
+    }
+}
+
+pub(crate) struct StateUpdate;
+impl NativeMethod for StateUpdate {
+    fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
+        if let ScriptType::State(inner) = subject {
+            Ok(TupleType::from_single(ScriptType::Function {
+                params: TupleType::from_single(*inner.clone()),
+                ret: Box::new(*inner.clone()),
+            }))
+        } else {
+            panic!("Not a state")
+        }
+    }
+
+    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
+        if let ScriptType::State(inner) = subject {
+            Ok(*inner.clone())
+        } else {
+            panic!("Not a state")
+        }
+    }
+
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        subject: &ScriptValue,
+        arguments: &Tuple,
+    ) -> ScriptValue {
+        if let ScriptValue::State(state) = subject {
+            let callable = arguments.single();
+            {
+                let mut v = state.write().unwrap();
+                let new_val = interpreter.eval_callable(callable, &v.to_single_argument());
+                *v = new_val.clone();
+            }
+            state.read().unwrap().clone()
         } else {
             panic!("Not a state")
         }

@@ -48,3 +48,20 @@ fn test_get_and_set_primitive() {
 
     assert_eq!("20", out);
 }
+
+#[test]
+fn test_update_primitive() {
+    let src = r#"
+        a = state(10)
+
+        a.update(fun(v: int) { v * 2 })
+        a.update(fun(v: int) { v - 5 })
+
+        print("${a.get()}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("15", out),
+        Err(err) => panic!("{err}"),
+    };
+}
