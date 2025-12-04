@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
-    parser::Record,
+    parser::{Record, TypeExpression},
     stdlib::NativeFunction,
 };
 
@@ -19,12 +19,19 @@ impl ParseFunc {
 impl NativeFunction for ParseFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         if let Some(ScriptValue::String(s)) = arguments.first() {
-            let mut nums = s.split_whitespace().map(|t| t.parse::<i64>().unwrap());
             let mut values = Vec::new();
+            let mut tokens = s.split_ascii_whitespace();
             for d in &self.def.params {
                 values.push(TupleItem::new(
                     d.name.clone(),
-                    ScriptValue::Number(nums.next().unwrap()),
+                    match d.type_expr.as_ref() {
+                        TypeExpression::Scalar(ident) => match ident.as_str() {
+                            "str" => ScriptValue::String(tokens.next().unwrap().into()),
+                            "int" => ScriptValue::Number(tokens.next().unwrap().parse::<i64>().unwrap()),
+                            o => panic!("Don't know how to parse {o:?}")
+                        }
+                        o => panic!("Don't know how to parse {o:?}")
+                    }
                 ));
             }
 

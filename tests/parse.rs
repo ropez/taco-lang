@@ -53,3 +53,19 @@ fn test_parse_list() {
         Err(err) => panic!("{err}"),
     };
 }
+
+#[test]
+fn test_parse_str_and_int() {
+    let src = r#"
+        rec Point(a: str, b: int)
+
+        p = Point::parse("L 200")
+
+        print("$p")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("Point(a: L, b: 200)", out),
+        Err(err) => panic!("{err}"),
+    };
+}
