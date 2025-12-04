@@ -49,6 +49,7 @@ where
 
     let mut builder = Builder::default();
 
+    stdlib::list::build(&mut builder);
     stdlib::state::build(&mut builder);
     stdlib::print::build(&mut builder, out);
     stdlib::fs::build(&mut builder);
@@ -57,13 +58,6 @@ where
     // XXX Namespace for functions (List::zip)
     builder.add_function("zip", ListZip);
 
-    builder.add_method(global::LIST, "push", ListPush);
-    builder.add_method(global::LIST, "find", ListFind);
-    builder.add_method(global::LIST, "unzip", ListUnzip);
-    builder.add_method(global::LIST, "sum", ListSum);
-    builder.add_method(global::LIST, "sort", ListSort);
-    builder.add_method(global::LIST, "map", ListMap);
-    builder.add_method(global::LIST, "map_to", ListMapTo);
     builder.add_method(global::STRING, "lines", StringLines);
     builder.add_method(global::REC, "with", RecordWithMethod);
 

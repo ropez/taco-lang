@@ -1,11 +1,24 @@
 use std::sync::Arc;
 
 use crate::{
+    Builder,
     error::TypeError,
+    ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     stdlib::{NativeFunction, NativeMethod},
     validate::{ScriptType, TupleItemType, TupleType},
 };
+
+pub(crate) fn build(builder: &mut Builder) {
+    builder.add_method(global::LIST, "push", ListPush);
+    builder.add_method(global::LIST, "find", ListFind);
+    builder.add_method(global::LIST, "count", ListCount);
+    builder.add_method(global::LIST, "unzip", ListUnzip);
+    builder.add_method(global::LIST, "sum", ListSum);
+    builder.add_method(global::LIST, "sort", ListSort);
+    builder.add_method(global::LIST, "map", ListMap);
+    builder.add_method(global::LIST, "map_to", ListMapTo);
+}
 
 #[derive(Debug, Clone)]
 pub struct List(Vec<ScriptValue>);
@@ -89,6 +102,23 @@ impl ListMethod for ListFind {
         let val = arguments.single();
         let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, val));
         opt_val.cloned().unwrap_or(ScriptValue::None)
+    }
+}
+
+pub(crate) struct ListCount;
+impl ListMethod for ListCount {
+    fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(inner.clone()))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Int)
+    }
+
+    fn list_call(&self, _: &Interpreter, list: &List, arguments: &Tuple) -> ScriptValue {
+        let val = arguments.single();
+        let count = list.items().iter().filter(|v| ScriptValue::eq(v, val)).count();
+        ScriptValue::Number(count.try_into().unwrap())
     }
 }
 
