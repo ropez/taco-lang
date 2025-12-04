@@ -86,23 +86,28 @@
 # Analyze the rotations in your attached document. What's the actual password
 # to open the door?
 
-# XXX Cheated by adding space between direction and count
 sample = "
-L 68
-L 30
-R 48
-L 5
-R 60
-L 55
-L 1
-L 99
-R 14
-L 82
+L68
+L30
+R48
+L5
+R60
+L55
+L1
+L99
+R14
+L82
 "
+
+# The built-in Turn::parse expects inputs separated by whitespace
+fun normalize_input(s: str): str {
+    (dir, num) = s.split_at(1)
+    return "$dir $num"
+}
 
 rec Turn(dir: str, count: int)
 
-turns = sample.lines().map(Turn::parse)
+turns = sample.lines().map(normalize_input).map(Turn::parse)
 
 pos = state(50)
 seq = turns.map(fun(turn: Turn) {
