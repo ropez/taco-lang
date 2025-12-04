@@ -16,3 +16,30 @@ banana"
         Err(err) => panic!("{err}"),
     };
 }
+
+#[test]
+fn test_split_at() {
+    let src = r#"
+        s = "superstar"
+        print("${s.split_at(5)}")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("(super, star)", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_split_into_named_tuple() {
+    let src = r#"
+        s = "superstar"
+        (first, second) = s.split_at(5)
+        print("A $first cool $second")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("A super cool star", out),
+        Err(err) => panic!("{err}"),
+    };
+}

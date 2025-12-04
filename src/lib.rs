@@ -49,6 +49,7 @@ where
 
     let mut builder = Builder::default();
 
+    stdlib::string::build(&mut builder);
     stdlib::list::build(&mut builder);
     stdlib::state::build(&mut builder);
     stdlib::print::build(&mut builder, out);
@@ -58,7 +59,6 @@ where
     // XXX Namespace for functions (List::zip)
     builder.add_function("zip", ListZip);
 
-    builder.add_method(global::STRING, "lines", StringLines);
     builder.add_method(global::REC, "with", RecordWithMethod);
 
     let validator = builder.build_validator();
