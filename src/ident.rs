@@ -24,6 +24,7 @@ impl Display for Ident {
 pub(crate) mod global {
     pub(crate) const REC: &str = "__rec__";
     pub(crate) const LIST: &str = "__list__";
+    pub(crate) const RANGE: &str = "__range__";
     pub(crate) const STRING: &str = "__string__";
 
     // XXX Extension doesn't belong here

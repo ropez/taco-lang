@@ -10,10 +10,8 @@ use crate::{
     interpreter::Interpreter,
     parser::Parser,
     stdlib::{
-        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
-        list::{ListFind, ListMap, ListMapTo, ListPush, ListSort, ListSum, ListUnzip, ListZip},
+        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::ListZip,
         record::RecordWithMethod,
-        string::StringLines,
     },
     validate::Validator,
 };
@@ -53,6 +51,7 @@ where
     stdlib::list::build(&mut builder);
     stdlib::state::build(&mut builder);
     stdlib::print::build(&mut builder, out);
+    stdlib::parse::build(&mut builder);
     stdlib::fs::build(&mut builder);
     stdlib::type_of::build(&mut builder);
 

@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use crate::{
     error::{Error, Result},
@@ -25,7 +25,7 @@ impl Loc {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Src<T> {
     inner: T,
     pub(crate) loc: Loc,
@@ -41,6 +41,15 @@ where
 
     pub fn into_inner(self) -> T {
         self.inner
+    }
+}
+
+impl<T> fmt::Debug for Src<T>
+where
+    T: fmt::Debug,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.inner, f)
     }
 }
 

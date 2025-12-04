@@ -18,6 +18,11 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "sort", ListSort);
     builder.add_method(global::LIST, "map", ListMap);
     builder.add_method(global::LIST, "map_to", ListMapTo);
+    builder.add_method(global::LIST, "filter", ListFilter);
+    builder.add_method(global::LIST, "flatten", ListFlatten);
+
+    builder.add_method(global::RANGE, "map", ListMap);
+    builder.add_method(global::RANGE, "filter", ListFilter);
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +122,11 @@ impl ListMethod for ListCount {
 
     fn list_call(&self, _: &Interpreter, list: &List, arguments: &Tuple) -> ScriptValue {
         let val = arguments.single();
-        let count = list.items().iter().filter(|v| ScriptValue::eq(v, val)).count();
+        let count = list
+            .items()
+            .iter()
+            .filter(|v| ScriptValue::eq(v, val))
+            .count();
         ScriptValue::Number(count.try_into().unwrap())
     }
 }
@@ -293,6 +302,63 @@ impl ListMethod for ListMap {
     }
 }
 
+pub(crate) struct ListFilter;
+impl ListMethod for ListFilter {
+    fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(ScriptType::Function {
+            params: TupleType::from_single(inner.clone()),
+            ret: ScriptType::Bool.into(),
+        }))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::list_of(inner.clone()))
+    }
+
+    fn list_call(
+        &self,
+        interpreter: &Interpreter,
+        subject: &List,
+        arguments: &Tuple,
+    ) -> ScriptValue {
+        let callable = arguments.single();
+        let mut mapped = Vec::new();
+        for item in subject.items() {
+            let value = interpreter.eval_callable(callable, &item.to_single_argument());
+            if let ScriptValue::Boolean(v) = value
+                && v
+            {
+                mapped.push(item.clone());
+            }
+        }
+        ScriptValue::List(Arc::new(List::new(mapped)))
+    }
+}
+
+pub(crate) struct ListFlatten;
+impl ListMethod for ListFlatten {
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        // XXX Need something like inner.as_iterable()
+        let typ = match inner {
+            ScriptType::List(i) => ScriptType::clone(i),
+            ScriptType::Range => ScriptType::Int,
+            _ => panic!("Not a list of lists"),
+        };
+        Ok(ScriptType::list_of(typ))
+    }
+
+    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
+        let mut items = Vec::new();
+
+        for inner in subject.items() {
+            items.extend(inner.as_iterable().iter().map(ScriptValue::clone));
+        }
+
+        let list = List::new(items);
+        ScriptValue::List(list.into())
+    }
+}
+
 pub(crate) struct ListMapTo;
 impl ListMethod for ListMapTo {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
@@ -338,6 +404,10 @@ where
     ) -> ScriptValue {
         if let ScriptValue::List(list) = subject {
             self.list_call(interpreter, list, arguments)
+        } else if let ScriptValue::Range(l, r) = subject {
+            // XXX list_call should have some kind of iterator
+            let list = List::new((*l..=*r).map(ScriptValue::Number).collect());
+            self.list_call(interpreter, &list, arguments)
         } else {
             panic!("Not a list")
         }
@@ -347,6 +417,7 @@ where
         match subject {
             ScriptType::EmptyList => self.empty_list_arguments_type(),
             ScriptType::List(inner) => self.list_arguments_type(inner),
+            ScriptType::Range => self.list_arguments_type(&ScriptType::Int),
             _ => panic!("Not a list"),
         }
     }
@@ -355,6 +426,7 @@ where
         match subject {
             ScriptType::EmptyList => self.empty_list_return_type(),
             ScriptType::List(inner) => self.list_return_type(inner),
+            ScriptType::Range => self.list_return_type(&ScriptType::Int),
             _ => panic!("Not a list"),
         }
     }

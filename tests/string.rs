@@ -18,6 +18,20 @@ banana"
 }
 
 #[test]
+fn test_split() {
+    let src = r#"
+        s = "1,123,foobar"
+        tokens = s.split(",")
+        print("$tokens")
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("[1, 123, foobar]", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
 fn test_split_at() {
     let src = r#"
         s = "superstar"

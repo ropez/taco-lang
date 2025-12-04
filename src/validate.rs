@@ -3,10 +3,11 @@ use std::{collections::HashMap, fmt::Display, result, sync::Arc};
 use crate::{
     error::TypeError,
     fmt::fmt_tuple,
-    ident::{global, Ident},
+    ident::{Ident, global},
     lexer::{Loc, Src},
     parser::{
-        ArgumentExpression, Assignee, AstNode, CallExpression, Expression, Function, ParamExpression, TypeExpression
+        ArgumentExpression, Assignee, AstNode, CallExpression, Expression, Function,
+        ParamExpression, TypeExpression,
     },
     stdlib::{NativeFunctionRef, NativeMethodRef},
 };
@@ -63,16 +64,6 @@ impl ScriptType {
             (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
             (ScriptType::Enum(l), ScriptType::Enum(r)) => Arc::ptr_eq(l, r),
             (ScriptType::Enum(_), ScriptType::EnumVariant(_, _)) => false,
-            (
-                ScriptType::Function {
-                    params: lp,
-                    ret: lr,
-                },
-                ScriptType::Function {
-                    params: rp,
-                    ret: rr,
-                },
-            ) => rp.accepts(lp) && lr.accepts(rr),
             // (
             //     ScriptType::Function {
             //         params: lp,
@@ -94,6 +85,19 @@ impl ScriptType {
                     } else {
                         false
                     }
+                } else {
+                    false
+                }
+            }
+            (
+                ScriptType::Function {
+                    params: lp,
+                    ret: lr,
+                },
+                rhs,
+            ) => {
+                if let Ok((rp, rr)) = rhs.as_callable() {
+                    rp.accepts(lp) && lr.accepts(&rr)
                 } else {
                     false
                 }
@@ -412,6 +416,7 @@ impl Validator {
     fn get_method(&self, subject: &ScriptType, name: &Ident) -> Option<&NativeMethodRef> {
         let ns = match subject {
             ScriptType::Str => global::STRING,
+            ScriptType::Range => global::RANGE,
             ScriptType::Rec { .. } => global::REC, // XXX Should also support user-defined methods on the rec's own name
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST,
             ScriptType::State(_) => global::STATE,
@@ -723,7 +728,10 @@ impl Validator {
             }
             Expression::Function(fun) => {
                 let (params, ret) = self.eval_function(fun, scope)?;
-                Ok(ScriptType::Function { params, ret: ret.into() })
+                Ok(ScriptType::Function {
+                    params,
+                    ret: ret.into(),
+                })
             }
             Expression::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
@@ -1104,6 +1112,8 @@ impl Validator {
                     if let ScriptType::Generic(n) = ret.as_ref() {
                         if let ScriptType::Function { ret: a, params: _ } = arg.value.as_ref() {
                             found_types.insert(*n, *a.clone());
+                        } else if let ScriptType::NativeFunction(f) = arg.value.as_ref() {
+                            found_types.insert(*n, f.return_type());
                         } else if let ScriptType::EnumVariant(a, b) = arg.value.as_ref() {
                             found_types.insert(*n, ScriptType::Enum(Arc::clone(a)));
                         }
@@ -1149,6 +1159,7 @@ impl Validator {
                 "str" => Ok(ScriptType::Str),
                 "int" => Ok(ScriptType::Int),
                 "bool" => Ok(ScriptType::Bool),
+                "range" => Ok(ScriptType::Range),
                 _ => match scope.types.get(ident) {
                     Some(TypeDefinition::RecDefinition { name, params }) => Ok(ScriptType::Rec {
                         params: params.clone(),
@@ -1301,6 +1312,7 @@ fn resolve_generic(
         }
         ScriptType::List(inner) => Ok(ScriptType::list_of(resolve_generic(*inner, found_types)?)),
         ScriptType::Function { params: _, ret } => resolve_generic(*ret, found_types),
+        ScriptType::NativeFunction(f) => resolve_generic(f.return_type(), found_types),
         other => Ok(other),
     }
 }

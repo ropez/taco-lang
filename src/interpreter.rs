@@ -13,8 +13,7 @@ use crate::{
         Record, TypeExpression,
     },
     stdlib::{
-        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
-        list::{List, ListZip},
+        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::List,
         parse::ParseFunc,
     },
 };
@@ -85,9 +84,10 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_iterable(&self) -> &[ScriptValue] {
+    pub fn as_iterable(&self) -> Vec<ScriptValue> {
         match self {
-            Self::List(list) => list.items(),
+            Self::List(list) => Vec::from(list.items()),
+            Self::Range(l, r) => (*l..=*r).map(ScriptValue::Number).collect(),
             _ => panic!("Expected iterable, found {self}"),
         }
     }
@@ -125,11 +125,12 @@ impl Display for ScriptValue {
         match self {
             ScriptValue::String(s) => write!(f, "{s}"),
             ScriptValue::Number(n) => write!(f, "{n}"),
-            ScriptValue::Tuple(t) => write!(f, "{t}"),
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
             },
+            ScriptValue::Range(l, r) => write!(f, "{l}..{r}"),
+            ScriptValue::Tuple(t) => write!(f, "{t}"),
             ScriptValue::List(list) => {
                 write!(f, "[")?;
                 fmt_inner_list(f, list.items())?;
@@ -293,6 +294,7 @@ impl Interpreter {
     fn get_method(&self, subject: &ScriptValue, name: &Ident) -> Option<&NativeMethodRef> {
         let ns = match subject {
             ScriptValue::String(_) => global::STRING,
+            ScriptValue::Range(_, _) => global::RANGE,
             ScriptValue::List(_) => global::LIST,
             ScriptValue::Rec { .. } => global::REC,
             ScriptValue::State(_) => global::STATE,
@@ -521,12 +523,10 @@ impl Interpreter {
                     panic!("No such attribute {key} for {subject}");
                 }
             }
-            Expression::Function(fun) => {
-                ScriptValue::ScriptFunction {
-                    function: Arc::clone(fun),
-                    captured_scope: Arc::new(scope.clone()),
-                }
-            }
+            Expression::Function(fun) => ScriptValue::ScriptFunction {
+                function: Arc::clone(fun),
+                captured_scope: Arc::new(scope.clone()),
+            },
             Expression::Not(expr) => {
                 let val = self.eval_expr(expr, scope);
                 if let ScriptValue::Boolean(b) = val {

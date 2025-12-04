@@ -1,10 +1,17 @@
 use std::sync::Arc;
 
 use crate::{
+    Builder,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     parser::{Record, TypeExpression},
     stdlib::NativeFunction,
+    validate::{ScriptType, TupleType},
 };
+
+pub fn build(builder: &mut Builder) {
+    // XXX Should be range::parse
+    builder.add_function("range__parse", ParseRangeFunc);
+}
 
 pub(crate) struct ParseFunc {
     def: Arc<Record>,
@@ -27,11 +34,13 @@ impl NativeFunction for ParseFunc {
                     match d.type_expr.as_ref() {
                         TypeExpression::Scalar(ident) => match ident.as_str() {
                             "str" => ScriptValue::String(tokens.next().unwrap().into()),
-                            "int" => ScriptValue::Number(tokens.next().unwrap().parse::<i64>().unwrap()),
-                            o => panic!("Don't know how to parse {o:?}")
-                        }
-                        o => panic!("Don't know how to parse {o:?}")
-                    }
+                            "int" => {
+                                ScriptValue::Number(tokens.next().unwrap().parse::<i64>().unwrap())
+                            }
+                            o => panic!("Don't know how to parse {o:?}"),
+                        },
+                        o => panic!("Don't know how to parse {o:?}"),
+                    },
                 ));
             }
 
@@ -42,5 +51,31 @@ impl NativeFunction for ParseFunc {
         } else {
             panic!("Expected string, got {arguments:?}");
         }
+    }
+}
+
+struct ParseRangeFunc;
+impl NativeFunction for ParseRangeFunc {
+    fn call(&self, interpreter: &Interpreter, arguments: &Tuple) -> ScriptValue {
+        let Some(ScriptValue::String(s)) = arguments.first() else {
+            panic!("Expected string, got {arguments:?}");
+        };
+        if let Some(n) = s.find('-') {
+            let (l, r) = s.split_at(n);
+            let l = l.parse().unwrap();
+            let r = r[1..].parse().unwrap();
+
+            ScriptValue::Range(l, r)
+        } else {
+            panic!("Parse error");
+        }
+    }
+
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::Str)
+    }
+
+    fn return_type(&self) -> ScriptType {
+        ScriptType::Range
     }
 }
