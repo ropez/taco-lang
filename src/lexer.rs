@@ -82,6 +82,7 @@ pub enum TokenKind {
     Minus,
     Multiply,
     Divide,
+    Modulo,
     Identifier(Ident),
     String(Arc<str>),
     Number(i64),
@@ -145,6 +146,7 @@ impl<'a> Tokenizer<'a> {
                 '-' => Some(self.produce(TokenKind::Minus)),
                 '*' => Some(self.produce(TokenKind::Multiply)),
                 '/' => Some(self.produce(TokenKind::Divide)),
+                '%' => Some(self.produce(TokenKind::Modulo)),
                 '!' => {
                     if self.take_if_eq('=') {
                         Some(self.produce(TokenKind::NotEqual))

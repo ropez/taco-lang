@@ -78,6 +78,7 @@ pub enum Expression {
     Subtraction(Box<Src<Expression>>, Box<Src<Expression>>),
     Multiplication(Box<Src<Expression>>, Box<Src<Expression>>),
     Division(Box<Src<Expression>>, Box<Src<Expression>>),
+    Modulo(Box<Src<Expression>>, Box<Src<Expression>>),
 
     // An expression followed by the '?' operator
     Try(Box<Src<Expression>>),
@@ -194,6 +195,7 @@ mod constants {
     pub(crate) const BP_DIV: u32 = 20;
     pub(crate) const BP_MULT: u32 = 20;
     pub(crate) const BP_CALL: u32 = 90;
+    pub(crate) const BP_NEGATE: u32 = 95;
     pub(crate) const BP_ACCESS: u32 = 100;
 }
 
@@ -280,7 +282,7 @@ impl<'a> Parser<'a> {
                     ast.push(AstNode::Expression(expr));
                 }
                 TokenKind::Minus => {
-                    let expr = self.parse_expression(0)?;
+                    let expr = self.parse_expression(constants::BP_NEGATE)?;
                     let loc = wrap_locations(token.loc, expr.loc);
                     let expr = Expression::Negate(expr.into());
                     ast.push(AstNode::Expression(Src::new(expr, loc)));
@@ -420,7 +422,7 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(e, bp)?
             }
             TokenKind::Minus => {
-                let expr = self.parse_expression(0)?;
+                let expr = self.parse_expression(constants::BP_NEGATE)?;
                 let loc = wrap_locations(token.loc, expr.loc);
                 let expr = Src::new(Expression::Negate(expr.into()), loc);
                 self.parse_continuation(expr, bp)?
@@ -512,6 +514,7 @@ impl<'a> Parser<'a> {
                 TokenKind::Divide => {
                     self.parse_binary_expr(lhs, Expression::Division, BP_DIV, bp)?
                 }
+                TokenKind::Modulo => self.parse_binary_expr(lhs, Expression::Modulo, BP_DIV, bp)?,
                 TokenKind::Dot => {
                     if bp >= BP_ACCESS {
                         lhs

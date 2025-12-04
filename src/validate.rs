@@ -953,6 +953,7 @@ impl Validator {
             Expression::Subtraction(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Multiplication(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Division(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
+            Expression::Modulo(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Try(inner) => {
                 let inner_typ = self.validate_expr(inner, scope)?;
                 match inner_typ {

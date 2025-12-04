@@ -567,6 +567,9 @@ impl Interpreter {
             Expression::Division(lhs, rhs) => {
                 self.eval_arithmetic(i64::checked_div, lhs, rhs, scope)
             }
+            Expression::Modulo(lhs, rhs) => {
+                self.eval_arithmetic(i64::checked_rem_euclid, lhs, rhs, scope)
+            }
             Expression::LessThan(lhs, rhs) => self.eval_comparison(|a, b| a < b, lhs, rhs, scope),
             Expression::GreaterThan(lhs, rhs) => {
                 self.eval_comparison(|a, b| a > b, lhs, rhs, scope)
