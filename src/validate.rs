@@ -3,11 +3,10 @@ use std::{collections::HashMap, fmt::Display, result, sync::Arc};
 use crate::{
     error::TypeError,
     fmt::fmt_tuple,
-    ident::{Ident, global},
+    ident::{global, Ident},
     lexer::{Loc, Src},
     parser::{
-        ArgumentExpression, Assignee, AstNode, CallExpression, Expression, ParamExpression,
-        TypeExpression,
+        ArgumentExpression, Assignee, AstNode, CallExpression, Expression, Function, ParamExpression, TypeExpression
     },
     stdlib::{NativeFunctionRef, NativeMethodRef},
 };
@@ -434,69 +433,7 @@ impl Validator {
                     self.eval_assignment(assignee, &typ, &mut scope)?;
                 }
                 AstNode::Function { name, fun } => {
-                    let params = self.eval_params(&fun.params, &scope)?;
-
-                    let declared_type = fun
-                        .type_expr
-                        .as_ref()
-                        .map(|expr| self.eval_type_expr(expr, &scope))
-                        .transpose()?;
-
-                    let mut inner = scope.clone();
-
-                    // XXX Recursive function: For recursive functions, we need to include the
-                    // function itself in the inner scope. There must be some kind of check that
-                    // we can't call recursively, unless return type is explicit.
-                    // XXX Also, we should probably have all functions in scope, included functions
-                    // declared below.
-                    // Probably, we need to have separate scope for "locals" and "functions" (which
-                    // must be a lexical scope instead)
-                    // Or maybe recusrive functions are not supported? Is that actually more work
-                    // then supporting them?
-
-                    for arg in &params.0 {
-                        if let Some(name) = &arg.name {
-                            inner.set_local(name.clone(), arg.value.clone());
-                        }
-                    }
-                    inner.arguments = params.clone();
-                    inner.ret = declared_type.clone();
-                    let inner = self.validate_block(&fun.body, inner.clone())?;
-
-                    let found_ret_type = self.eval_return_type(&fun.body, &inner)?;
-                    let found_type = found_ret_type
-                        .as_ref()
-                        .map(|r| r.typ.as_ref().clone())
-                        .unwrap_or(ScriptType::identity());
-
-                    if let Some(typ) = &declared_type
-                        && !typ.accepts(&found_type)
-                    {
-                        let loc = fun
-                            .type_expr
-                            .as_ref()
-                            .map(|t| t.loc)
-                            .unwrap_or(Loc::start());
-                        if let Some(ret) = found_ret_type {
-                            return Err(TypeError::InvalidReturnType {
-                                expected: typ.clone(),
-                                actual: found_type,
-                            }
-                            .at(loc));
-                        } else {
-                            let loc = fun
-                                .type_expr
-                                .as_ref()
-                                .map(|t| t.loc)
-                                .unwrap_or(Loc::start());
-                            return Err(TypeError::MissingReturnStatement.at(loc));
-                        }
-                    }
-
-                    let ret = match (declared_type, found_type) {
-                        (Some(r), _) => r,
-                        (None, r) => r,
-                    };
+                    let (params, ret) = self.eval_function(fun, &scope)?;
 
                     scope.set_local(
                         name.clone(),
@@ -646,110 +583,6 @@ impl Validator {
         Ok(scope)
     }
 
-    fn eval_return_type(&self, ast: &[AstNode], scope: &Scope) -> Result<Option<ReturnType>> {
-        let typ = match ast.last() {
-            None => None,
-            Some(AstNode::Return(expr)) => {
-                if let Some(expr) = expr {
-                    let typ = self.validate_expr(expr, scope)?;
-                    Some(ReturnType::explicit(Src::new(typ, expr.loc)))
-                } else {
-                    todo!("return without value");
-                }
-            }
-            Some(AstNode::Expression(expr)) => {
-                if ast.len() == 1 {
-                    let typ = self.validate_expr(expr, scope)?;
-                    Some(ReturnType::implicit(Src::new(typ, expr.loc)))
-                } else {
-                    None
-                }
-            }
-            Some(AstNode::Condition {
-                body, else_body, ..
-            }) => {
-                let body_ret = self.eval_return_type(body, scope)?;
-                let else_ret = else_body
-                    .as_ref()
-                    .map(|else_body| self.eval_return_type(else_body, scope))
-                    .transpose()?
-                    .flatten();
-
-                match (body_ret, else_ret) {
-                    (None, None) => None,
-                    (Some(l), Some(r)) => {
-                        let types = vec![l.typ.clone(), r.typ.clone()];
-                        let typ = self
-                            .most_specific_type(&types)?
-                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
-                        if l.is_explicit && r.is_explicit {
-                            Some(ReturnType::explicit(typ))
-                        } else if ast.len() == 1 {
-                            Some(ReturnType::implicit(typ))
-                        } else {
-                            None
-                        }
-                    }
-                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
-                }
-            }
-            Some(AstNode::IfIn {
-                assignee,
-                value,
-                body,
-                else_body,
-            }) => {
-                let opt_typ = self.validate_expr(value, &scope)?;
-                let ScriptType::Opt(typ) = opt_typ else {
-                    return Err(TypeError::InvalidOptional(opt_typ).at(value.loc));
-                };
-
-                let mut inner_scope = scope.clone();
-                self.eval_assignment(assignee, &typ, &mut inner_scope)?;
-
-                // XXX DRY
-                let body_ret = self.eval_return_type(body, &inner_scope)?;
-                let else_ret = else_body
-                    .as_ref()
-                    .map(|else_body| self.eval_return_type(else_body, scope))
-                    .transpose()?
-                    .flatten();
-
-                match (body_ret, else_ret) {
-                    (None, None) => None,
-                    (Some(l), Some(r)) => {
-                        let types = vec![l.typ.clone(), r.typ.clone()];
-                        let typ = self
-                            .most_specific_type(&types)?
-                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
-                        if l.is_explicit && r.is_explicit {
-                            Some(ReturnType::explicit(typ))
-                        } else if ast.len() == 1 {
-                            Some(ReturnType::implicit(typ))
-                        } else {
-                            None
-                        }
-                    }
-                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
-                }
-            }
-            Some(_) => None,
-        };
-
-        Ok(typ)
-    }
-
-    fn eval_params(&self, params: &[ParamExpression], scope: &Scope) -> Result<TupleType> {
-        let mut res = TupleType::identity();
-
-        for param in params {
-            let typ = self.eval_type_expr(&param.type_expr, scope)?;
-            res.0.push(TupleItemType::new(param.name.clone(), typ))
-        }
-
-        Ok(res)
-    }
-
     fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<Src<ScriptType>> {
         let typ = self.validate_expr(expr, scope)?;
         Ok(Src::new(typ, expr.loc))
@@ -888,6 +721,10 @@ impl Validator {
                     .at(expr.loc))
                 }
             }
+            Expression::Function(fun) => {
+                let (params, ret) = self.eval_function(fun, scope)?;
+                Ok(ScriptType::Function { params, ret: ret.into() })
+            }
             Expression::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if !ScriptType::Bool.accepts(&typ) {
@@ -977,6 +814,161 @@ impl Validator {
                 }
             }
         }
+    }
+
+    fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> Result<(TupleType, ScriptType)> {
+        let params = self.eval_params(&fun.params, scope)?;
+        let declared_type = fun
+            .type_expr
+            .as_ref()
+            .map(|expr| self.eval_type_expr(expr, scope))
+            .transpose()?;
+        let mut inner = scope.clone();
+        for arg in &params.0 {
+            if let Some(name) = &arg.name {
+                inner.set_local(name.clone(), arg.value.clone());
+            }
+        }
+        inner.arguments = params.clone();
+        inner.ret = declared_type.clone();
+        let inner = self.validate_block(&fun.body, inner.clone())?;
+        let found_ret_type = self.eval_return_type(&fun.body, &inner)?;
+        let found_type = found_ret_type
+            .as_ref()
+            .map(|r| r.typ.as_ref().clone())
+            .unwrap_or(ScriptType::identity());
+        if let Some(typ) = &declared_type
+            && !typ.accepts(&found_type)
+        {
+            let loc = fun
+                .type_expr
+                .as_ref()
+                .map(|t| t.loc)
+                .unwrap_or(Loc::start());
+            if let Some(ret) = found_ret_type {
+                return Err(TypeError::InvalidReturnType {
+                    expected: typ.clone(),
+                    actual: found_type,
+                }
+                .at(loc));
+            } else {
+                let loc = fun
+                    .type_expr
+                    .as_ref()
+                    .map(|t| t.loc)
+                    .unwrap_or(Loc::start());
+                return Err(TypeError::MissingReturnStatement.at(loc));
+            }
+        }
+        let ret = match (declared_type, found_type) {
+            (Some(r), _) => r,
+            (None, r) => r,
+        };
+        Ok((params, ret))
+    }
+
+    fn eval_return_type(&self, ast: &[AstNode], scope: &Scope) -> Result<Option<ReturnType>> {
+        let typ = match ast.last() {
+            None => None,
+            Some(AstNode::Return(expr)) => {
+                if let Some(expr) = expr {
+                    let typ = self.validate_expr(expr, scope)?;
+                    Some(ReturnType::explicit(Src::new(typ, expr.loc)))
+                } else {
+                    todo!("return without value");
+                }
+            }
+            Some(AstNode::Expression(expr)) => {
+                if ast.len() == 1 {
+                    let typ = self.validate_expr(expr, scope)?;
+                    Some(ReturnType::implicit(Src::new(typ, expr.loc)))
+                } else {
+                    None
+                }
+            }
+            Some(AstNode::Condition {
+                body, else_body, ..
+            }) => {
+                let body_ret = self.eval_return_type(body, scope)?;
+                let else_ret = else_body
+                    .as_ref()
+                    .map(|else_body| self.eval_return_type(else_body, scope))
+                    .transpose()?
+                    .flatten();
+
+                match (body_ret, else_ret) {
+                    (None, None) => None,
+                    (Some(l), Some(r)) => {
+                        let types = vec![l.typ.clone(), r.typ.clone()];
+                        let typ = self
+                            .most_specific_type(&types)?
+                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
+                        if l.is_explicit && r.is_explicit {
+                            Some(ReturnType::explicit(typ))
+                        } else if ast.len() == 1 {
+                            Some(ReturnType::implicit(typ))
+                        } else {
+                            None
+                        }
+                    }
+                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
+                }
+            }
+            Some(AstNode::IfIn {
+                assignee,
+                value,
+                body,
+                else_body,
+            }) => {
+                let opt_typ = self.validate_expr(value, &scope)?;
+                let ScriptType::Opt(typ) = opt_typ else {
+                    return Err(TypeError::InvalidOptional(opt_typ).at(value.loc));
+                };
+
+                let mut inner_scope = scope.clone();
+                self.eval_assignment(assignee, &typ, &mut inner_scope)?;
+
+                // XXX DRY
+                let body_ret = self.eval_return_type(body, &inner_scope)?;
+                let else_ret = else_body
+                    .as_ref()
+                    .map(|else_body| self.eval_return_type(else_body, scope))
+                    .transpose()?
+                    .flatten();
+
+                match (body_ret, else_ret) {
+                    (None, None) => None,
+                    (Some(l), Some(r)) => {
+                        let types = vec![l.typ.clone(), r.typ.clone()];
+                        let typ = self
+                            .most_specific_type(&types)?
+                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
+                        if l.is_explicit && r.is_explicit {
+                            Some(ReturnType::explicit(typ))
+                        } else if ast.len() == 1 {
+                            Some(ReturnType::implicit(typ))
+                        } else {
+                            None
+                        }
+                    }
+                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
+                }
+            }
+            Some(_) => None,
+        };
+
+        Ok(typ)
+    }
+
+    fn eval_params(&self, params: &[ParamExpression], scope: &Scope) -> Result<TupleType> {
+        let mut res = TupleType::identity();
+
+        for param in params {
+            let typ = self.eval_type_expr(&param.type_expr, scope)?;
+            res.0.push(TupleItemType::new(param.name.clone(), typ))
+        }
+
+        Ok(res)
     }
 
     fn validate_arithmetic(

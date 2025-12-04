@@ -90,6 +90,8 @@ pub enum Expression {
         subject: Box<Src<Expression>>,
         key: Ident,
     },
+
+    Function(Arc<Function>),
 }
 
 #[derive(Debug)]
@@ -438,6 +440,32 @@ impl<'a> Parser<'a> {
             TokenKind::Arguments => {
                 let e = Src::new(Expression::Arguments, token.loc);
                 self.parse_continuation(e, bp)?
+            }
+            TokenKind::Fun => {
+                self.expect_kind(TokenKind::LeftParen)?;
+                let params = self.parse_params(TokenKind::RightParen)?;
+                let r = self.expect_kind(TokenKind::RightParen)?;
+
+                let type_expr = if self.next_if_kind(&TokenKind::Colon).is_some() {
+                    Some(self.parse_type_expr()?)
+                } else {
+                    None
+                };
+
+                self.expect_kind(TokenKind::LeftBrace)?;
+
+                let body = self.parse_block(false)?;
+
+                let fun = Arc::new(Function {
+                    body,
+                    params,
+                    type_expr,
+                });
+
+                // XXX Need end location of entire block
+                let loc = wrap_locations(token.loc, r.loc);
+                let expr = Src::new(Expression::Function(fun), loc);
+                self.parse_continuation(expr, bp)?
             }
             TokenKind::LeftSquare => {
                 let list = self.parse_expressions(TokenKind::RightSquare)?;

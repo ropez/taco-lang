@@ -521,6 +521,12 @@ impl Interpreter {
                     panic!("No such attribute {key} for {subject}");
                 }
             }
+            Expression::Function(fun) => {
+                ScriptValue::ScriptFunction {
+                    function: Arc::clone(fun),
+                    captured_scope: Arc::new(scope.clone()),
+                }
+            }
             Expression::Not(expr) => {
                 let val = self.eval_expr(expr, scope);
                 if let ScriptValue::Boolean(b) = val {
