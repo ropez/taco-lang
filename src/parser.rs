@@ -294,6 +294,12 @@ impl<'a> Parser<'a> {
                     let expr = self.parse_continuation(expr, 0)?;
                     ast.push(AstNode::Expression(expr));
                 }
+                TokenKind::LeftBrace => {
+                    let expr = self.parse_expression(0)?;
+                    self.expect_kind(TokenKind::RightBrace)?;
+                    let expr = self.parse_continuation(expr, 0)?;
+                    ast.push(AstNode::Expression(expr));
+                }
                 TokenKind::LeftSquare => {
                     let list = self.parse_expressions(TokenKind::RightSquare)?;
                     let end = self.expect_kind(TokenKind::RightSquare)?;
@@ -465,6 +471,11 @@ impl<'a> Parser<'a> {
                 // XXX Need end location of entire block
                 let loc = wrap_locations(token.loc, r.loc);
                 let expr = Src::new(Expression::Function(fun), loc);
+                self.parse_continuation(expr, bp)?
+            }
+            TokenKind::LeftBrace => {
+                let expr = self.parse_expression(0)?;
+                self.expect_kind(TokenKind::RightBrace)?;
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::LeftSquare => {
