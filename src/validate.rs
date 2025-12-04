@@ -34,13 +34,14 @@ pub enum ScriptType {
         name: Ident,
         params: TupleType, // XXX Remove this and look up definition like Enum
     },
-    State(Box<ScriptType>),
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
 
     // Special type used to represent a "generic", e.g. state(x: T): [T] is represented as
     // Function ( params: (Generic), ret: List<Generic> }
     Generic(u16),
+
+    Ext(ExternalType),
 }
 
 impl ScriptType {
@@ -55,7 +56,7 @@ impl ScriptType {
 
     fn accepts(&self, other: &ScriptType) -> bool {
         match (self, other) {
-            (ScriptType::State(_), _) => false,
+            (ScriptType::Ext(_), _) => false,
             (ScriptType::Generic(_), _) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
@@ -326,6 +327,38 @@ impl Display for Src<Vec<ArgumentExpressionType>> {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExternalType {
+    pub(crate) ns: Ident,
+    pub(crate) name: Ident,
+    pub(crate) inner: Option<Box<ScriptType>>,
+}
+
+impl ExternalType {
+    pub fn new(ns: impl Into<Ident>, name: impl Into<Ident>) -> Self {
+        Self {
+            ns: ns.into(),
+            name: name.into(),
+            inner: None,
+        }
+    }
+
+    // XXX 1,2,3
+    pub fn with_inner(self, t: ScriptType) -> Self {
+        Self {
+            inner: Some(t.into()),
+            ..self
+        }
+    }
+
+    pub fn inner(&self) -> Option<&ScriptType> {
+        match &self.inner {
+            Some(t) => Some(t.as_ref()),
+            None => None,
+        }
+    }
+}
+
 #[derive(Default, Clone)]
 struct Scope {
     locals: HashMap<Ident, ScriptType>,
@@ -415,14 +448,14 @@ impl Validator {
 
     fn get_method(&self, subject: &ScriptType, name: &Ident) -> Option<&NativeMethodRef> {
         let ns = match subject {
-            ScriptType::Str => global::STRING,
-            ScriptType::Range => global::RANGE,
-            ScriptType::Rec { .. } => global::REC, // XXX Should also support user-defined methods on the rec's own name
-            ScriptType::EmptyList | ScriptType::List(_) => global::LIST,
-            ScriptType::State(_) => global::STATE,
+            ScriptType::Str => global::STRING.into(),
+            ScriptType::Range => global::RANGE.into(),
+            ScriptType::Rec { .. } => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
+            ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
+            ScriptType::Ext(ext) => ext.ns.clone(),
             _ => todo!("NS for {subject}"),
         };
-        self.methods.get(&(ns.into(), name.clone()))
+        self.methods.get(&(ns, name.clone()))
     }
 
     pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
@@ -614,7 +647,7 @@ impl Validator {
                             }
                             .at(part.loc));
                         }
-                        ScriptType::State(t) => todo!("Error for printing state({t})"),
+                        ScriptType::Ext(t) => todo!("Error for printing Ext({})", t.name),
                         _ => (),
                     }
                 }
@@ -1294,9 +1327,14 @@ fn resolve_generic(
             let ret = found_types.get(&n).ok_or(())?;
             Ok(ret.clone())
         }
-        ScriptType::State(inner) => Ok(ScriptType::State(
-            resolve_generic(*inner, found_types)?.into(),
-        )),
+        ScriptType::Ext(ext) => {
+            //
+            Ok(ScriptType::Ext(if let Some(inner) = ext.clone().inner() {
+                ext.with_inner(resolve_generic(ScriptType::clone(inner), found_types)?)
+            } else {
+                ext
+            }))
+        }
         ScriptType::Tuple(tuple) => {
             let items: Vec<_> = tuple
                 .items()

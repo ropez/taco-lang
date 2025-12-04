@@ -1,6 +1,8 @@
 use std::{
+    any::Any,
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
+    rc::Rc,
     sync::{Arc, RwLock},
 };
 
@@ -57,7 +59,7 @@ pub enum ScriptValue {
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
 
-    State(Arc<RwLock<ScriptValue>>),
+    Ext(External),
 }
 
 impl ScriptValue {
@@ -240,6 +242,39 @@ pub enum Completion {
     ImpliedReturn(ScriptValue),
 }
 
+#[derive(Debug, Clone)]
+pub struct External {
+    // XXX Maybe use ExternalType here instead of ns/name
+    // XXX Maybe just `ScriptValue::Ext(type, data)`
+    pub(crate) ns: Ident,
+    pub(crate) name: Ident,
+    pub(crate) data: Option<Rc<dyn Any>>,
+}
+
+impl External {
+    pub fn new(ns: impl Into<Ident>, name: impl Into<Ident>) -> Self {
+        Self {
+            ns: ns.into(),
+            name: name.into(),
+            data: None,
+        }
+    }
+
+    pub fn with_data(self, data: Rc<dyn Any>) -> Self {
+        Self {
+            data: Some(data),
+            ..self
+        }
+    }
+
+    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
+        match &self.data {
+            Some(d) => d.downcast_ref::<T>(),
+            None => None
+        }
+    }
+}
+
 #[derive(Default, Clone)]
 pub(crate) struct Scope {
     // XXX Try to remove Arc, so that the scope _owns_ the value
@@ -293,14 +328,14 @@ impl Interpreter {
 
     fn get_method(&self, subject: &ScriptValue, name: &Ident) -> Option<&NativeMethodRef> {
         let ns = match subject {
-            ScriptValue::String(_) => global::STRING,
-            ScriptValue::Range(_, _) => global::RANGE,
-            ScriptValue::List(_) => global::LIST,
-            ScriptValue::Rec { .. } => global::REC,
-            ScriptValue::State(_) => global::STATE,
+            ScriptValue::String(_) => global::STRING.into(),
+            ScriptValue::Range(_, _) => global::RANGE.into(),
+            ScriptValue::List(_) => global::LIST.into(),
+            ScriptValue::Rec { .. } => global::REC.into(),
+            ScriptValue::Ext(ext) => ext.ns.clone(),
             _ => todo!("NS for {subject}"),
         };
-        self.methods.get(&(ns.into(), name.clone()))
+        self.methods.get(&(ns, name.clone()))
     }
 
     pub fn execute(&self, ast: &[AstNode]) {
