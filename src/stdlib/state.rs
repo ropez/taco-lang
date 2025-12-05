@@ -1,20 +1,15 @@
-use std::{any::Any, cell::RefCell, rc::Rc};
+use std::{any::Any, cell::RefCell, rc::Rc, sync::Arc};
 
 use crate::{
     Builder,
     error::TypeError,
     interpreter::{External, Interpreter, ScriptValue, Tuple},
-    stdlib::{ExternalValue, NativeFunction, NativeMethod},
+    stdlib::{ExternalValue, Methods, NativeFunction, NativeMethod},
     validate::{ExternalType, ScriptType, TupleType},
 };
 
-const STATE_NS: &str = "__state__";
-
 pub fn build(builder: &mut Builder) {
-    builder.add_function("state", MakeState);
-    builder.add_method(STATE_NS, "get", StateGet);
-    builder.add_method(STATE_NS, "set", StateSet);
-    builder.add_method(STATE_NS, "update", StateUpdate);
+    builder.add_function("state", MakeState::new());
 }
 
 struct StateValue {
@@ -48,20 +43,37 @@ impl ExternalValue for StateValue {
     }
 }
 
-struct MakeState;
+struct MakeState {
+    methods: Arc<Methods>,
+}
+
+impl MakeState {
+    fn new() -> Self {
+        let mut methods = Methods::default();
+        methods.add("get", StateGet);
+        methods.add("set", StateSet);
+        methods.add("update", StateUpdate);
+        let methods = Arc::new(methods);
+        Self { methods }
+    }
+}
+
 impl NativeFunction for MakeState {
     fn arguments_type(&self) -> TupleType {
         TupleType::from_single(ScriptType::Generic(1))
     }
 
     fn return_type(&self) -> ScriptType {
-        ScriptType::Ext(ExternalType::new(STATE_NS, "State").with_inner(ScriptType::Generic(1)))
+        ScriptType::Ext(
+            ExternalType::new("State", self.methods.clone()).with_inner(ScriptType::Generic(1)),
+        )
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         let arg = arguments.single();
         let value = StateValue::new(arg.clone());
-        let ext = External::new(STATE_NS, "State", Rc::new(value));
+        let typ = ExternalType::new("State", self.methods.clone());
+        let ext = External::new(Rc::new(typ), Rc::new(value));
         ScriptValue::Ext(ext)
     }
 }

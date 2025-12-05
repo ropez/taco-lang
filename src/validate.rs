@@ -9,12 +9,12 @@ use crate::{
         ArgumentExpression, Assignee, AstNode, CallExpression, Expression, Function,
         ParamExpression, TypeExpression,
     },
-    stdlib::{NativeFunctionRef, NativeMethodRef},
+    stdlib::{Methods, NativeFunctionRef, NativeMethodRef},
 };
 
 type Result<T> = result::Result<T, Src<TypeError>>;
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum ScriptType {
     Bool,
     Int,
@@ -58,20 +58,17 @@ impl ScriptType {
         match (self, other) {
             (ScriptType::Ext(_), _) => false,
             (ScriptType::Generic(_), _) => true,
+            (ScriptType::Int, ScriptType::Int) => true,
+            (ScriptType::Str, ScriptType::Str) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
+            (ScriptType::Range, ScriptType::Range) => true,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
             (ScriptType::Enum(l), ScriptType::Enum(r)) => Arc::ptr_eq(l, r),
             (ScriptType::Enum(_), ScriptType::EnumVariant(_, _)) => false,
-            // (
-            //     ScriptType::Function {
-            //         params: lp,
-            //         ret: lr,
-            //     },
-            //     r @ ScriptType::Rec { name, params: rp },
-            // ) => rp.accepts(lp) && lr.accepts(r),
+            (ScriptType::Rec { name: l, .. }, ScriptType::Rec { name: r, .. }) => l == r,
             (
                 ScriptType::Function {
                     params: lp,
@@ -109,7 +106,7 @@ impl ScriptType {
             // You can't have a situation where an expression like "if x in opt" sets 'x' to
             // another opt!
             (ScriptType::Opt(l), r) => l.accepts(r.flatten()),
-            _ => *self == *other,
+            _ => false,
         }
     }
 
@@ -154,6 +151,16 @@ impl ScriptType {
             _ => Err(TypeError::InvalidCallable(self.clone())),
         }
     }
+
+    pub(crate) fn is_identity(&self) -> bool {
+        if let Self::Tuple(t) = self
+            && t.items().is_empty()
+        {
+            true
+        } else {
+            false
+        }
+    }
 }
 
 impl Display for ScriptType {
@@ -182,19 +189,19 @@ pub enum TypeDefinition {
     EnumDefinition(Arc<EnumType>),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug)]
 pub struct EnumType {
     name: Ident,
     variants: Vec<EnumVariantType>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 struct EnumVariantType {
     name: Ident,
     params: Option<TupleType>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct TupleItemType {
     pub name: Option<Ident>,
     pub value: ScriptType,
@@ -214,7 +221,7 @@ impl TupleItemType {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq)]
+#[derive(Default, Debug, Clone)]
 pub struct TupleType(Vec<TupleItemType>);
 
 impl From<Vec<TupleItemType>> for TupleType {
@@ -327,20 +334,24 @@ impl Display for Src<Vec<ArgumentExpressionType>> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub struct ExternalType {
-    pub(crate) ns: Ident,
     pub(crate) name: Ident,
-    pub(crate) inner: Option<Box<ScriptType>>,
+    methods: Arc<Methods>,
+    inner: Option<Box<ScriptType>>,
 }
 
 impl ExternalType {
-    pub fn new(ns: impl Into<Ident>, name: impl Into<Ident>) -> Self {
+    pub fn new(name: impl Into<Ident>, methods: Arc<Methods>) -> Self {
         Self {
-            ns: ns.into(),
             name: name.into(),
+            methods,
             inner: None,
         }
+    }
+
+    pub fn get_method(&self, name: &Ident) -> Option<&NativeMethodRef> {
+        self.methods.get(name)
     }
 
     // XXX 1,2,3
@@ -446,13 +457,17 @@ impl Validator {
         Self { methods, ..self }
     }
 
-    fn get_method(&self, subject: &ScriptType, name: &Ident) -> Option<&NativeMethodRef> {
+    fn get_method<'a>(
+        &'a self,
+        subject: &'a ScriptType,
+        name: &Ident,
+    ) -> Option<&'a NativeMethodRef> {
         let ns = match subject {
             ScriptType::Str => global::STRING.into(),
             ScriptType::Range => global::RANGE.into(),
             ScriptType::Rec { .. } => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
-            ScriptType::Ext(ext) => ext.ns.clone(),
+            ScriptType::Ext(ext) => return ext.get_method(name),
             _ => todo!("NS for {subject}"),
         };
         self.methods.get(&(ns, name.clone()))
@@ -1021,10 +1036,10 @@ impl Validator {
         let l = self.validate_expr(lhs, scope)?;
         let r = self.validate_expr(rhs, scope)?;
 
-        if l != ScriptType::Int {
+        if !ScriptType::Int.accepts(&l) {
             return Err(TypeError::expected_number(l).at(lhs.loc));
         }
-        if r != ScriptType::Int {
+        if !ScriptType::Int.accepts(&r) {
             return Err(TypeError::expected_number(r).at(rhs.loc));
         }
 

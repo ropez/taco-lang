@@ -14,6 +14,7 @@ use crate::{
         Record, TypeExpression,
     },
     stdlib::{ExternalValue, NativeFunctionRef, NativeMethodRef, list::List, parse::ParseFunc},
+    validate::ExternalType,
 };
 
 #[derive(Debug, Clone)]
@@ -240,20 +241,13 @@ pub enum Completion {
 
 #[derive(Debug, Clone)]
 pub struct External {
-    // XXX Maybe use ExternalType here instead of ns/name
-    // XXX Maybe just `ScriptValue::Ext(type, data)`
-    pub(crate) ns: Ident,
-    pub(crate) name: Ident,
+    pub(crate) typ: Rc<ExternalType>,
     pub(crate) value: Rc<dyn ExternalValue>,
 }
 
 impl External {
-    pub fn new(ns: impl Into<Ident>, name: impl Into<Ident>, value: Rc<dyn ExternalValue>) -> Self {
-        Self {
-            ns: ns.into(),
-            name: name.into(),
-            value,
-        }
+    pub fn new(typ: Rc<ExternalType>, value: Rc<dyn ExternalValue>) -> Self {
+        Self { typ, value }
     }
 
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
@@ -312,13 +306,17 @@ impl Interpreter {
         Self { methods, ..self }
     }
 
-    fn get_method(&self, subject: &ScriptValue, name: &Ident) -> Option<&NativeMethodRef> {
+    fn get_method<'a>(
+        &'a self,
+        subject: &'a ScriptValue,
+        name: &Ident,
+    ) -> Option<&'a NativeMethodRef> {
         let ns = match subject {
             ScriptValue::String(_) => global::STRING.into(),
             ScriptValue::Range(_, _) => global::RANGE.into(),
             ScriptValue::List(_) => global::LIST.into(),
             ScriptValue::Rec { .. } => global::REC.into(),
-            ScriptValue::Ext(ext) => ext.ns.clone(),
+            ScriptValue::Ext(ext) => return ext.typ.get_method(name),
             _ => todo!("NS for {subject}"),
         };
         self.methods.get(&(ns, name.clone()))

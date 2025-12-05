@@ -116,7 +116,7 @@ impl TypeError {
                 format!("Too many values found. Found {actual}")
             }
             TypeError::InvalidReturnType { expected, actual } => {
-                if expected == ScriptType::identity() {
+                if expected.is_identity() {
                     format!("Unexpected return value: Expected no value, found '{actual}'")
                 } else {
                     format!("Incompatible return type: Expected '{expected}', found '{actual}'")

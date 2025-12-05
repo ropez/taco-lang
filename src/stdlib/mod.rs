@@ -1,7 +1,8 @@
-use std::{any::Any, fmt, ops, sync::Arc};
+use std::{any::Any, collections::HashMap, fmt, ops, sync::Arc};
 
 use crate::{
     error::TypeError,
+    ident::Ident,
     interpreter::{Interpreter, ScriptValue, Tuple},
     validate::{ScriptType, TupleType},
 };
@@ -129,5 +130,21 @@ impl fmt::Debug for NativeMethodRef {
 impl PartialEq for NativeMethodRef {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub(crate) struct Methods(HashMap<Ident, NativeMethodRef>);
+
+impl Methods {
+    pub(crate) fn add<T>(&mut self, name: impl Into<Ident>, method: T)
+    where
+        T: NativeMethod + 'static,
+    {
+        self.0.insert(name.into(), NativeMethodRef::from(method));
+    }
+
+    pub(crate) fn get(&self, name: &Ident) -> Option<&NativeMethodRef> {
+        self.0.get(name)
     }
 }
