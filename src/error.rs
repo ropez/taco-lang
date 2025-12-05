@@ -55,7 +55,7 @@ pub enum TypeError {
         expected: ScriptType,
         actual: ScriptType,
     },
-    UnresolvedGeneric,
+    TypeNotInverred,
     MissingReturnStatement,
     EmptyList,
 }
@@ -134,7 +134,7 @@ impl TypeError {
             TypeError::InvalidMapTo(actual) => {
                 format!("Expected a list of tuples, found '{actual}'")
             }
-            TypeError::UnresolvedGeneric => "Unresolved generic".into(),
+            TypeError::TypeNotInverred => "Type can not be inferred".into(),
         };
 
         Error::new(msg, source, loc)

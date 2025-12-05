@@ -37,9 +37,9 @@ pub enum ScriptType {
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
 
-    // Special type used to represent a "generic", e.g. state(x: T): [T] is represented as
-    // Function ( params: (Generic), ret: List<Generic> }
-    Generic(u16),
+    // Special type used to represent an inferred inner type, e.g. state(x: ?): [?] is represented as
+    // Function ( params: (Infer(1)), ret: List<Infer(1)> }
+    Infer(u16),
 
     Ext(ExternalType),
 }
@@ -57,7 +57,7 @@ impl ScriptType {
     fn accepts(&self, other: &ScriptType) -> bool {
         match (self, other) {
             (ScriptType::Ext(_), _) => false,
-            (ScriptType::Generic(_), _) => true,
+            (ScriptType::Infer(_), _) => true,
             (ScriptType::Int, ScriptType::Int) => true,
             (ScriptType::Str, ScriptType::Str) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
@@ -177,7 +177,7 @@ impl Display for ScriptType {
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::Rec { name, params } => write!(f, "{name}{params}"),
             Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
-            Self::Generic(n) => write!(f, "T{n}"),
+            Self::Infer(n) => write!(f, "<{n}>"),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -863,10 +863,10 @@ impl Validator {
                     .as_callable()
                     .map_err(|err| err.at(expr.loc))?;
                 let found_types = self.validate_arguments(&params, &arguments, scope)?;
-                if let Ok(generic) = resolve_generic(ret, &found_types) {
-                    Ok(generic)
+                if let Ok(inferred) = infer_types(ret, &found_types) {
+                    Ok(inferred)
                 } else {
-                    todo!("No generic found in: {arguments:?}")
+                    Err(TypeError::TypeNotInverred.at(expr.loc))
                 }
             }
         }
@@ -1146,18 +1146,18 @@ impl Validator {
                 }
             } else if let Some(arg) = positional.next() {
                 self.validate_single_arg(&par.value, arg)?;
-                if let ScriptType::Generic(n) = par.value {
+                if let ScriptType::Infer(n) = par.value {
                     found_types.insert(n, arg.value.cloned());
                 }
                 if let ScriptType::List(l) = &par.value {
-                    if let ScriptType::Generic(n) = l.as_ref() {
+                    if let ScriptType::Infer(n) = l.as_ref() {
                         if let ScriptType::List(a) = &arg.value.as_ref() {
                             found_types.insert(*n, a.as_ref().clone());
                         }
                     }
                 }
                 if let ScriptType::Function { ret, params: _ } = &par.value {
-                    if let ScriptType::Generic(n) = ret.as_ref() {
+                    if let ScriptType::Infer(n) = ret.as_ref() {
                         if let ScriptType::Function { ret: a, params: _ } = arg.value.as_ref() {
                             found_types.insert(*n, *a.clone());
                         } else if let ScriptType::NativeFunction(f) = arg.value.as_ref() {
@@ -1333,19 +1333,19 @@ impl Validator {
     }
 }
 
-fn resolve_generic(
+fn infer_types(
     t: ScriptType,
     found_types: &HashMap<u16, ScriptType>,
 ) -> result::Result<ScriptType, ()> {
     match t {
-        ScriptType::Generic(n) => {
+        ScriptType::Infer(n) => {
             let ret = found_types.get(&n).ok_or(())?;
             Ok(ret.clone())
         }
         ScriptType::Ext(ext) => {
             //
             Ok(ScriptType::Ext(if let Some(inner) = ext.clone().inner() {
-                ext.with_inner(resolve_generic(ScriptType::clone(inner), found_types)?)
+                ext.with_inner(infer_types(ScriptType::clone(inner), found_types)?)
             } else {
                 ext
             }))
@@ -1357,15 +1357,15 @@ fn resolve_generic(
                 .map(|it| {
                     TupleItemType::new(
                         it.name.clone(),
-                        resolve_generic(it.value.clone(), found_types).unwrap(),
+                        infer_types(it.value.clone(), found_types).unwrap(),
                     )
                 })
                 .collect();
             Ok(ScriptType::Tuple(TupleType::from(items)))
         }
-        ScriptType::List(inner) => Ok(ScriptType::list_of(resolve_generic(*inner, found_types)?)),
-        ScriptType::Function { params: _, ret } => resolve_generic(*ret, found_types),
-        ScriptType::NativeFunction(f) => resolve_generic(f.return_type(), found_types),
+        ScriptType::List(inner) => Ok(ScriptType::list_of(infer_types(*inner, found_types)?)),
+        ScriptType::Function { params: _, ret } => infer_types(*ret, found_types),
+        ScriptType::NativeFunction(f) => infer_types(f.return_type(), found_types),
         other => Ok(other),
     }
 }

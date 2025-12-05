@@ -78,11 +78,11 @@ trait ListMethod {
     }
 
     fn empty_list_arguments_type(&self) -> Result<TupleType, TypeError> {
-        self.list_arguments_type(&ScriptType::Generic(1))
+        self.list_arguments_type(&ScriptType::Infer(1))
     }
 
     fn empty_list_return_type(&self) -> Result<ScriptType, TypeError> {
-        self.list_return_type(&ScriptType::Generic(1))
+        self.list_return_type(&ScriptType::Infer(1))
     }
 
     fn list_call(
@@ -216,16 +216,16 @@ impl NativeFunction for ListZip {
 
     fn arguments_type(&self) -> TupleType {
         let args = vec![
-            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Generic(1))),
-            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Generic(2))),
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(1))),
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(2))),
         ];
         TupleType::from(args)
     }
 
     fn return_type(&self) -> ScriptType {
         let args = vec![
-            TupleItemType::unnamed(ScriptType::Generic(1)),
-            TupleItemType::unnamed(ScriptType::Generic(2)),
+            TupleItemType::unnamed(ScriptType::Infer(1)),
+            TupleItemType::unnamed(ScriptType::Infer(2)),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::from(args)))
     }
@@ -278,12 +278,12 @@ impl ListMethod for ListMap {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         Ok(TupleType::from_single(ScriptType::Function {
             params: TupleType::from_single(inner.clone()),
-            ret: ScriptType::Generic(1).into(),
+            ret: ScriptType::Infer(1).into(),
         }))
     }
 
     fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::list_of(ScriptType::Generic(1)))
+        Ok(ScriptType::list_of(ScriptType::Infer(1)))
     }
 
     fn list_call(
@@ -367,12 +367,12 @@ impl ListMethod for ListMapTo {
         };
         Ok(TupleType::from_single(ScriptType::Function {
             params: tuple_typ.clone(),
-            ret: ScriptType::Generic(1).into(),
+            ret: ScriptType::Infer(1).into(),
         }))
     }
 
     fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::list_of(ScriptType::Generic(1)))
+        Ok(ScriptType::list_of(ScriptType::Infer(1)))
     }
 
     fn list_call(

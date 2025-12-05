@@ -60,12 +60,12 @@ impl MakeState {
 
 impl NativeFunction for MakeState {
     fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Generic(1))
+        TupleType::from_single(ScriptType::Infer(1))
     }
 
     fn return_type(&self) -> ScriptType {
         ScriptType::Ext(
-            ExternalType::new("State", self.methods.clone()).with_inner(ScriptType::Generic(1)),
+            ExternalType::new("State", self.methods.clone()).with_inner(ScriptType::Infer(1)),
         )
     }
 

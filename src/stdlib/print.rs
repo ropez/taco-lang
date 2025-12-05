@@ -10,6 +10,29 @@ use crate::{
     validate::{ScriptType, TupleType},
 };
 
+pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)
+where
+    O: io::Write + 'static,
+{
+    builder.add_function(
+        "print",
+        PrintFunc {
+            out: Arc::clone(&out),
+            newline: false,
+        },
+    );
+
+    builder.add_function(
+        "println",
+        PrintFunc {
+            out: Arc::clone(&out),
+            newline: true,
+        },
+    );
+
+    builder.add_function("assert", AssertFunc);
+}
+
 struct PrintFunc<O>
 where
     O: io::Write + 'static,
@@ -38,23 +61,18 @@ where
     }
 }
 
-pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)
-where
-    O: io::Write + 'static,
-{
-    builder.add_function(
-        "print",
-        PrintFunc {
-            out: Arc::clone(&out),
-            newline: false,
-        },
-    );
+// XXX Later must be a build-in concept that prints the expression used
+struct AssertFunc;
+impl NativeFunction for AssertFunc {
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::Bool)
+    }
 
-    builder.add_function(
-        "println",
-        PrintFunc {
-            out: Arc::clone(&out),
-            newline: true,
-        },
-    );
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+        if let ScriptValue::Boolean(true) = arguments.single() {
+            ScriptValue::identity()
+        } else {
+            panic!("Assertion failed")
+        }
+    }
 }
