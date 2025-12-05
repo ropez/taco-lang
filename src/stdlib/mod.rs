@@ -1,8 +1,4 @@
-use std::{
-    fmt,
-    ops::{self, Deref},
-    sync::Arc,
-};
+use std::{any::Any, fmt, ops, sync::Arc};
 
 use crate::{
     error::TypeError,
@@ -18,6 +14,16 @@ pub(crate) mod record;
 pub(crate) mod state;
 pub(crate) mod string;
 pub(crate) mod type_of;
+
+pub trait ExternalValue {
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl fmt::Debug for dyn ExternalValue {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!()
+    }
+}
 
 pub trait NativeFunction {
     fn call(&self, interpreter: &Interpreter, arguments: &Tuple) -> ScriptValue; // Later: Result<ScriptValue, ScriptError>

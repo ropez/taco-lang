@@ -1,10 +1,10 @@
-use std::{cell::RefCell, rc::Rc};
+use std::{any::Any, cell::RefCell, rc::Rc};
 
 use crate::{
     Builder,
     error::TypeError,
     interpreter::{External, Interpreter, ScriptValue, Tuple},
-    stdlib::{NativeFunction, NativeMethod},
+    stdlib::{ExternalValue, NativeFunction, NativeMethod},
     validate::{ExternalType, ScriptType, TupleType},
 };
 
@@ -15,6 +15,37 @@ pub fn build(builder: &mut Builder) {
     builder.add_method(STATE_NS, "get", StateGet);
     builder.add_method(STATE_NS, "set", StateSet);
     builder.add_method(STATE_NS, "update", StateUpdate);
+}
+
+struct StateValue {
+    inner: RefCell<ScriptValue>,
+}
+
+impl StateValue {
+    fn new(inner: ScriptValue) -> Self {
+        Self {
+            inner: RefCell::new(inner),
+        }
+    }
+
+    fn get(&self) -> ScriptValue {
+        self.inner.borrow().clone()
+    }
+
+    fn set(&self, value: ScriptValue) {
+        *self.inner.borrow_mut() = value;
+    }
+
+    fn update(&self, f: impl FnOnce(&ScriptValue) -> ScriptValue) {
+        let mut val = self.inner.borrow_mut();
+        *val = f(&val);
+    }
+}
+
+impl ExternalValue for StateValue {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
 }
 
 struct MakeState;
@@ -28,9 +59,9 @@ impl NativeFunction for MakeState {
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
-        let arg = arguments.first().expect("state arg");
-
-        let ext = External::new(STATE_NS, "State").with_data(Rc::new(RefCell::new(arg.clone())));
+        let arg = arguments.single();
+        let value = StateValue::new(arg.clone());
+        let ext = External::new(STATE_NS, "State", Rc::new(value));
         ScriptValue::Ext(ext)
     }
 }
@@ -47,15 +78,7 @@ impl NativeMethod for StateGet {
     }
 
     fn call(&self, _: &Interpreter, subject: &ScriptValue, _arguments: &Tuple) -> ScriptValue {
-        if let ScriptValue::Ext(ext) = subject {
-            if let Some(state) = ext.downcast_ref::<RefCell<ScriptValue>>() {
-                state.borrow().clone()
-            } else {
-                panic!("Invalid state data")
-            }
-        } else {
-            panic!("Not a state")
-        }
+        subject.as_state().get()
     }
 }
 
@@ -78,20 +101,10 @@ impl NativeMethod for StateSet {
     }
 
     fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
-        if let ScriptValue::Ext(ext) = subject {
-            let val = arguments.single();
-            if let Some(state) = ext.downcast_ref::<RefCell<ScriptValue>>() {
-                {
-                    let mut v = state.borrow_mut();
-                    *v = val.clone();
-                }
-                state.borrow().clone()
-            } else {
-                panic!("Invalid state data")
-            }
-        } else {
-            panic!("Not a state")
-        }
+        let val = arguments.single();
+        let state = subject.as_state();
+        state.set(val.clone());
+        state.get()
     }
 }
 
@@ -122,20 +135,23 @@ impl NativeMethod for StateUpdate {
         subject: &ScriptValue,
         arguments: &Tuple,
     ) -> ScriptValue {
-        if let ScriptValue::Ext(ext) = subject {
-            let callable = arguments.single();
-            if let Some(state) = ext.downcast_ref::<RefCell<ScriptValue>>() {
-                {
-                    let mut v = state.borrow_mut();
-                    let new_val = interpreter.eval_callable(callable, &v.to_single_argument());
-                    *v = new_val.clone();
-                }
-                state.borrow().clone()
+        let callable = arguments.single();
+        let state = subject.as_state();
+        state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()));
+        state.get()
+    }
+}
+
+impl ScriptValue {
+    fn as_state(&self) -> &StateValue {
+        if let ScriptValue::Ext(ext) = self {
+            if let Some(state) = ext.downcast_ref::<StateValue>() {
+                state
             } else {
-                panic!("Invalid state data")
+                panic!("Invalid state data");
             }
         } else {
-            panic!("Not a state")
+            panic!("Not a state");
         }
     }
 }

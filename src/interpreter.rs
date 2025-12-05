@@ -1,9 +1,8 @@
 use std::{
-    any::Any,
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
     rc::Rc,
-    sync::{Arc, RwLock},
+    sync::Arc,
 };
 
 use crate::{
@@ -14,10 +13,7 @@ use crate::{
         Assignee, AstNode, CallExpression, Enumeration, Expression, Function, ParamExpression,
         Record, TypeExpression,
     },
-    stdlib::{
-        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::List,
-        parse::ParseFunc,
-    },
+    stdlib::{ExternalValue, NativeFunctionRef, NativeMethodRef, list::List, parse::ParseFunc},
 };
 
 #[derive(Debug, Clone)]
@@ -248,30 +244,20 @@ pub struct External {
     // XXX Maybe just `ScriptValue::Ext(type, data)`
     pub(crate) ns: Ident,
     pub(crate) name: Ident,
-    pub(crate) data: Option<Rc<dyn Any>>,
+    pub(crate) value: Rc<dyn ExternalValue>,
 }
 
 impl External {
-    pub fn new(ns: impl Into<Ident>, name: impl Into<Ident>) -> Self {
+    pub fn new(ns: impl Into<Ident>, name: impl Into<Ident>, value: Rc<dyn ExternalValue>) -> Self {
         Self {
             ns: ns.into(),
             name: name.into(),
-            data: None,
-        }
-    }
-
-    pub fn with_data(self, data: Rc<dyn Any>) -> Self {
-        Self {
-            data: Some(data),
-            ..self
+            value,
         }
     }
 
     pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
-        match &self.data {
-            Some(d) => d.downcast_ref::<T>(),
-            None => None
-        }
+        self.value.as_any().downcast_ref::<T>()
     }
 }
 
