@@ -3,5 +3,11 @@ name = "taco"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["json"]
+json = ["dep:tinyjson"]
+
 [dependencies]
 multipeek = "0.1.2"
+tinyjson = { version = "2.5.1", optional = true }
+

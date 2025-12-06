@@ -146,12 +146,19 @@ pub struct Record {
 pub struct ParamExpression {
     pub(crate) name: Option<Ident>,
     pub(crate) type_expr: Src<TypeExpression>,
+    pub(crate) attrs: Vec<Src<AttributeExpression>>,
 }
 
 impl ParamExpression {
     pub(crate) fn is_optional(&self) -> bool {
         matches!(self.type_expr.as_ref(), TypeExpression::Opt(_))
     }
+}
+
+#[derive(Debug)]
+pub struct AttributeExpression {
+    pub(crate) name: Ident,
+    pub(crate) args: Option<Src<Vec<ArgumentExpression>>>,
 }
 
 #[derive(Debug)]
@@ -695,25 +702,16 @@ impl<'a> Parser<'a> {
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let type_expr = self.parse_type_expr()?;
-                    params.push(ParamExpression {
-                        name: Some(name),
-                        type_expr,
-                    });
+                    params.push(self.complete_param_expr(Some(name), type_expr)?);
                 } else {
                     let type_expr = Src::new(TypeExpression::Scalar(name), t.loc);
                     let type_expr = self.parse_type_suffix(type_expr)?;
 
-                    params.push(ParamExpression {
-                        name: None,
-                        type_expr,
-                    });
+                    params.push(self.complete_param_expr(None, type_expr)?);
                 }
             } else {
                 let type_expr = self.parse_type_expr()?;
-                params.push(ParamExpression {
-                    name: None,
-                    type_expr,
-                });
+                params.push(self.complete_param_expr(None, type_expr)?);
             }
 
             let kind = self.peek_kind();
@@ -731,6 +729,43 @@ impl<'a> Parser<'a> {
         }
 
         Ok(params)
+    }
+
+    fn complete_param_expr(
+        &mut self,
+        name: Option<Ident>,
+        type_expr: Src<TypeExpression>,
+    ) -> Result<ParamExpression> {
+        let mut attrs = Vec::new();
+        while let Some(attr) = self.try_parse_type_attr()? {
+            attrs.push(attr);
+        }
+
+        Ok(ParamExpression {
+            name,
+            type_expr,
+            attrs,
+        })
+    }
+
+    fn try_parse_type_attr(&mut self) -> Result<Option<Src<AttributeExpression>>> {
+        if let Some(t) = self.next_if_kind(&TokenKind::Alpha) {
+            let (name, _) = self.expect_ident()?;
+            if let Some(l) = self.next_if_kind(&TokenKind::LeftParen) {
+                let args = self.parse_args(l.loc)?;
+
+                let loc = wrap_locations(t.loc, args.loc);
+                return Ok(Some(Src::new(
+                    AttributeExpression {
+                        name,
+                        args: Some(args),
+                    },
+                    loc,
+                )));
+            }
+        }
+
+        Ok(None)
     }
 
     fn parse_expressions(&mut self, until: TokenKind) -> Result<Vec<Src<Expression>>> {

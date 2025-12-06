@@ -75,6 +75,7 @@ pub enum TokenKind {
     LeftSquare,
     RightSquare,
     Question,
+    Alpha,
     Not,
     Equal,
     NotEqual,
@@ -156,6 +157,7 @@ impl<'a> Tokenizer<'a> {
                 '*' => Some(self.produce(TokenKind::Multiply)),
                 '/' => Some(self.produce(TokenKind::Divide)),
                 '%' => Some(self.produce(TokenKind::Modulo)),
+                '@' => Some(self.produce(TokenKind::Alpha)),
                 '!' => {
                     if self.take_if_eq('=') {
                         Some(self.produce(TokenKind::NotEqual))

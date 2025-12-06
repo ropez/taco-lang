@@ -9,6 +9,10 @@ use crate::{
 
 pub(crate) mod fs;
 pub(crate) mod list;
+
+#[cfg(feature = "json")]
+pub(crate) mod json;
+
 pub(crate) mod parse;
 pub(crate) mod print;
 pub(crate) mod record;

@@ -52,6 +52,10 @@ where
     stdlib::state::build(&mut builder);
     stdlib::print::build(&mut builder, out);
     stdlib::parse::build(&mut builder);
+
+    #[cfg(feature = "json")]
+    stdlib::json::build(&mut builder);
+
     stdlib::fs::build(&mut builder);
     stdlib::type_of::build(&mut builder);
 
