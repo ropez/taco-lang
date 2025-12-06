@@ -4,7 +4,7 @@ use crate::{
     error::TypeError,
     interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeMethod,
-    validate::{ScriptType, TupleType},
+    validate::{ScriptType, TupleItemType, TupleType},
 };
 
 pub(crate) struct RecordWithMethod;
@@ -15,6 +15,9 @@ impl NativeMethod for RecordWithMethod {
         };
 
         let mut values: Vec<_> = value.items().into();
+
+        // XXX Kind-of works by accedent, because interpreter is not inserting 'None' for
+        // optional arguments
 
         for (param, v) in def.params.iter().zip(values.iter_mut()) {
             if let Some(name) = &param.name
@@ -30,9 +33,19 @@ impl NativeMethod for RecordWithMethod {
         }
     }
 
-    fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
-        // No positional arguments
-        Ok(TupleType::identity())
+    fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
+        let ScriptType::Rec { params, .. } = subject else {
+            panic!("Not a rec");
+        };
+
+        let mut items = Vec::new();
+        for p in params.items() {
+            if let Some(name) = &p.name {
+                items.push(TupleItemType::named(name.clone(), p.value.as_optional()))
+            }
+        }
+
+        Ok(TupleType::from(items))
     }
 
     fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {

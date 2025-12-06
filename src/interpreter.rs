@@ -705,6 +705,9 @@ impl Interpreter {
                     value: Arc::new(values),
                 }
             }
+            // XXX Arguments aren't "transformed" for native calls, but passed as-is!
+            // E.g. fun(a: int, b: int), called as fun(b: 2, 1), receives (b: 2, 1), not (a: 1, b: 2)
+            // RecordWith kind-of works by accident for this reason.
             ScriptValue::NativeFunction(func) => func.call(self, arguments),
             ScriptValue::NativeMethodBound(method, subject) => {
                 method.call(self, subject, arguments)
@@ -761,12 +764,16 @@ fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
             } else if let Some(arg) = positional.next() {
                 let val = transform_value(par, arg);
                 items.push(TupleItem::named(name, val));
+            } else if par.is_optional() {
+                items.push(TupleItem::named(name, ScriptValue::None));
             } else {
                 panic!("Missing argument {name}");
             }
         } else if let Some(arg) = positional.next() {
             let val = transform_value(par, arg);
             items.push(TupleItem::unnamed(val));
+        } else if par.is_optional() {
+            items.push(TupleItem::unnamed(ScriptValue::None));
         } else {
             panic!("Missing positional argument");
         }

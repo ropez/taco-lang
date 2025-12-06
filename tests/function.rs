@@ -73,6 +73,24 @@ fn test_discarded_arg_not_assigned() {
 }
 
 #[test]
+fn test_optional_arguments() {
+    let src = r#"
+        fun foo(a: str, b: int?, c: int?) {
+            if v in c {
+                print("$a $v")
+            }
+        }
+
+        foo("ok", c: 42)
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("ok 42", out),
+        Err(err) => panic!("{err}"),
+    }
+}
+
+#[test]
 fn test_return_not_allowed_outside_function() {
     let src = r#"
         return 10

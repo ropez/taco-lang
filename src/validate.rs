@@ -118,6 +118,18 @@ impl ScriptType {
         }
     }
 
+    pub fn is_optional(&self) -> bool {
+        matches!(self, ScriptType::Opt(_))
+    }
+
+    pub fn as_optional(&self) -> ScriptType {
+        if let ScriptType::Opt(_) = self {
+            self.clone()
+        } else {
+            ScriptType::Opt(self.clone().into())
+        }
+    }
+
     pub fn as_tuple(&self) -> Option<&TupleType> {
         match &self {
             ScriptType::Tuple(tuple) => Some(tuple),
@@ -1136,7 +1148,7 @@ impl Validator {
                     self.validate_single_arg(&par.value, arg)?;
                 } else if let Some(arg) = positional.next() {
                     self.validate_single_arg(&par.value, arg)?;
-                } else {
+                } else if !par.value.is_optional() {
                     return Err(TypeError::MissingArgument {
                         name: Some(name.clone()),
                         expected: formal.clone(),
@@ -1167,7 +1179,7 @@ impl Validator {
                         }
                     }
                 }
-            } else {
+            } else if !par.value.is_optional() {
                 return Err(TypeError::MissingArgument {
                     name: None,
                     expected: formal.clone(),
@@ -1177,7 +1189,7 @@ impl Validator {
             }
         }
 
-        if let Some(_) = positional.next() {
+        if positional.next().is_some() {
             return Err(TypeError::UnexpectedArgument {
                 expected: formal.clone(),
                 actual: arguments.clone().into_tuple_type(),
