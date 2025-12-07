@@ -4,7 +4,7 @@ use tinyjson::JsonValue;
 
 use crate::{
     Builder,
-    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    interpreter::{Interpreter, ScriptValue, Tuple},
     parser::{Expression, Record},
     stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
@@ -33,7 +33,7 @@ impl NativeFunction for JsonFunc {
 impl From<&ScriptValue> for JsonValue {
     fn from(value: &ScriptValue) -> Self {
         match value {
-            ScriptValue::Number(n) => JsonValue::Number(*n as f64),
+            ScriptValue::Int(n) => JsonValue::Number(*n as f64),
             ScriptValue::String(s) => JsonValue::String(s.to_string()),
             ScriptValue::Tuple(value) => JsonValue::from(value.as_ref()),
             ScriptValue::Rec { def, value } => JsonValue::Object(transform_record(def, value)),

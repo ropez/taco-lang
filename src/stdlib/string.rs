@@ -21,7 +21,7 @@ impl NativeMethod for StringLength {
     fn call(&self, _: &Interpreter, subject: &ScriptValue, _arguments: &Tuple) -> ScriptValue {
         if let ScriptValue::String(subject) = subject {
             let len = subject.chars().count() as i64;
-            ScriptValue::Number(len)
+            ScriptValue::Int(len)
         } else {
             panic!("Not a string")
         }
@@ -85,7 +85,7 @@ pub(crate) struct StringSplitAt;
 impl NativeMethod for StringSplitAt {
     fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
         if let ScriptValue::String(subject) = subject {
-            let arg = arguments.single().as_number() as usize;
+            let arg = arguments.single().as_int() as usize;
             let (l, r) = subject.split_at(arg);
 
             let items = [l, r]

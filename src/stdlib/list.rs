@@ -127,7 +127,7 @@ impl ListMethod for ListCount {
             .iter()
             .filter(|v| ScriptValue::eq(v, val))
             .count();
-        ScriptValue::Number(count.try_into().unwrap())
+        ScriptValue::Int(count.try_into().unwrap())
     }
 }
 
@@ -237,11 +237,11 @@ impl ListMethod for ListSum {
         if subject.items().iter().any(|v| v.is_nan()) {
             ScriptValue::NaN
         } else {
-            ScriptValue::Number(
+            ScriptValue::Int(
                 subject
                     .items()
                     .iter()
-                    .map(|val| val.as_number())
+                    .map(|val| val.as_int())
                     .reduce(|n, a| n + a)
                     .unwrap_or_default(),
             )
@@ -259,11 +259,11 @@ impl ListMethod for ListSum {
 pub(crate) struct ListSort;
 impl ListMethod for ListSort {
     fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
-        let mut values: Vec<_> = subject.items().iter().map(|val| val.as_number()).collect();
+        let mut values: Vec<_> = subject.items().iter().map(|val| val.as_int()).collect();
 
         values.sort();
 
-        let values = values.into_iter().map(ScriptValue::Number).collect();
+        let values = values.into_iter().map(ScriptValue::Int).collect();
 
         List::new(values).into()
     }
@@ -406,7 +406,7 @@ where
             self.list_call(interpreter, list, arguments)
         } else if let ScriptValue::Range(l, r) = subject {
             // XXX list_call should have some kind of iterator
-            let list = List::new((*l..=*r).map(ScriptValue::Number).collect());
+            let list = List::new((*l..=*r).map(ScriptValue::Int).collect());
             self.list_call(interpreter, &list, arguments)
         } else {
             panic!("Not a list")

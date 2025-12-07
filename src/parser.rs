@@ -59,7 +59,7 @@ pub enum Expression {
     PrefixedName(Ident, Ident),
     Str(Arc<str>),
     String(Vec<(Src<Expression>, usize)>),
-    Number(i64),
+    Int(i64),
     True,
     False,
     Arguments,
@@ -292,7 +292,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 TokenKind::Number(num) => {
-                    let expr = Src::new(Expression::Number(*num), token.loc);
+                    let expr = Src::new(Expression::Int(*num), token.loc);
                     let expr = self.parse_continuation(expr, 0)?;
                     ast.push(AstNode::Expression(expr));
                 }
@@ -439,7 +439,7 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::Number(n) => {
-                let e = Src::new(Expression::Number(*n), token.loc);
+                let e = Src::new(Expression::Int(*n), token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::Minus => {

@@ -35,7 +35,7 @@ impl NativeFunction for ParseFunc {
                         TypeExpression::Scalar(ident) => match ident.as_str() {
                             "str" => ScriptValue::String(tokens.next().unwrap().into()),
                             "int" => {
-                                ScriptValue::Number(tokens.next().unwrap().parse::<i64>().unwrap())
+                                ScriptValue::Int(tokens.next().unwrap().parse::<i64>().unwrap())
                             }
                             o => panic!("Don't know how to parse {o:?}"),
                         },
@@ -56,7 +56,7 @@ impl NativeFunction for ParseFunc {
 
 struct ParseRangeFunc;
 impl NativeFunction for ParseRangeFunc {
-    fn call(&self, interpreter: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
         let Some(ScriptValue::String(s)) = arguments.first() else {
             panic!("Expected string, got {arguments:?}");
         };

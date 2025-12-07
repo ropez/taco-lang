@@ -9,7 +9,7 @@ use crate::{
         ArgumentExpression, Assignee, AstNode, CallExpression, Expression, Function,
         ParamExpression, TypeExpression,
     },
-    stdlib::{Methods, NativeFunctionRef, NativeMethodRef},
+    stdlib::{Methods, NativeFunctionRef, NativeMethodRef, parse::ParseFunc},
 };
 
 type Result<T> = result::Result<T, Src<TypeError>>;
@@ -663,7 +663,7 @@ impl Validator {
 
     fn validate_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptType> {
         match expr.as_ref() {
-            Expression::Number(_) => Ok(ScriptType::Int),
+            Expression::Int(_) => Ok(ScriptType::Int),
             Expression::Str(_) => Ok(ScriptType::Str),
             Expression::True => Ok(ScriptType::Bool),
             Expression::False => Ok(ScriptType::Bool),

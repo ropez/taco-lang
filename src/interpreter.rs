@@ -21,7 +21,7 @@ use crate::{
 pub enum ScriptValue {
     Boolean(bool),
     String(Arc<str>),
-    Number(i64),
+    Int(i64),
     Range(i64, i64),
     List(Arc<List>),
     Tuple(Arc<Tuple>),
@@ -68,10 +68,10 @@ impl ScriptValue {
         matches!(self, Self::NaN)
     }
 
-    pub fn as_number(&self) -> i64 {
+    pub fn as_int(&self) -> i64 {
         match self {
-            Self::Number(num) => *num,
-            _ => panic!("Expected number, found {self}"),
+            Self::Int(num) => *num,
+            _ => panic!("Expected integer, found {self}"),
         }
     }
 
@@ -86,7 +86,7 @@ impl ScriptValue {
     pub fn as_iterable(&self) -> Vec<ScriptValue> {
         match self {
             Self::List(list) => Vec::from(list.items()),
-            Self::Range(l, r) => (*l..=*r).map(ScriptValue::Number).collect(),
+            Self::Range(l, r) => (*l..=*r).map(ScriptValue::Int).collect(),
             _ => panic!("Expected iterable, found {self}"),
         }
     }
@@ -101,7 +101,7 @@ impl PartialEq for ScriptValue {
         match (self, other) {
             (Self::String(l), Self::String(r)) => l == r,
             (Self::Boolean(l), Self::Boolean(r)) => l == r,
-            (Self::Number(l), Self::Number(r)) => l == r,
+            (Self::Int(l), Self::Int(r)) => l == r,
             (
                 Self::Enum {
                     def: dl,
@@ -124,7 +124,7 @@ impl Display for ScriptValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
             ScriptValue::String(s) => write!(f, "{s}"),
-            ScriptValue::Number(n) => write!(f, "{n}"),
+            ScriptValue::Int(n) => write!(f, "{n}"),
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),
@@ -370,7 +370,7 @@ impl Interpreter {
                         ScriptValue::Range(lhs, rhs) => {
                             for v in lhs..=rhs {
                                 let mut scope = scope.clone();
-                                scope.set_local(ident.clone(), ScriptValue::Number(v));
+                                scope.set_local(ident.clone(), ScriptValue::Int(v));
                                 if let Completion::ExplicitReturn(val) =
                                     self.execute_block(body, scope)
                                 {
@@ -467,7 +467,7 @@ impl Interpreter {
                 }
                 ScriptValue::String(builder.into())
             }
-            Expression::Number(n) => ScriptValue::Number(*n),
+            Expression::Int(n) => ScriptValue::Int(*n),
             Expression::True => ScriptValue::Boolean(true),
             Expression::False => ScriptValue::Boolean(false),
             Expression::Arguments => ScriptValue::Tuple(Arc::clone(&scope.arguments)),
@@ -568,15 +568,15 @@ impl Interpreter {
                 ScriptValue::Boolean(!lhs.eq(&rhs))
             }
             Expression::Range(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope).as_number();
-                let rhs = self.eval_expr(rhs, scope).as_number();
+                let lhs = self.eval_expr(lhs, scope).as_int();
+                let rhs = self.eval_expr(rhs, scope).as_int();
 
                 ScriptValue::Range(lhs, rhs)
             }
             Expression::Negate(expr) => {
                 let val = self.eval_expr(expr, scope);
                 match val {
-                    ScriptValue::Number(n) => ScriptValue::Number(-n),
+                    ScriptValue::Int(n) => ScriptValue::Int(-n),
                     ScriptValue::NaN => val,
                     _ => panic!("Expected number"),
                 }
@@ -638,8 +638,8 @@ impl Interpreter {
         if lhs.is_nan() || rhs.is_nan() {
             ScriptValue::NaN
         } else {
-            op(lhs.as_number(), rhs.as_number())
-                .map(ScriptValue::Number)
+            op(lhs.as_int(), rhs.as_int())
+                .map(ScriptValue::Int)
                 .unwrap_or(ScriptValue::NaN)
         }
     }
@@ -657,11 +657,11 @@ impl Interpreter {
         let lhs = self.eval_expr(lhs, scope);
         let rhs = self.eval_expr(rhs, scope);
         match (lhs, rhs) {
-            (ScriptValue::Number(lhs), ScriptValue::Number(rhs)) => {
+            (ScriptValue::Int(lhs), ScriptValue::Int(rhs)) => {
                 ScriptValue::Boolean(op(lhs, rhs))
             }
-            (ScriptValue::NaN, ScriptValue::Number(_)) => ScriptValue::NaN,
-            (ScriptValue::Number(_), ScriptValue::NaN) => ScriptValue::NaN,
+            (ScriptValue::NaN, ScriptValue::Int(_)) => ScriptValue::NaN,
+            (ScriptValue::Int(_), ScriptValue::NaN) => ScriptValue::NaN,
             _ => panic!("Expected numbers"),
         }
     }

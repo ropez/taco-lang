@@ -33,7 +33,7 @@ impl ScriptValue {
     fn to_type(&self) -> String {
         match self {
             ScriptValue::String(_) => "str".into(),
-            ScriptValue::Number(_) => "int".into(),
+            ScriptValue::Int(_) => "int".into(),
             ScriptValue::List(items) => {
                 if let Some(inner) = items.items().first() {
                     format!("[{}]", inner.to_type())
