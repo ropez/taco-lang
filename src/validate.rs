@@ -933,6 +933,7 @@ impl Validator {
                     .as_ref()
                     .as_callable()
                     .map_err(|err| err.at(expr.loc))?;
+                let arguments = self.eval_call_expr(arguments, scope)?;
                 let found_types = self.validate_arguments(&params, &arguments, scope)?;
                 if let Ok(inferred) = infer_types(ret, &found_types) {
                     Ok(inferred)

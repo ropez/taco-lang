@@ -5,6 +5,7 @@ use std::{
 
 use crate::{
     Builder,
+    error::{ScriptError, ScriptErrorKind},
     interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
@@ -49,7 +50,7 @@ where
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         if let Some(arg) = arguments.at(0) {
             let mut out = self.out.lock().unwrap();
             write!(out, "{arg}").unwrap();
@@ -57,7 +58,7 @@ where
                 writeln!(out).unwrap();
             }
         }
-        ScriptValue::identity()
+        Ok(ScriptValue::identity())
     }
 }
 
@@ -68,11 +69,13 @@ impl NativeFunction for AssertFunc {
         TupleType::from_single(ScriptType::Bool)
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::Boolean(true) = arguments.single() {
-            ScriptValue::identity()
+            Ok(ScriptValue::identity())
         } else {
-            panic!("Assertion failed")
+            Err(ScriptError::new(ScriptErrorKind::AssertionFailed(
+                "TODO".into(),
+            )))
         }
     }
 }

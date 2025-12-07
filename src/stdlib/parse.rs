@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
+    error::{ScriptError, ScriptErrorKind},
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     parser::{Record, TypeExpression},
     stdlib::NativeFunction,
@@ -24,7 +25,7 @@ impl ParseFunc {
 }
 
 impl NativeFunction for ParseFunc {
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         if let Some(ScriptValue::String(s)) = arguments.first() {
             let mut values = Vec::new();
             let mut tokens = s.split_ascii_whitespace();
@@ -37,17 +38,17 @@ impl NativeFunction for ParseFunc {
                             "int" => {
                                 ScriptValue::Int(tokens.next().unwrap().parse::<i64>().unwrap())
                             }
-                            o => panic!("Don't know how to parse {o:?}"),
+                            o => todo!("Don't know how to parse {o:?}"),
                         },
-                        o => panic!("Don't know how to parse {o:?}"),
+                        o => todo!("Don't know how to parse {o:?}"),
                     },
                 ));
             }
 
-            ScriptValue::Rec {
+            Ok(ScriptValue::Rec {
                 def: Arc::clone(&self.def),
                 value: Arc::new(Tuple::new(values)),
-            }
+            })
         } else {
             panic!("Expected string, got {arguments:?}");
         }
@@ -56,16 +57,20 @@ impl NativeFunction for ParseFunc {
 
 struct ParseRangeFunc;
 impl NativeFunction for ParseRangeFunc {
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let Some(ScriptValue::String(s)) = arguments.first() else {
             panic!("Expected string, got {arguments:?}");
         };
         if let Some(n) = s.find('-') {
             let (l, r) = s.split_at(n);
-            let l = l.parse().unwrap();
-            let r = r[1..].parse().unwrap();
+            let l = l
+                .parse()
+                .map_err(|_| ScriptError::new(ScriptErrorKind::unknown("Parse error")))?;
+            let r = r[1..]
+                .parse()
+                .map_err(|_| ScriptError::new(ScriptErrorKind::unknown("Parse error")))?;
 
-            ScriptValue::Range(l, r)
+            Ok(ScriptValue::Range(l, r))
         } else {
             panic!("Parse error");
         }

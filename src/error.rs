@@ -148,6 +148,47 @@ impl TypeError {
     }
 }
 
+#[derive(Clone)]
+pub struct ScriptError {
+    kind: ScriptErrorKind,
+    loc: Option<Loc>,
+}
+
+#[derive(Clone)]
+pub enum ScriptErrorKind {
+    UnknownError(String),
+    AssertionFailed(String),
+}
+
+impl ScriptError {
+    pub fn new(kind: ScriptErrorKind) -> Self {
+        Self { kind, loc: None }
+    }
+
+    pub fn at(self, loc: Loc) -> Self {
+        // TODO Collect locations into a "stack"?
+        Self {
+            loc: Some(self.loc.unwrap_or(loc)),
+            ..self
+        }
+    }
+
+    pub(crate) fn into_source_error(self, source: &str) -> Error {
+        let msg = match self.kind {
+            ScriptErrorKind::UnknownError(msg) => format!("Unknown error: {msg}"),
+            ScriptErrorKind::AssertionFailed(msg) => format!("Assertion failed: {msg}"),
+        };
+
+        Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
+    }
+}
+
+impl ScriptErrorKind {
+    pub fn unknown(msg: impl Into<String>) -> Self {
+        Self::UnknownError(msg.into())
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct Error {
     pub message: String,

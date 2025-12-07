@@ -2,10 +2,12 @@ use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
     rc::Rc,
+    result,
     sync::Arc,
 };
 
 use crate::{
+    error::ScriptError,
     fmt::{fmt_inner_list, fmt_tuple},
     ident::{Ident, global},
     lexer::Src,
@@ -235,7 +237,7 @@ impl Display for Tuple {
 
 #[derive(Debug)]
 pub enum Completion {
-    EndOfBlock,
+    EndOfBlock(Scope),
     ExplicitReturn(ScriptValue),
     ImpliedReturn(ScriptValue),
 }
@@ -255,6 +257,8 @@ impl External {
         self.value.as_any().downcast_ref::<T>()
     }
 }
+
+type Result<T> = result::Result<T, ScriptError>;
 
 #[derive(Default, Clone)]
 pub(crate) struct Scope {
@@ -323,17 +327,22 @@ impl Interpreter {
         self.methods.get(&(ns, name.clone()))
     }
 
-    pub fn execute(&self, ast: &[AstNode]) {
+    pub fn execute(&self, ast: &[AstNode]) -> Result<HashMap<Ident, ScriptValue>> {
         let mut scope = Scope::default();
         scope.locals.extend(self.globals.clone());
-        self.execute_block(ast, scope);
+        let end = self.execute_block(ast, scope)?;
+
+        Ok(match end {
+            Completion::EndOfBlock(scope) => scope.locals,
+            _ => Default::default(),
+        })
     }
 
-    fn execute_block(&self, ast: &[AstNode], mut scope: Scope) -> Completion {
+    fn execute_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<Completion> {
         for node in ast {
             match node {
                 AstNode::Assignment { assignee, value } => {
-                    let rhs = self.eval_expr(value, &scope);
+                    let rhs = self.eval_expr(value, &scope)?;
                     eval_assignment(assignee, &rhs, &mut scope);
                 }
                 AstNode::Function { name, fun, .. } => {
@@ -354,16 +363,16 @@ impl Interpreter {
                     iterable,
                     body,
                 } => {
-                    let iterable = self.eval_expr(iterable, &scope);
+                    let iterable = self.eval_expr(iterable, &scope)?;
                     match iterable {
                         ScriptValue::List(ref list) => {
                             for item in list.items() {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident.clone(), item.clone());
                                 if let Completion::ExplicitReturn(val) =
-                                    self.execute_block(body, scope)
+                                    self.execute_block(body, scope)?
                                 {
-                                    return Completion::ExplicitReturn(val);
+                                    return Ok(Completion::ExplicitReturn(val));
                                 }
                             }
                         }
@@ -372,9 +381,9 @@ impl Interpreter {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident.clone(), ScriptValue::Int(v));
                                 if let Completion::ExplicitReturn(val) =
-                                    self.execute_block(body, scope)
+                                    self.execute_block(body, scope)?
                                 {
-                                    return Completion::ExplicitReturn(val);
+                                    return Ok(Completion::ExplicitReturn(val));
                                 }
                             }
                         }
@@ -387,7 +396,7 @@ impl Interpreter {
                     body,
                     else_body,
                 } => {
-                    let val = self.eval_expr(value, &scope);
+                    let val = self.eval_expr(value, &scope)?;
 
                     let (branch, scope) = if let ScriptValue::None = val {
                         (else_body.as_ref(), scope.clone())
@@ -398,12 +407,12 @@ impl Interpreter {
                     };
 
                     if let Some(branch) = branch {
-                        match self.execute_block(branch, scope) {
+                        match self.execute_block(branch, scope)? {
                             Completion::ExplicitReturn(val) => {
-                                return Completion::ExplicitReturn(val);
+                                return Ok(Completion::ExplicitReturn(val));
                             }
                             Completion::ImpliedReturn(val) if ast.len() == 1 => {
-                                return Completion::ImpliedReturn(val);
+                                return Ok(Completion::ImpliedReturn(val));
                             }
                             _ => (),
                         }
@@ -414,7 +423,7 @@ impl Interpreter {
                     body,
                     else_body,
                 } => {
-                    let val = self.eval_expr(cond, &scope);
+                    let val = self.eval_expr(cond, &scope)?;
                     let ScriptValue::Boolean(val) = val else {
                         panic!("Not a boolean");
                     };
@@ -422,47 +431,47 @@ impl Interpreter {
                     let branch = if val { Some(body) } else { else_body.as_ref() };
                     if let Some(block) = branch {
                         let mut scope = scope.clone();
-                        match self.execute_block(block, scope) {
+                        match self.execute_block(block, scope)? {
                             Completion::ExplicitReturn(val) => {
-                                return Completion::ExplicitReturn(val);
+                                return Ok(Completion::ExplicitReturn(val));
                             }
                             Completion::ImpliedReturn(val) if ast.len() == 1 => {
-                                return Completion::ImpliedReturn(val);
+                                return Ok(Completion::ImpliedReturn(val));
                             }
                             _ => (),
                         }
                     }
                 }
                 AstNode::Expression(expr) => {
-                    let val = self.eval_expr(expr, &scope);
+                    let val = self.eval_expr(expr, &scope)?;
 
                     // Implied return if and only if the block consist of exactly one expression
                     if ast.len() == 1 {
-                        return Completion::ImpliedReturn(val);
+                        return Ok(Completion::ImpliedReturn(val));
                     }
                 }
                 AstNode::Return(expr) => {
                     if let Some(expr) = expr {
-                        let val = self.eval_expr(expr, &scope);
-                        return Completion::ExplicitReturn(val);
+                        let val = self.eval_expr(expr, &scope)?;
+                        return Ok(Completion::ExplicitReturn(val));
                     } else {
-                        return Completion::ExplicitReturn(ScriptValue::None);
+                        return Ok(Completion::ExplicitReturn(ScriptValue::None));
                     }
                 }
             }
         }
 
-        Completion::EndOfBlock
+        Ok(Completion::EndOfBlock(scope))
     }
 
-    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> ScriptValue {
-        match expr.as_ref() {
+    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptValue> {
+        let value = match expr.as_ref() {
             Expression::Str(s) => ScriptValue::String(Arc::clone(s)),
             Expression::String(parts) => {
                 // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
                 let mut builder = String::new();
                 for (expr, _) in parts {
-                    let val = self.eval_expr(expr, scope);
+                    let val = self.eval_expr(expr, scope)?;
                     write!(builder, "{val}").unwrap();
                 }
                 ScriptValue::String(builder.into())
@@ -472,7 +481,10 @@ impl Interpreter {
             Expression::False => ScriptValue::Boolean(false),
             Expression::Arguments => ScriptValue::Tuple(Arc::clone(&scope.arguments)),
             Expression::List(s) => {
-                let values = s.iter().map(|i| self.eval_expr(i, scope)).collect();
+                let values = s
+                    .iter()
+                    .map(|i| self.eval_expr(i, scope))
+                    .collect::<Result<Vec<_>>>()?;
                 ScriptValue::List(Arc::new(List::new(values)))
             }
             Expression::Tuple(s) => {
@@ -480,10 +492,10 @@ impl Interpreter {
                     .as_ref()
                     .iter()
                     .map(|arg| {
-                        let value = self.eval_expr(&arg.expr, scope);
-                        TupleItem::new(arg.name.clone(), value)
+                        let value = self.eval_expr(&arg.expr, scope)?;
+                        Ok(TupleItem::new(arg.name.clone(), value))
                     })
-                    .collect();
+                    .collect::<Result<Vec<_>>>()?;
 
                 ScriptValue::Tuple(Arc::new(Tuple(items)))
             }
@@ -529,12 +541,12 @@ impl Interpreter {
                 }
             }
             Expression::Access { subject, key } => {
-                let subject = self.eval_expr(subject, scope);
+                let subject = self.eval_expr(subject, scope)?;
 
                 if let Some(tuple) = subject.as_tuple()
                     && let Some(it) = tuple.get_named_item(key)
                 {
-                    return it.value.clone();
+                    return Ok(it.value.clone());
                 }
 
                 if let Some(method) = self.get_method(&subject, key) {
@@ -548,7 +560,7 @@ impl Interpreter {
                 captured_scope: Arc::new(scope.clone()),
             },
             Expression::Not(expr) => {
-                let val = self.eval_expr(expr, scope);
+                let val = self.eval_expr(expr, scope)?;
                 if let ScriptValue::Boolean(b) = val {
                     ScriptValue::Boolean(!b)
                 } else {
@@ -556,25 +568,25 @@ impl Interpreter {
                 }
             }
             Expression::Equal(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope);
-                let rhs = self.eval_expr(rhs, scope);
+                let lhs = self.eval_expr(lhs, scope)?;
+                let rhs = self.eval_expr(rhs, scope)?;
 
                 ScriptValue::Boolean(lhs.eq(&rhs))
             }
             Expression::NotEqual(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope);
-                let rhs = self.eval_expr(rhs, scope);
+                let lhs = self.eval_expr(lhs, scope)?;
+                let rhs = self.eval_expr(rhs, scope)?;
 
                 ScriptValue::Boolean(!lhs.eq(&rhs))
             }
             Expression::Range(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope).as_int();
-                let rhs = self.eval_expr(rhs, scope).as_int();
+                let lhs = self.eval_expr(lhs, scope)?.as_int();
+                let rhs = self.eval_expr(rhs, scope)?.as_int();
 
                 ScriptValue::Range(lhs, rhs)
             }
             Expression::Negate(expr) => {
-                let val = self.eval_expr(expr, scope);
+                let val = self.eval_expr(expr, scope)?;
                 match val {
                     ScriptValue::Int(n) => ScriptValue::Int(-n),
                     ScriptValue::NaN => val,
@@ -582,32 +594,34 @@ impl Interpreter {
                 }
             }
             Expression::Addition(lhs, rhs) => {
-                self.eval_arithmetic(i64::checked_add, lhs, rhs, scope)
+                self.eval_arithmetic(i64::checked_add, lhs, rhs, scope)?
             }
             Expression::Subtraction(lhs, rhs) => {
-                self.eval_arithmetic(i64::checked_sub, lhs, rhs, scope)
+                self.eval_arithmetic(i64::checked_sub, lhs, rhs, scope)?
             }
             Expression::Multiplication(lhs, rhs) => {
-                self.eval_arithmetic(i64::checked_mul, lhs, rhs, scope)
+                self.eval_arithmetic(i64::checked_mul, lhs, rhs, scope)?
             }
             Expression::Division(lhs, rhs) => {
-                self.eval_arithmetic(i64::checked_div, lhs, rhs, scope)
+                self.eval_arithmetic(i64::checked_div, lhs, rhs, scope)?
             }
             Expression::Modulo(lhs, rhs) => {
-                self.eval_arithmetic(i64::checked_rem_euclid, lhs, rhs, scope)
+                self.eval_arithmetic(i64::checked_rem_euclid, lhs, rhs, scope)?
             }
-            Expression::LessThan(lhs, rhs) => self.eval_comparison(|a, b| a < b, lhs, rhs, scope),
+            Expression::LessThan(lhs, rhs) => {
+                self.eval_comparison(|a, b| a < b, lhs, rhs, scope)?
+            }
             Expression::GreaterThan(lhs, rhs) => {
-                self.eval_comparison(|a, b| a > b, lhs, rhs, scope)
+                self.eval_comparison(|a, b| a > b, lhs, rhs, scope)?
             }
             Expression::LessOrEqual(lhs, rhs) => {
-                self.eval_comparison(|a, b| a <= b, lhs, rhs, scope)
+                self.eval_comparison(|a, b| a <= b, lhs, rhs, scope)?
             }
             Expression::GreaterOrEqual(lhs, rhs) => {
-                self.eval_comparison(|a, b| a >= b, lhs, rhs, scope)
+                self.eval_comparison(|a, b| a >= b, lhs, rhs, scope)?
             }
             Expression::Try(inner) => {
-                let val = self.eval_expr(inner, scope);
+                let val = self.eval_expr(inner, scope)?;
                 if let ScriptValue::None = val {
                     // Need to make ALL eval methods return some Result or custom outcome enum
                     // Should be Result, so that we can use `?` sugar
@@ -616,11 +630,14 @@ impl Interpreter {
                 val
             }
             Expression::Call { subject, arguments } => {
-                let subject = self.eval_expr(subject, scope);
-                let arguments = self.eval_args(arguments, scope);
+                let subject = self.eval_expr(subject, scope)?;
+                let arguments = self.eval_args(arguments, scope)?;
                 self.eval_callable(&subject, &arguments)
+                    .map_err(|err| err.at(expr.loc))?
             }
-        }
+        };
+
+        Ok(value)
     }
 
     fn eval_arithmetic<F>(
@@ -629,18 +646,18 @@ impl Interpreter {
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
         scope: &Scope,
-    ) -> ScriptValue
+    ) -> Result<ScriptValue>
     where
         F: FnOnce(i64, i64) -> Option<i64>,
     {
-        let lhs = self.eval_expr(lhs, scope);
-        let rhs = self.eval_expr(rhs, scope);
+        let lhs = self.eval_expr(lhs, scope)?;
+        let rhs = self.eval_expr(rhs, scope)?;
         if lhs.is_nan() || rhs.is_nan() {
-            ScriptValue::NaN
+            Ok(ScriptValue::NaN)
         } else {
-            op(lhs.as_int(), rhs.as_int())
+            Ok(op(lhs.as_int(), rhs.as_int())
                 .map(ScriptValue::Int)
-                .unwrap_or(ScriptValue::NaN)
+                .unwrap_or(ScriptValue::NaN))
         }
     }
 
@@ -650,24 +667,28 @@ impl Interpreter {
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
         scope: &Scope,
-    ) -> ScriptValue
+    ) -> Result<ScriptValue>
     where
         F: FnOnce(i64, i64) -> bool,
     {
-        let lhs = self.eval_expr(lhs, scope);
-        let rhs = self.eval_expr(rhs, scope);
+        let lhs = self.eval_expr(lhs, scope)?;
+        let rhs = self.eval_expr(rhs, scope)?;
         match (lhs, rhs) {
             (ScriptValue::Int(lhs), ScriptValue::Int(rhs)) => {
-                ScriptValue::Boolean(op(lhs, rhs))
+                Ok(ScriptValue::Boolean(op(lhs, rhs)))
             }
-            (ScriptValue::NaN, ScriptValue::Int(_)) => ScriptValue::NaN,
-            (ScriptValue::Int(_), ScriptValue::NaN) => ScriptValue::NaN,
+            (ScriptValue::NaN, ScriptValue::Int(_)) => Ok(ScriptValue::NaN),
+            (ScriptValue::Int(_), ScriptValue::NaN) => Ok(ScriptValue::NaN),
             _ => panic!("Expected numbers"),
         }
     }
 
-    pub(crate) fn eval_callable(&self, callable: &ScriptValue, arguments: &Tuple) -> ScriptValue {
-        match callable {
+    pub(crate) fn eval_callable(
+        &self,
+        callable: &ScriptValue,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue> {
+        let return_value = match callable {
             ScriptValue::ScriptFunction {
                 function,
                 captured_scope,
@@ -681,8 +702,8 @@ impl Interpreter {
                 }
                 inner_scope.arguments = Arc::new(values);
 
-                match self.execute_block(&function.body, inner_scope) {
-                    Completion::EndOfBlock => ScriptValue::None,
+                match self.execute_block(&function.body, inner_scope)? {
+                    Completion::EndOfBlock(_) => ScriptValue::None,
                     Completion::ExplicitReturn(v) => v,
                     Completion::ImpliedReturn(v) => v,
                 }
@@ -708,27 +729,32 @@ impl Interpreter {
             // XXX Arguments aren't "transformed" for native calls, but passed as-is!
             // E.g. fun(a: int, b: int), called as fun(b: 2, 1), receives (b: 2, 1), not (a: 1, b: 2)
             // RecordWith kind-of works by accident for this reason.
-            ScriptValue::NativeFunction(func) => func.call(self, arguments),
+            ScriptValue::NativeFunction(func) => func.call(self, arguments)?,
             ScriptValue::NativeMethodBound(method, subject) => {
-                method.call(self, subject, arguments)
+                method.call(self, subject, arguments)?
             }
             _ => panic!("Expected a callable, got: {callable:?}"),
-        }
+        };
+
+        Ok(return_value)
     }
 
-    fn eval_args(&self, arguments: &CallExpression, scope: &Scope) -> Arc<Tuple> {
-        match arguments {
+    fn eval_args(&self, arguments: &CallExpression, scope: &Scope) -> Result<Arc<Tuple>> {
+        let tuple = match arguments {
             CallExpression::Inline(arguments) => {
                 let items: Vec<_> = arguments
                     .as_ref()
                     .iter()
-                    .map(|a| TupleItem::new(a.name.clone(), self.eval_expr(&a.expr, scope)))
-                    .collect();
+                    .map(|a| {
+                        let val = self.eval_expr(&a.expr, scope)?;
+                        Ok(TupleItem::new(a.name.clone(), val))
+                    })
+                    .collect::<Result<Vec<_>>>()?;
 
                 Arc::new(Tuple(items))
             }
             CallExpression::Destructure(expr) => {
-                let arg = self.eval_expr(expr, scope);
+                let arg = self.eval_expr(expr, scope)?;
                 match &arg {
                     ScriptValue::Tuple(tuple) => Arc::clone(tuple),
                     ScriptValue::Rec { value: values, .. } => Arc::clone(values),
@@ -736,7 +762,9 @@ impl Interpreter {
                 }
             }
             CallExpression::DestructureImplicit(_) => Arc::clone(&scope.arguments),
-        }
+        };
+
+        Ok(tuple)
     }
 }
 

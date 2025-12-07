@@ -2,7 +2,7 @@ use std::{any::Any, cell::RefCell, rc::Rc, sync::Arc};
 
 use crate::{
     Builder,
-    error::TypeError,
+    error::{ScriptError, TypeError},
     interpreter::{External, Interpreter, ScriptValue, Tuple},
     stdlib::{ExternalValue, Methods, NativeFunction, NativeMethod},
     validate::{ExternalType, ScriptType, TupleType},
@@ -31,9 +31,13 @@ impl StateValue {
         *self.inner.borrow_mut() = value;
     }
 
-    fn update(&self, f: impl FnOnce(&ScriptValue) -> ScriptValue) {
+    fn update(
+        &self,
+        f: impl FnOnce(&ScriptValue) -> Result<ScriptValue, ScriptError>,
+    ) -> Result<(), ScriptError> {
         let mut val = self.inner.borrow_mut();
-        *val = f(&val);
+        *val = f(&val)?;
+        Ok(())
     }
 }
 
@@ -69,12 +73,12 @@ impl NativeFunction for MakeState {
         )
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single();
         let value = StateValue::new(arg.clone());
         let typ = ExternalType::new("State", self.methods.clone());
         let ext = External::new(Rc::new(typ), Rc::new(value));
-        ScriptValue::Ext(ext)
+        Ok(ScriptValue::Ext(ext))
     }
 }
 
@@ -89,8 +93,13 @@ impl NativeMethod for StateGet {
         }
     }
 
-    fn call(&self, _: &Interpreter, subject: &ScriptValue, _arguments: &Tuple) -> ScriptValue {
-        subject.as_state().get()
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: &ScriptValue,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        Ok(subject.as_state().get())
     }
 }
 
@@ -112,11 +121,16 @@ impl NativeMethod for StateSet {
         }
     }
 
-    fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: &ScriptValue,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         let val = arguments.single();
         let state = subject.as_state();
         state.set(val.clone());
-        state.get()
+        Ok(state.get())
     }
 }
 
@@ -146,11 +160,11 @@ impl NativeMethod for StateUpdate {
         interpreter: &Interpreter,
         subject: &ScriptValue,
         arguments: &Tuple,
-    ) -> ScriptValue {
+    ) -> Result<ScriptValue, ScriptError> {
         let callable = arguments.single();
         let state = subject.as_state();
-        state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()));
-        state.get()
+        state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()))?;
+        Ok(state.get())
     }
 }
 

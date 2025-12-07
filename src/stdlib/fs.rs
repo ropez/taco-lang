@@ -2,6 +2,7 @@ use std::{fmt::Write, fs};
 
 use crate::{
     Builder,
+    error::{ScriptError, ScriptErrorKind},
     interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
@@ -22,15 +23,13 @@ impl NativeFunction for ReadFunc {
         ScriptType::Str
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
-        let Some(name) = arguments.at(0) else {
-            todo!("Return errors from extensions")
-        };
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+        let name = arguments.single();
 
         match name {
             ScriptValue::String(name) => match fs::read_to_string(name.as_ref()) {
-                Ok(content) => ScriptValue::String(content.into()),
-                Err(err) => todo!("Return errors from extensions: {err}"),
+                Ok(content) => Ok(ScriptValue::String(content.into())),
+                Err(err) => Err(ScriptError::new(ScriptErrorKind::unknown(err.to_string()))),
             },
             _ => {
                 todo!("Return errors from extensions")

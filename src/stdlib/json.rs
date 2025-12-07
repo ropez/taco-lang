@@ -4,6 +4,7 @@ use tinyjson::JsonValue;
 
 use crate::{
     Builder,
+    error::{ScriptError, ScriptErrorKind},
     interpreter::{Interpreter, ScriptValue, Tuple},
     parser::{Expression, Record},
     stdlib::NativeFunction,
@@ -24,9 +25,12 @@ impl NativeFunction for JsonFunc {
         ScriptType::Str
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let jv = JsonValue::from(arguments.single());
-        ScriptValue::String(jv.stringify().unwrap().into())
+        match jv.stringify() {
+            Ok(json) => Ok(ScriptValue::String(json.into())),
+            Err(err) => Err(ScriptError::new(ScriptErrorKind::unknown(err.message()))),
+        }
     }
 }
 

@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::{
-    error::TypeError,
+    error::{ScriptError, TypeError},
     interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeMethod,
     validate::{ScriptType, TupleItemType, TupleType},
@@ -9,7 +9,12 @@ use crate::{
 
 pub(crate) struct RecordWithMethod;
 impl NativeMethod for RecordWithMethod {
-    fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: &ScriptValue,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         let ScriptValue::Rec { def, value } = subject else {
             panic!("Not a rec");
         };
@@ -27,10 +32,10 @@ impl NativeMethod for RecordWithMethod {
             }
         }
 
-        ScriptValue::Rec {
+        Ok(ScriptValue::Rec {
             def: Arc::clone(def),
             value: Arc::new(Tuple::new(values)),
-        }
+        })
     }
 
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {

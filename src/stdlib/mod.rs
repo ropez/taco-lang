@@ -1,7 +1,7 @@
 use std::{any::Any, collections::HashMap, fmt, ops, sync::Arc};
 
 use crate::{
-    error::TypeError,
+    error::{ScriptError, TypeError},
     ident::Ident,
     interpreter::{Interpreter, ScriptValue, Tuple},
     validate::{ScriptType, TupleType},
@@ -31,7 +31,11 @@ impl fmt::Debug for dyn ExternalValue {
 }
 
 pub trait NativeFunction {
-    fn call(&self, interpreter: &Interpreter, arguments: &Tuple) -> ScriptValue; // Later: Result<ScriptValue, ScriptError>
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError>;
 
     fn arguments_type(&self) -> TupleType {
         TupleType::identity()
@@ -48,7 +52,7 @@ pub trait NativeMethod {
         interpreter: &Interpreter,
         subject: &ScriptValue,
         arguments: &Tuple,
-    ) -> ScriptValue; // Later: Result<ScriptValue, ScriptError>
+    ) -> Result<ScriptValue, ScriptError>;
 
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
         let _ = subject;

@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::TypeError,
+    error::{ScriptError, TypeError},
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     stdlib::{NativeFunction, NativeMethod},
@@ -46,14 +46,19 @@ impl From<List> for ScriptValue {
 
 pub(crate) struct ListPush;
 impl ListMethod for ListPush {
-    fn list_call(&self, _: &Interpreter, subject: &List, arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: &List,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         // This is the Copy on Write feature of the language in play.
         // Can we avoid copy, if we see that the original will not be used again?
         let mut res = Vec::clone(&subject.0);
         for arg in arguments.items() {
             res.push(arg.value.clone());
         }
-        List::new(res).into()
+        Ok(List::new(res).into())
     }
 
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
@@ -90,7 +95,7 @@ trait ListMethod {
         interpreter: &Interpreter,
         subject: &List,
         arguments: &Tuple,
-    ) -> ScriptValue;
+    ) -> Result<ScriptValue, ScriptError>;
 }
 
 pub(crate) struct ListFind;
@@ -103,10 +108,15 @@ impl ListMethod for ListFind {
         Ok(ScriptType::Opt(Box::new(inner.clone())))
     }
 
-    fn list_call(&self, _: &Interpreter, list: &List, arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        list: &List,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         let val = arguments.single();
         let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, val));
-        opt_val.cloned().unwrap_or(ScriptValue::None)
+        Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
     }
 }
 
@@ -120,20 +130,30 @@ impl ListMethod for ListCount {
         Ok(ScriptType::Int)
     }
 
-    fn list_call(&self, _: &Interpreter, list: &List, arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        list: &List,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         let val = arguments.single();
         let count = list
             .items()
             .iter()
             .filter(|v| ScriptValue::eq(v, val))
             .count();
-        ScriptValue::Int(count.try_into().unwrap())
+        Ok(ScriptValue::Int(count.try_into().unwrap()))
     }
 }
 
 pub(crate) struct ListUnzip;
 impl ListMethod for ListUnzip {
-    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: &List,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         // TODO These methods should create "stream" or "iterator" instead of just copying the whole list up-front
 
         let tuples: Vec<_> = subject
@@ -164,7 +184,7 @@ impl ListMethod for ListUnzip {
             Tuple::identity()
         };
 
-        ScriptValue::Tuple(Arc::new(tuple))
+        Ok(ScriptValue::Tuple(Arc::new(tuple)))
     }
 
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
@@ -184,7 +204,7 @@ impl ListMethod for ListUnzip {
 
 pub(crate) struct ListZip;
 impl NativeFunction for ListZip {
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptValue {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let lists: Vec<_> = arguments
             .items()
             .iter()
@@ -209,7 +229,7 @@ impl NativeFunction for ListZip {
             .map(ScriptValue::Tuple)
             .collect();
 
-        ScriptValue::List(Arc::new(List::new(values)))
+        Ok(ScriptValue::List(Arc::new(List::new(values))))
     }
 
     // XXX Supporting exactly two arguments only
@@ -233,18 +253,23 @@ impl NativeFunction for ListZip {
 
 pub(crate) struct ListSum;
 impl ListMethod for ListSum {
-    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: &List,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         if subject.items().iter().any(|v| v.is_nan()) {
-            ScriptValue::NaN
+            Ok(ScriptValue::NaN)
         } else {
-            ScriptValue::Int(
+            Ok(ScriptValue::Int(
                 subject
                     .items()
                     .iter()
                     .map(|val| val.as_int())
                     .reduce(|n, a| n + a)
                     .unwrap_or_default(),
-            )
+            ))
         }
     }
 
@@ -258,14 +283,19 @@ impl ListMethod for ListSum {
 
 pub(crate) struct ListSort;
 impl ListMethod for ListSort {
-    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: &List,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         let mut values: Vec<_> = subject.items().iter().map(|val| val.as_int()).collect();
 
         values.sort();
 
         let values = values.into_iter().map(ScriptValue::Int).collect();
 
-        List::new(values).into()
+        Ok(List::new(values).into())
     }
 
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
@@ -291,14 +321,14 @@ impl ListMethod for ListMap {
         interpreter: &Interpreter,
         subject: &List,
         arguments: &Tuple,
-    ) -> ScriptValue {
+    ) -> Result<ScriptValue, ScriptError> {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
-            let value = interpreter.eval_callable(callable, &item.to_single_argument());
+            let value = interpreter.eval_callable(callable, &item.to_single_argument())?;
             mapped.push(value);
         }
-        ScriptValue::List(Arc::new(List::new(mapped)))
+        Ok(ScriptValue::List(Arc::new(List::new(mapped))))
     }
 }
 
@@ -320,18 +350,18 @@ impl ListMethod for ListFilter {
         interpreter: &Interpreter,
         subject: &List,
         arguments: &Tuple,
-    ) -> ScriptValue {
+    ) -> Result<ScriptValue, ScriptError> {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
-            let value = interpreter.eval_callable(callable, &item.to_single_argument());
+            let value = interpreter.eval_callable(callable, &item.to_single_argument())?;
             if let ScriptValue::Boolean(v) = value
                 && v
             {
                 mapped.push(item.clone());
             }
         }
-        ScriptValue::List(Arc::new(List::new(mapped)))
+        Ok(ScriptValue::List(Arc::new(List::new(mapped))))
     }
 }
 
@@ -347,7 +377,12 @@ impl ListMethod for ListFlatten {
         Ok(ScriptType::list_of(typ))
     }
 
-    fn list_call(&self, _: &Interpreter, subject: &List, _arguments: &Tuple) -> ScriptValue {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: &List,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         let mut items = Vec::new();
 
         for inner in subject.items() {
@@ -355,7 +390,7 @@ impl ListMethod for ListFlatten {
         }
 
         let list = List::new(items);
-        ScriptValue::List(list.into())
+        Ok(ScriptValue::List(list.into()))
     }
 }
 
@@ -380,15 +415,15 @@ impl ListMethod for ListMapTo {
         interpreter: &Interpreter,
         subject: &List,
         arguments: &Tuple,
-    ) -> ScriptValue {
+    ) -> Result<ScriptValue, ScriptError> {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
             let tuple = item.as_tuple().expect("list of tuples");
-            let value = interpreter.eval_callable(callable, &tuple);
+            let value = interpreter.eval_callable(callable, &tuple)?;
             mapped.push(value);
         }
-        ScriptValue::List(Arc::new(List::new(mapped)))
+        Ok(ScriptValue::List(Arc::new(List::new(mapped))))
     }
 }
 
@@ -401,7 +436,7 @@ where
         interpreter: &Interpreter,
         subject: &ScriptValue,
         arguments: &Tuple,
-    ) -> ScriptValue {
+    ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::List(list) = subject {
             self.list_call(interpreter, list, arguments)
         } else if let ScriptValue::Range(l, r) = subject {

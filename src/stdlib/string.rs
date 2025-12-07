@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::TypeError,
+    error::{ScriptError, TypeError},
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     stdlib::{NativeMethod, list::List},
@@ -18,10 +18,15 @@ pub(crate) fn build(builder: &mut Builder) {
 
 pub(crate) struct StringLength;
 impl NativeMethod for StringLength {
-    fn call(&self, _: &Interpreter, subject: &ScriptValue, _arguments: &Tuple) -> ScriptValue {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: &ScriptValue,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {
             let len = subject.chars().count() as i64;
-            ScriptValue::Int(len)
+            Ok(ScriptValue::Int(len))
         } else {
             panic!("Not a string")
         }
@@ -34,14 +39,19 @@ impl NativeMethod for StringLength {
 
 pub(crate) struct StringLines;
 impl NativeMethod for StringLines {
-    fn call(&self, _: &Interpreter, subject: &ScriptValue, _arguments: &Tuple) -> ScriptValue {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: &ScriptValue,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {
             let lines = subject
                 .lines()
                 .filter(|l| !l.is_empty())
                 .map(|l| ScriptValue::String(Arc::from(l)))
                 .collect();
-            ScriptValue::List(Arc::new(List::new(lines)))
+            Ok(ScriptValue::List(Arc::new(List::new(lines))))
         } else {
             panic!("Not a string")
         }
@@ -54,7 +64,12 @@ impl NativeMethod for StringLines {
 
 pub(crate) struct StringSplit;
 impl NativeMethod for StringSplit {
-    fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: &ScriptValue,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single();
         let ScriptValue::String(arg) = arg else {
             panic!("Expected a string");
@@ -66,7 +81,7 @@ impl NativeMethod for StringSplit {
                 .filter(|l| !l.is_empty())
                 .map(|l| ScriptValue::String(Arc::from(l)))
                 .collect();
-            ScriptValue::List(Arc::new(List::new(lines)))
+            Ok(ScriptValue::List(Arc::new(List::new(lines))))
         } else {
             panic!("Not a string")
         }
@@ -83,7 +98,12 @@ impl NativeMethod for StringSplit {
 
 pub(crate) struct StringSplitAt;
 impl NativeMethod for StringSplitAt {
-    fn call(&self, _: &Interpreter, subject: &ScriptValue, arguments: &Tuple) -> ScriptValue {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: &ScriptValue,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {
             let arg = arguments.single().as_int() as usize;
             let (l, r) = subject.split_at(arg);
@@ -94,7 +114,7 @@ impl NativeMethod for StringSplitAt {
                 .map(ScriptValue::String)
                 .map(TupleItem::unnamed)
                 .collect();
-            ScriptValue::Tuple(Tuple::new(items).into())
+            Ok(ScriptValue::Tuple(Tuple::new(items).into()))
         } else {
             panic!("Not a string")
         }
