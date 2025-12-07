@@ -182,7 +182,15 @@ impl Display for ScriptType {
             Self::Int => write!(f, "int"),
             Self::Str => write!(f, "str"),
             Self::Enum(typ) => write!(f, "{}", typ.name),
-            Self::EnumVariant(typ, var) => write!(f, "{}::{}", typ.name, var), // Display as function?
+            Self::EnumVariant(typ, var) => {
+                let variant = typ
+                    .variants
+                    .iter()
+                    .find(|v| v.name == *var)
+                    .expect("variant in enum");
+                let params = variant.params.as_ref().expect("variant with params");
+                write!(f, "fun{params}: {}", typ.name)
+            }
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => write!(f, "[{inner}]"),
             Self::Opt(inner) => write!(f, "{inner}?"),
@@ -867,7 +875,58 @@ impl Validator {
                 }
             }
             Expression::Call { subject, arguments } => {
-                let arguments = self.eval_call_expr(arguments, scope)?;
+                if let Expression::Ref(f) = subject.as_ref().as_ref()
+                    && f.as_str() == "assert"
+                {
+                    if let CallExpression::Inline(inline) = arguments.as_ref() {
+                        let args = inline.as_ref();
+                        if args.len() == 1
+                            && let Some(first) = args.first()
+                        {
+                            if let Expression::Equal(lhs, rhs) = first.expr.as_ref() {
+                                if let Expression::Call { subject, arguments } =
+                                    lhs.as_ref().as_ref()
+                                {
+                                    if let Expression::Ref(f) = subject.as_ref().as_ref()
+                                        && f.as_str() == "typeof"
+                                    {
+                                        let actual = self.eval_call_expr(arguments, scope)?;
+                                        if let CallExpressionType::Inline(i) = actual {
+                                            let actual = i.as_ref().first();
+                                            let expected = match rhs.as_ref().as_ref() {
+                                                Expression::Str(s) => Some(s.to_string()),
+                                                Expression::String(s) => {
+                                                    if s.len() == 1
+                                                        && let Some(Expression::Str(f)) =
+                                                            s.first().map(|k| k.0.as_ref())
+                                                    {
+                                                        Some(f.to_string())
+                                                    } else {
+                                                        None
+                                                    }
+                                                }
+                                                _ => None,
+                                            };
+
+                                            if let Some(actual) = actual
+                                                && let Some(expected) = expected
+                                            {
+                                                let actual_typ = actual.value.as_ref();
+                                                if actual_typ.to_string() != expected {
+                                                    return Err(TypeError::TypeAssertionFailed {
+                                                        expected,
+                                                        actual: actual_typ.clone(),
+                                                    }
+                                                    .at(expr.loc));
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
 
                 let subject = self.eval_expr(subject, scope)?;
                 let (params, ret) = subject
@@ -878,7 +937,7 @@ impl Validator {
                 if let Ok(inferred) = infer_types(ret, &found_types) {
                     Ok(inferred)
                 } else {
-                    Err(TypeError::TypeNotInverred.at(expr.loc))
+                    Err(TypeError::TypeNotInferred.at(expr.loc))
                 }
             }
         }

@@ -55,9 +55,13 @@ pub enum TypeError {
         expected: ScriptType,
         actual: ScriptType,
     },
-    TypeNotInverred,
+    TypeNotInferred,
     MissingReturnStatement,
     EmptyList,
+    TypeAssertionFailed {
+        expected: String,
+        actual: ScriptType,
+    },
 }
 
 // Promote ArgumentError to "Error" below
@@ -134,7 +138,10 @@ impl TypeError {
             TypeError::InvalidMapTo(actual) => {
                 format!("Expected a list of tuples, found '{actual}'")
             }
-            TypeError::TypeNotInverred => "Type can not be inferred".into(),
+            TypeError::TypeNotInferred => "Type can not be inferred".into(),
+            TypeError::TypeAssertionFailed { expected, actual } => {
+                format!("Type assertion failed. Expected '{expected}', found '{actual}'")
+            }
         };
 
         Error::new(msg, source, loc)

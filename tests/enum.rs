@@ -11,6 +11,7 @@ fn test_simple_enum() {
 
         hero = Hero::Fred
 
+        assert(typeof(hero) == "Hero")
         print("$hero")
     "#;
 
@@ -82,6 +83,9 @@ fn test_enum_with_value() {
             TravelTo(Country, City)
         )
 
+        assert(typeof(VacationPlan::StayAtHome) == "VacationPlan")
+        assert(typeof(VacationPlan::TravelTo) == "fun(Country, City): VacationPlan")
+
         plan = VacationPlan::TravelTo(Country::Spain, City::Madrid)
         print("$plan")
     "#;
@@ -117,7 +121,7 @@ fn fails_for_missing_value() {
         Ok(out) => panic!("Expected error, got {out}"),
         Err(err) => assert_eq!(
             err.message,
-            "Expected 'VacationPlan', found 'VacationPlan::TravelTo'"
+            "Expected 'VacationPlan', found 'fun(City): VacationPlan'"
         ),
     };
 }
