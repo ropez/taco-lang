@@ -45,12 +45,13 @@ where
     let tokens = lexer::tokenize(src)?;
     let ast = Parser::new(src, tokens).parse()?;
 
-    validator.validate(&ast).map_err(|err| {
-        let loc = err.loc;
-        err.into_inner().into_source_error(src, loc)
-    })?;
+    validator
+        .validate(&ast)
+        .map_err(|err| err.into_source_error(src))?;
 
-    interpreter.execute(&ast);
+    interpreter
+        .execute(&ast)
+        .map_err(|err| err.into_source_error(src))?;
 
     Ok(())
 }
@@ -64,10 +65,9 @@ where
     let tokens = lexer::tokenize(src)?;
     let ast = Parser::new(src, tokens).parse()?;
 
-    validator.validate(&ast).map_err(|err| {
-        let loc = err.loc;
-        err.into_inner().into_source_error(src, loc)
-    })?;
+    validator
+        .validate(&ast)
+        .map_err(|err| err.into_source_error(src))?;
 
     let exported = interpreter
         .execute(&ast)

@@ -11,7 +11,13 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub enum TypeError {
+pub struct TypeError {
+    pub kind: TypeErrorKind,
+    pub(crate) loc: Option<Loc>,
+}
+
+#[derive(Clone)]
+pub enum TypeErrorKind {
     InvalidExpression,
     UndefinedReference(Ident),
     UndefinedMethod {
@@ -67,35 +73,49 @@ pub enum TypeError {
 // Promote ArgumentError to "Error" below
 
 impl TypeError {
+    pub fn new(kind: TypeErrorKind) -> Self {
+        Self { kind, loc: None }
+    }
+
     pub fn expected_number(actual: ScriptType) -> Self {
-        Self::InvalidArgumentType {
+        Self::new(TypeErrorKind::InvalidArgumentType {
             expected: ScriptType::Int,
             actual,
+        })
+    }
+
+    pub fn at(self, loc: Loc) -> Self {
+        Self {
+            loc: Some(self.loc.unwrap_or(loc)),
+            ..self
         }
     }
 
-    pub fn at(self, loc: Loc) -> Src<Self> {
-        Src::new(self, loc)
+    pub fn at_offset(self, offset: usize) -> Self {
+        Self {
+            loc: self.loc.map(|loc| loc.shift_right(offset)),
+            ..self
+        }
     }
 
-    pub(crate) fn into_source_error(self, source: &str, loc: Loc) -> Error {
-        let msg = match self {
-            TypeError::UndefinedReference(ident) => format!("Undefined reference: {ident}"),
-            TypeError::UndefinedMethod {
+    pub(crate) fn into_source_error(self, source: &str) -> Error {
+        let msg = match self.kind {
+            TypeErrorKind::UndefinedReference(ident) => format!("Undefined reference: {ident}"),
+            TypeErrorKind::UndefinedMethod {
                 type_name,
                 method_name,
             } => format!("Method not found: '{method_name}' for {type_name}"),
-            TypeError::UndefinedVariant {
+            TypeErrorKind::UndefinedVariant {
                 type_name,
                 variant_name,
             } => format!("Variant not found: {variant_name} in {type_name}"),
-            TypeError::UndefinedAttribute { subject, attr_name } => {
+            TypeErrorKind::UndefinedAttribute { subject, attr_name } => {
                 format!("Attribute not found: {attr_name} in {subject}")
             }
-            TypeError::InvalidArgumentType { expected, actual } => {
+            TypeErrorKind::InvalidArgumentType { expected, actual } => {
                 format!("Expected '{expected}', found '{actual}'")
             }
-            TypeError::MissingArgument {
+            TypeErrorKind::MissingArgument {
                 name,
                 expected,
                 actual,
@@ -106,45 +126,51 @@ impl TypeError {
                     format!("Missing positional argument: Expected '{expected}', found '{actual}'")
                 }
             }
-            TypeError::UnexpectedArgument { expected, actual } => {
+            TypeErrorKind::UnexpectedArgument { expected, actual } => {
                 format!("Unexpected argument. Expected {expected}, found {actual}")
             }
-            TypeError::MissingDestructureArgument { name, actual } => {
+            TypeErrorKind::MissingDestructureArgument { name, actual } => {
                 if let Some(ident) = name {
                     format!("Missing value for '{ident}': Found '{actual}'")
                 } else {
                     format!("Missing value: Found '{actual}'")
                 }
             }
-            TypeError::UnexpectedDestructureArgument { actual } => {
+            TypeErrorKind::UnexpectedDestructureArgument { actual } => {
                 format!("Too many values found. Found {actual}")
             }
-            TypeError::InvalidReturnType { expected, actual } => {
+            TypeErrorKind::InvalidReturnType { expected, actual } => {
                 if expected.is_identity() {
                     format!("Unexpected return value: Expected no value, found '{actual}'")
                 } else {
                     format!("Incompatible return type: Expected '{expected}', found '{actual}'")
                 }
             }
-            TypeError::MissingReturnStatement => "Missing return statement".into(),
-            TypeError::EmptyList => "List is always empty".into(),
-            TypeError::InvalidExpression => "Expected expression".into(),
-            TypeError::InvalidDestructure(actual) => {
+            TypeErrorKind::MissingReturnStatement => "Missing return statement".into(),
+            TypeErrorKind::EmptyList => "List is always empty".into(),
+            TypeErrorKind::InvalidExpression => "Expected expression".into(),
+            TypeErrorKind::InvalidDestructure(actual) => {
                 format!("Invalid destructure: Expected a tuple, found '{actual}'")
             }
-            TypeError::InvalidIterable(actual) => format!("Expected iterable, found '{actual}'"),
-            TypeError::InvalidOptional(actual) => format!("Expected option type, found '{actual}'"),
-            TypeError::InvalidCallable(actual) => format!("Expected a callable, found '{actual}'"),
-            TypeError::InvalidMapTo(actual) => {
+            TypeErrorKind::InvalidIterable(actual) => {
+                format!("Expected iterable, found '{actual}'")
+            }
+            TypeErrorKind::InvalidOptional(actual) => {
+                format!("Expected option type, found '{actual}'")
+            }
+            TypeErrorKind::InvalidCallable(actual) => {
+                format!("Expected a callable, found '{actual}'")
+            }
+            TypeErrorKind::InvalidMapTo(actual) => {
                 format!("Expected a list of tuples, found '{actual}'")
             }
-            TypeError::TypeNotInferred => "Type can not be inferred".into(),
-            TypeError::TypeAssertionFailed { expected, actual } => {
+            TypeErrorKind::TypeNotInferred => "Type can not be inferred".into(),
+            TypeErrorKind::TypeAssertionFailed { expected, actual } => {
                 format!("Type assertion failed. Expected '{expected}', found '{actual}'")
             }
         };
 
-        Error::new(msg, source, loc)
+        Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
     }
 }
 

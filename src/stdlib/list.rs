@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, TypeError, TypeErrorKind},
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     stdlib::{NativeFunction, NativeMethod},
@@ -189,7 +189,7 @@ impl ListMethod for ListUnzip {
 
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         let Some(tuple_typ) = inner.as_tuple() else {
-            return Err(TypeError::InvalidMapTo(inner.clone()));
+            return Err(TypeError::new(TypeErrorKind::InvalidMapTo(inner.clone())));
         };
 
         let types: Vec<_> = tuple_typ
@@ -276,7 +276,7 @@ impl ListMethod for ListSum {
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         match inner {
             ScriptType::Int => Ok(ScriptType::Int),
-            _ => Err(TypeError::InvalidExpression), // XXX Better type
+            _ => Err(TypeError::new(TypeErrorKind::InvalidExpression)), // XXX Better type
         }
     }
 }
@@ -398,7 +398,7 @@ pub(crate) struct ListMapTo;
 impl ListMethod for ListMapTo {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         let Some(tuple_typ) = inner.as_tuple() else {
-            return Err(TypeError::InvalidMapTo(inner.clone()));
+            return Err(TypeError::new(TypeErrorKind::InvalidMapTo(inner.clone())));
         };
         Ok(TupleType::from_single(ScriptType::Function {
             params: tuple_typ.clone(),

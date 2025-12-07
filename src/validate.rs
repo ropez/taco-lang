@@ -1,7 +1,7 @@
 use std::{collections::HashMap, fmt::Display, result, sync::Arc};
 
 use crate::{
-    error::TypeError,
+    error::{TypeError, TypeErrorKind},
     fmt::fmt_tuple,
     ident::{Ident, global},
     lexer::{Loc, Src},
@@ -12,7 +12,7 @@ use crate::{
     stdlib::{Methods, NativeFunctionRef, NativeMethodRef, parse::ParseFunc},
 };
 
-type Result<T> = result::Result<T, Src<TypeError>>;
+type Result<T> = result::Result<T, TypeError>;
 
 #[derive(Debug, Clone)]
 pub enum ScriptType {
@@ -160,7 +160,7 @@ impl ScriptType {
                 let ret = method.return_type(subject_typ)?;
                 Ok((params.clone(), ret))
             }
-            _ => Err(TypeError::InvalidCallable(self.clone())),
+            _ => Err(TypeError::new(TypeErrorKind::InvalidCallable(self.clone()))),
         }
     }
 
@@ -559,7 +559,7 @@ impl Validator {
 
                     match iterable_typ {
                         ScriptType::EmptyList => {
-                            return Err(TypeError::EmptyList.at(iterable.loc));
+                            return Err(TypeError::new(TypeErrorKind::EmptyList).at(iterable.loc));
                         }
                         ScriptType::List(inner) => {
                             let mut inner_scope = scope.clone();
@@ -572,7 +572,10 @@ impl Validator {
                             self.validate_block(body, inner_scope)?;
                         }
                         _ => {
-                            return Err(TypeError::InvalidIterable(iterable_typ).at(iterable.loc));
+                            return Err(TypeError::new(TypeErrorKind::InvalidIterable(
+                                iterable_typ,
+                            ))
+                            .at(iterable.loc));
                         }
                     }
                 }
@@ -583,10 +586,10 @@ impl Validator {
                 } => {
                     let typ = self.validate_expr(cond, &scope)?;
                     if !ScriptType::Bool.accepts(&typ) {
-                        return Err(TypeError::InvalidArgumentType {
+                        return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                             expected: ScriptType::Bool,
                             actual: typ.clone(),
-                        }
+                        })
                         .at(cond.loc));
                     }
 
@@ -604,7 +607,9 @@ impl Validator {
                 } => {
                     let opt_typ = self.validate_expr(value, &scope)?;
                     let ScriptType::Opt(typ) = opt_typ else {
-                        return Err(TypeError::InvalidOptional(opt_typ).at(value.loc));
+                        return Err(
+                            TypeError::new(TypeErrorKind::InvalidOptional(opt_typ)).at(value.loc)
+                        );
                     };
 
                     let mut inner_scope = scope.clone();
@@ -623,18 +628,18 @@ impl Validator {
                         let typ = self.validate_expr(expr, &scope)?;
                         match &scope.ret {
                             None => {
-                                return Err(TypeError::InvalidReturnType {
+                                return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
                                     expected: ScriptType::identity(),
                                     actual: typ,
-                                }
+                                })
                                 .at(expr.loc));
                             }
                             Some(r) => {
                                 if !r.accepts(&typ) {
-                                    return Err(TypeError::InvalidReturnType {
+                                    return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
                                         expected: r.clone(),
                                         actual: typ,
-                                    }
+                                    })
                                     .at(expr.loc));
                                 }
                             }
@@ -645,7 +650,8 @@ impl Validator {
                             Some(ScriptType::Opt(_)) => {}
                             Some(_) => {
                                 // XXX Location
-                                return Err(TypeError::MissingReturnStatement.at(Loc::start()));
+                                return Err(TypeError::new(TypeErrorKind::MissingReturnStatement)
+                                    .at(Loc::start()));
                             }
                         }
                     }
@@ -670,16 +676,15 @@ impl Validator {
             Expression::Arguments => Ok(ScriptType::Tuple(scope.arguments.clone())),
             Expression::String(parts) => {
                 for (part, offset) in parts {
-                    let typ = self.validate_expr(part, scope).map_err(|err| {
-                        let loc = err.loc.shift_right(*offset);
-                        Src::new(err.into_inner(), loc)
-                    })?;
+                    let typ = self
+                        .validate_expr(part, scope)
+                        .map_err(|err| err.at_offset(*offset))?;
                     match &typ {
                         ScriptType::Opt(t) => {
-                            return Err(TypeError::InvalidArgumentType {
+                            return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                                 expected: *t.clone(),
                                 actual: typ,
-                            }
+                            })
                             .at(part.loc));
                         }
                         ScriptType::Ext(t) => todo!("Error for printing Ext({})", t.name),
@@ -724,11 +729,14 @@ impl Validator {
                             })
                         }
                         TypeDefinition::EnumDefinition(_) => {
-                            Err(TypeError::InvalidExpression.at(expr.loc))
+                            Err(TypeError::new(TypeErrorKind::InvalidExpression).at(expr.loc))
                         }
                     }
                 } else {
-                    Err(TypeError::UndefinedReference(ident.clone()).at(expr.loc))
+                    Err(
+                        TypeError::new(TypeErrorKind::UndefinedReference(ident.clone()))
+                            .at(expr.loc),
+                    )
                 }
             }
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
@@ -749,10 +757,10 @@ impl Validator {
                                 ret: ret.into(),
                             })
                         }
-                        _ => Err(TypeError::UndefinedMethod {
+                        _ => Err(TypeError::new(TypeErrorKind::UndefinedMethod {
                             type_name: rec_name.clone(),
                             method_name: name.clone(),
-                        }
+                        })
                         .at(expr.loc)),
                     }
                 }
@@ -764,14 +772,16 @@ impl Validator {
                             Ok(ScriptType::EnumVariant(Arc::clone(def), var.name.clone()))
                         }
                     } else {
-                        Err(TypeError::UndefinedVariant {
+                        Err(TypeError::new(TypeErrorKind::UndefinedVariant {
                             type_name: def.name.clone(),
                             variant_name: name.clone(),
-                        }
+                        })
                         .at(expr.loc))
                     }
                 }
-                None => Err(TypeError::UndefinedReference(prefix.clone()).at(expr.loc)),
+                None => Err(
+                    TypeError::new(TypeErrorKind::UndefinedReference(prefix.clone())).at(expr.loc),
+                ),
             },
             Expression::Access { subject, key } => {
                 let subject = self.validate_expr(subject, scope)?;
@@ -787,10 +797,10 @@ impl Validator {
                         subject.into(),
                     ))
                 } else {
-                    Err(TypeError::UndefinedAttribute {
+                    Err(TypeError::new(TypeErrorKind::UndefinedAttribute {
                         subject,
                         attr_name: key.clone(),
-                    }
+                    })
                     .at(expr.loc))
                 }
             }
@@ -804,10 +814,10 @@ impl Validator {
             Expression::Not(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if !ScriptType::Bool.accepts(&typ) {
-                    return Err(TypeError::InvalidArgumentType {
+                    return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                         expected: ScriptType::Bool,
                         actual: typ.clone(),
-                    }
+                    })
                     .at(expr.loc));
                 }
                 Ok(ScriptType::Bool)
@@ -817,10 +827,10 @@ impl Validator {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if !(l.accepts(&r) || r.accepts(&l)) {
-                    return Err(TypeError::InvalidArgumentType {
+                    return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                         expected: l,
                         actual: r,
-                    }
+                    })
                     .at(rhs.loc));
                 }
 
@@ -871,7 +881,9 @@ impl Validator {
                 let inner_typ = self.validate_expr(inner, scope)?;
                 match inner_typ {
                     ScriptType::Opt(inner) => Ok(*inner),
-                    _ => Err(TypeError::InvalidOptional(inner_typ).at(inner.loc)),
+                    _ => {
+                        Err(TypeError::new(TypeErrorKind::InvalidOptional(inner_typ)).at(inner.loc))
+                    }
                 }
             }
             Expression::Call { subject, arguments } => {
@@ -913,10 +925,12 @@ impl Validator {
                                             {
                                                 let actual_typ = actual.value.as_ref();
                                                 if actual_typ.to_string() != expected {
-                                                    return Err(TypeError::TypeAssertionFailed {
-                                                        expected,
-                                                        actual: actual_typ.clone(),
-                                                    }
+                                                    return Err(TypeError::new(
+                                                        TypeErrorKind::TypeAssertionFailed {
+                                                            expected,
+                                                            actual: actual_typ.clone(),
+                                                        },
+                                                    )
                                                     .at(expr.loc));
                                                 }
                                             }
@@ -938,7 +952,7 @@ impl Validator {
                 if let Ok(inferred) = infer_types(ret, &found_types) {
                     Ok(inferred)
                 } else {
-                    Err(TypeError::TypeNotInferred.at(expr.loc))
+                    Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
                 }
             }
         }
@@ -974,10 +988,10 @@ impl Validator {
                 .map(|t| t.loc)
                 .unwrap_or(Loc::start());
             if let Some(ret) = found_ret_type {
-                return Err(TypeError::InvalidReturnType {
+                return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
                     expected: typ.clone(),
                     actual: found_type,
-                }
+                })
                 .at(loc));
             } else {
                 let loc = fun
@@ -985,7 +999,7 @@ impl Validator {
                     .as_ref()
                     .map(|t| t.loc)
                     .unwrap_or(Loc::start());
-                return Err(TypeError::MissingReturnStatement.at(loc));
+                return Err(TypeError::new(TypeErrorKind::MissingReturnStatement).at(loc));
             }
         }
         let ret = match (declared_type, found_type) {
@@ -1050,7 +1064,9 @@ impl Validator {
             }) => {
                 let opt_typ = self.validate_expr(value, &scope)?;
                 let ScriptType::Opt(typ) = opt_typ else {
-                    return Err(TypeError::InvalidOptional(opt_typ).at(value.loc));
+                    return Err(
+                        TypeError::new(TypeErrorKind::InvalidOptional(opt_typ)).at(value.loc)
+                    );
                 };
 
                 let mut inner_scope = scope.clone();
@@ -1209,11 +1225,11 @@ impl Validator {
                 } else if let Some(arg) = positional.next() {
                     self.validate_single_arg(&par.value, arg)?;
                 } else if !par.value.is_optional() {
-                    return Err(TypeError::MissingArgument {
+                    return Err(TypeError::new(TypeErrorKind::MissingArgument {
                         name: Some(name.clone()),
                         expected: formal.clone(),
                         actual: arguments.clone().into_tuple_type(),
-                    }
+                    })
                     .at(arguments.loc));
                 }
             } else if let Some(arg) = positional.next() {
@@ -1240,20 +1256,20 @@ impl Validator {
                     }
                 }
             } else if !par.value.is_optional() {
-                return Err(TypeError::MissingArgument {
+                return Err(TypeError::new(TypeErrorKind::MissingArgument {
                     name: None,
                     expected: formal.clone(),
                     actual: arguments.clone().into_tuple_type(),
-                }
+                })
                 .at(arguments.loc));
             }
         }
 
         if positional.next().is_some() {
-            return Err(TypeError::UnexpectedArgument {
+            return Err(TypeError::new(TypeErrorKind::UnexpectedArgument {
                 expected: formal.clone(),
                 actual: arguments.clone().into_tuple_type(),
-            }
+            })
             .at(arguments.loc));
         }
 
@@ -1262,13 +1278,11 @@ impl Validator {
 
     fn validate_single_arg(&self, formal: &ScriptType, arg: &ArgumentExpressionType) -> Result<()> {
         if !formal.accepts(arg.value.as_ref()) {
-            return Err(Src::new(
-                TypeError::InvalidArgumentType {
-                    expected: formal.clone(),
-                    actual: arg.value.cloned(),
-                },
-                arg.value.loc,
-            ));
+            return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
+                expected: formal.clone(),
+                actual: arg.value.cloned(),
+            })
+            .at(arg.value.loc));
         }
         Ok(())
     }
@@ -1288,7 +1302,10 @@ impl Validator {
                     Some(TypeDefinition::EnumDefinition(def)) => {
                         Ok(ScriptType::Enum(Arc::clone(def)))
                     }
-                    None => Err(TypeError::UndefinedReference(ident.clone()).at(type_expr.loc)),
+                    None => Err(
+                        TypeError::new(TypeErrorKind::UndefinedReference(ident.clone()))
+                            .at(type_expr.loc),
+                    ),
                 },
             },
             TypeExpression::Tuple(params) => {
@@ -1319,10 +1336,10 @@ impl Validator {
                 if t.as_ref().accepts(typ.as_ref()) {
                     typ = t;
                 } else if !typ.as_ref().accepts(t.as_ref()) {
-                    return Err(TypeError::InvalidArgumentType {
+                    return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                         expected: typ.cloned(),
                         actual: t.cloned(),
-                    }
+                    })
                     .at(t.loc));
                 }
             }
@@ -1353,7 +1370,10 @@ impl Validator {
                     self.eval_destruction(pattern, lhs.loc, params, scope)?
                 }
                 _ => {
-                    return Err(TypeError::InvalidDestructure(other.clone()).at(lhs.loc));
+                    return Err(
+                        TypeError::new(TypeErrorKind::InvalidDestructure(other.clone()))
+                            .at(lhs.loc),
+                    );
                 }
             },
         }
@@ -1377,28 +1397,30 @@ impl Validator {
                 } else if let Some(item) = positional.next() {
                     self.eval_assignment(assignee, &item.value, scope)?;
                 } else {
-                    return Err(TypeError::MissingDestructureArgument {
+                    return Err(TypeError::new(TypeErrorKind::MissingDestructureArgument {
                         name: Some(name.clone()),
                         actual: other.clone(),
-                    }
+                    })
                     .at(assignee.loc));
                 }
             } else if let Some(item) = positional.next() {
                 self.eval_assignment(assignee, &item.value, scope)?;
             } else {
-                return Err(TypeError::MissingDestructureArgument {
+                return Err(TypeError::new(TypeErrorKind::MissingDestructureArgument {
                     name: None,
                     actual: other.clone(),
-                }
+                })
                 .at(assignee.loc));
             }
         }
 
         if positional.next().is_some() {
-            return Err(TypeError::UnexpectedDestructureArgument {
-                actual: other.clone(),
-            }
-            .at(loc));
+            return Err(
+                TypeError::new(TypeErrorKind::UnexpectedDestructureArgument {
+                    actual: other.clone(),
+                })
+                .at(loc),
+            );
         }
 
         Ok(())
