@@ -273,8 +273,6 @@ type Result<T> = result::Result<T, ScriptError>;
 
 #[derive(Default, Clone)]
 pub(crate) struct Scope {
-    // XXX Try to remove Arc, so that the scope _owns_ the value
-    // Don't clone the scope, but create something like a stack of scopes?
     locals: HashMap<Ident, ScriptValue>,
 
     // XXX Use some "types" like in validation?

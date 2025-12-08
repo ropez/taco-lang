@@ -35,6 +35,7 @@ impl ScriptValue {
         match self {
             ScriptValue::String(_) => "str".into(),
             ScriptValue::Int(_) => "int".into(),
+            ScriptValue::Boolean(_) => "bool".into(),
             ScriptValue::List(items) => {
                 if let Some(inner) = items.items().first() {
                     format!("[{}]", inner.to_type())
@@ -88,10 +89,10 @@ fn params_to_type(items: &[ParamExpression]) -> String {
 
     let mut items = items.iter();
     if let Some(first) = items.next() {
-        write_tuple_item_2(&mut f, first).unwrap();
+        write_param_expr(&mut f, first).unwrap();
         for val in items {
             write!(f, ", ").unwrap();
-            write_tuple_item_2(&mut f, val).unwrap();
+            write_param_expr(&mut f, val).unwrap();
         }
     }
 
@@ -99,7 +100,7 @@ fn params_to_type(items: &[ParamExpression]) -> String {
     f
 }
 
-fn write_tuple_item_2(f: &mut String, o: &ParamExpression) -> fmt::Result {
+fn write_param_expr(f: &mut String, o: &ParamExpression) -> fmt::Result {
     if let Some(name) = &o.name {
         write!(f, "{name}: ")?;
     }
@@ -119,7 +120,9 @@ fn write_type_expr(f: &mut String, type_expr: &TypeExpression) -> fmt::Result {
             write_type_expr(f, inner.as_ref().as_ref())?;
             write!(f, "?")?;
         }
-        TypeExpression::Tuple(param_expressions) => write!(f, "...")?,
+        TypeExpression::Tuple(params) => {
+            write!(f, "{}", params_to_type(params))?;
+        }
     }
 
     Ok(())
