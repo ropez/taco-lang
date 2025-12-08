@@ -33,10 +33,7 @@ impl NativeMethod for RecordWithMethod {
             }
         }
 
-        Ok(ScriptValue::Rec {
-            def,
-            value
-        })
+        Ok(ScriptValue::Rec { def, value })
     }
 
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {

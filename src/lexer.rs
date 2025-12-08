@@ -111,6 +111,7 @@ pub enum TokenKind {
     In,
     Rec,
     Enum,
+    Assert,
 }
 
 pub type Token = Src<TokenKind>;
@@ -219,6 +220,7 @@ impl<'a> Tokenizer<'a> {
                         "in" => Some(self.produce(TokenKind::In)),
                         "rec" => Some(self.produce(TokenKind::Rec)),
                         "enum" => Some(self.produce(TokenKind::Enum)),
+                        "assert" => Some(self.produce(TokenKind::Assert)),
                         _ => Some(self.produce(TokenKind::Identifier(s))),
                     }
                 }

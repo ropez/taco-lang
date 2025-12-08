@@ -51,6 +51,7 @@ pub enum AstNode {
 
     Expression(Src<Expression>),
     Return(Option<Src<Expression>>),
+    Assert(Src<Expression>),
 }
 
 #[derive(Debug)]
@@ -277,6 +278,10 @@ impl<'a> Parser<'a> {
                         let expr = self.parse_expression(0)?;
                         ast.push(AstNode::Return(Some(expr)));
                     }
+                }
+                TokenKind::Assert => {
+                    let expr = self.parse_expression(0)?;
+                    ast.push(AstNode::Assert(expr));
                 }
                 TokenKind::Identifier(name) => {
                     if self.next_if_kind(&TokenKind::Assign).is_some() {

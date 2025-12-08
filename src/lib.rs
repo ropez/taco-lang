@@ -56,11 +56,10 @@ where
     Ok(())
 }
 
-pub fn run_tests<O>(src: &str, out: O) -> Result<()>
-where
-    O: Write + 'static,
-{
-    let (validator, interpreter) = setup(out);
+pub fn run_tests(src: &str) -> Result<()> {
+    let (mut reader, writer) = pipe().expect("create pipe");
+
+    let (validator, interpreter) = setup(writer);
 
     let tokens = lexer::tokenize(src)?;
     let ast = Parser::new(src, tokens).parse()?;
@@ -77,8 +76,13 @@ where
         if let ScriptValue::ScriptFunction { function, .. } = &value {
             if function.params.is_empty() {
                 eprint!("- {ident}");
-                match interpreter.eval_callable(value, &Tuple::identity()) {
-                    Ok(_) => eprintln!("\x1b[32m ok\x1b[0m"),
+
+                let eval_result = interpreter.eval_callable(value, &Tuple::identity());
+                // XXX Read and display output for each test
+                match eval_result {
+                    Ok(_) => {
+                        eprintln!("\x1b[32m ok\x1b[0m");
+                    }
                     Err(err) => {
                         eprintln!("\x1b[32m failed\x1b[0m");
                         eprintln!("{}", err.into_source_error(src));
@@ -88,6 +92,17 @@ where
                 eprintln!("Unexpected arguments");
             }
         }
+    }
+
+    drop(interpreter);
+    drop(validator);
+
+    let mut buf = String::new();
+    reader.read_to_string(&mut buf).unwrap();
+    if !buf.is_empty() {
+        eprintln!();
+        eprintln!("=== Captured output (all tests) ===");
+        eprintln!("{buf}");
     }
 
     Ok(())

@@ -7,7 +7,7 @@ use std::{
 };
 
 use crate::{
-    error::ScriptError,
+    error::{ScriptError, ScriptErrorKind},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::{Ident, global},
     lexer::Src,
@@ -74,6 +74,13 @@ impl ScriptValue {
         match self {
             Self::Int(num) => *num,
             _ => panic!("Expected integer, found {self}"),
+        }
+    }
+
+    pub fn as_boolean(&self) -> bool {
+        match self {
+            Self::Boolean(b) => *b,
+            _ => panic!("Expected bool, found {self}"),
         }
     }
 
@@ -460,6 +467,15 @@ impl Interpreter {
                         return Ok(Completion::ExplicitReturn(val));
                     } else {
                         return Ok(Completion::ExplicitReturn(ScriptValue::None));
+                    }
+                }
+                AstNode::Assert(expr) => {
+                    let val = self.eval_expr(expr, &scope)?;
+                    if !val.as_boolean() {
+                        return Err(ScriptError::new(ScriptErrorKind::AssertionFailed(
+                            "TODO".into(),
+                        ))
+                        .at(expr.loc));
                     }
                 }
             }

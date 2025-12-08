@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     Builder,
-    error::{ScriptError, ScriptErrorKind},
+    error::ScriptError,
     interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
@@ -30,8 +30,6 @@ where
             newline: true,
         },
     );
-
-    builder.add_function("assert", AssertFunc);
 }
 
 struct PrintFunc<O>
@@ -57,25 +55,8 @@ where
             if self.newline {
                 writeln!(out).unwrap();
             }
+            out.flush().unwrap();
         }
         Ok(ScriptValue::identity())
-    }
-}
-
-// XXX Later must be a build-in concept that prints the expression used
-struct AssertFunc;
-impl NativeFunction for AssertFunc {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Bool)
-    }
-
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        if let ScriptValue::Boolean(true) = arguments.single() {
-            Ok(ScriptValue::identity())
-        } else {
-            Err(ScriptError::new(ScriptErrorKind::AssertionFailed(
-                "TODO".into(),
-            )))
-        }
     }
 }

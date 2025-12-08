@@ -23,7 +23,7 @@ fn main() {
     let src = fs::read_to_string(script).unwrap();
 
     let result = if testing {
-        run_tests(&src, stdout())
+        run_tests(&src)
     } else {
         check_call(&src, stdout())
     };

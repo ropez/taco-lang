@@ -656,6 +656,58 @@ impl Validator {
                         }
                     }
                 }
+                AstNode::Assert(expr) => {
+                    let typ = self.validate_expr(expr, &scope)?;
+                    if !matches!(typ, ScriptType::Bool) {
+                        return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
+                            expected: ScriptType::Bool,
+                            actual: typ,
+                        })
+                        .at(expr.loc));
+                    }
+
+                    if let Expression::Equal(lhs, rhs) = expr.as_ref() {
+                        if let Expression::Call { subject, arguments } = lhs.as_ref().as_ref() {
+                            if let Expression::Ref(f) = subject.as_ref().as_ref()
+                                && f.as_str() == "typeof"
+                            {
+                                let actual = self.eval_call_expr(arguments, &scope)?;
+                                if let CallExpressionType::Inline(i) = actual {
+                                    let actual = i.as_ref().first();
+                                    let expected = match rhs.as_ref().as_ref() {
+                                        Expression::Str(s) => Some(s.to_string()),
+                                        Expression::String(s) => {
+                                            if s.len() == 1
+                                                && let Some(Expression::Str(f)) =
+                                                    s.first().map(|k| k.0.as_ref())
+                                            {
+                                                Some(f.to_string())
+                                            } else {
+                                                None
+                                            }
+                                        }
+                                        _ => None,
+                                    };
+
+                                    if let Some(actual) = actual
+                                        && let Some(expected) = expected
+                                    {
+                                        let actual_typ = actual.value.as_ref();
+                                        if actual_typ.to_string() != expected {
+                                            return Err(TypeError::new(
+                                                TypeErrorKind::TypeAssertionFailed {
+                                                    expected,
+                                                    actual: actual_typ.clone(),
+                                                },
+                                            )
+                                            .at(expr.loc));
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
 
@@ -887,61 +939,6 @@ impl Validator {
                 }
             }
             Expression::Call { subject, arguments } => {
-                if let Expression::Ref(f) = subject.as_ref().as_ref()
-                    && f.as_str() == "assert"
-                {
-                    if let CallExpression::Inline(inline) = arguments.as_ref() {
-                        let args = inline.as_ref();
-                        if args.len() == 1
-                            && let Some(first) = args.first()
-                        {
-                            if let Expression::Equal(lhs, rhs) = first.expr.as_ref() {
-                                if let Expression::Call { subject, arguments } =
-                                    lhs.as_ref().as_ref()
-                                {
-                                    if let Expression::Ref(f) = subject.as_ref().as_ref()
-                                        && f.as_str() == "typeof"
-                                    {
-                                        let actual = self.eval_call_expr(arguments, scope)?;
-                                        if let CallExpressionType::Inline(i) = actual {
-                                            let actual = i.as_ref().first();
-                                            let expected = match rhs.as_ref().as_ref() {
-                                                Expression::Str(s) => Some(s.to_string()),
-                                                Expression::String(s) => {
-                                                    if s.len() == 1
-                                                        && let Some(Expression::Str(f)) =
-                                                            s.first().map(|k| k.0.as_ref())
-                                                    {
-                                                        Some(f.to_string())
-                                                    } else {
-                                                        None
-                                                    }
-                                                }
-                                                _ => None,
-                                            };
-
-                                            if let Some(actual) = actual
-                                                && let Some(expected) = expected
-                                            {
-                                                let actual_typ = actual.value.as_ref();
-                                                if actual_typ.to_string() != expected {
-                                                    return Err(TypeError::new(
-                                                        TypeErrorKind::TypeAssertionFailed {
-                                                            expected,
-                                                            actual: actual_typ.clone(),
-                                                        },
-                                                    )
-                                                    .at(expr.loc));
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-
                 let subject = self.eval_expr(subject, scope)?;
                 let (params, ret) = subject
                     .as_ref()
