@@ -1,0 +1,103 @@
+
+fun test_simple_addition() {
+    assert 10 + 5 == 15
+    (a, b) = (5, 10)
+    assert a + b == 15
+}
+
+fun test_simple_subtraction() {
+    assert 12 - 5 == 7
+    (a, b) = (12, 5)
+    assert a - b == 7
+}
+
+fun test_simple_multiplication() {
+    a = 7
+    assert a * 5 == 35
+}
+
+fun test_simple_division() {
+    a = 15
+    assert a / 5 == 3
+}
+
+fun test_add_and_multiply_precedence() {
+    assert 2 + 3 * 4 == 14
+}
+
+fun test_multiply_and_add_precedence() {
+    assert 2 * 3 + 4 == 10
+}
+
+fun division_with_truncation() {
+    assert 99 / 10 == 9
+}
+
+fun division_by_zero() {
+    # TODO This behavior should be configurable, something like "--checked"
+
+    a = 0
+    assert "${100 / a}" == "NaN"
+}
+
+fun adding_overflow() {
+    # TODO This behavior should be configurable, something like "--checked"
+
+    a = 9000000000000000000
+    b = 9000000000000000000
+    assert "${a + b}" == "NaN"
+}
+
+fun subtracting_overflow() {
+    # TODO This behavior should be configurable, something like "--checked"
+
+    a = 9000000000000000000
+    assert "${0 - a - a}" == "NaN"
+}
+
+fun multiplication_overflow() {
+    # TODO This behavior should be configurable, something like "--checked"
+
+    a = 9000000000
+    b = 9000000000
+    assert "${a * b}" == "NaN"
+}
+
+fun all_operations_with_nan() {
+    nan = 1 / 0
+    assert "${1 + nan}" == "NaN"
+    assert "${nan + 1}" == "NaN"
+    assert "${1 - nan}" == "NaN"
+    assert "${nan - 1}" == "NaN"
+    assert "${1 * nan}" == "NaN"
+    assert "${nan * 1}" == "NaN"
+    assert "${1 / nan}" == "NaN"
+    assert "${nan / 1}" == "NaN"
+}
+
+fun all_comparison_operations() {
+    assert 1 < 1 == false
+    assert 1 < 2 == true
+    assert 1 > 1 == false
+    assert 2 > 1 == true
+    assert 2 <= 1 == false
+    assert 2 <= 2 == true
+    assert 1 >= 2 == false
+    assert 2 >= 2 == true
+}
+
+fun test_comparizone_and_equality_precedence() {
+    assert 1 < 1 + 1 == 1 + 1 > 1 == true
+    assert 1 + 1 > 1 == 1 < 1 + 1 == true
+    assert 1 + 1 <= 1 == 1 >= 1 + 1 == true
+    assert 1 >= 1 + 1 == 1 + 1 <= 1 == true
+}
+
+fun test_negative_numbers() {
+    fun negate(i: int) { -i }
+
+    a = -42
+    assert "${a}" == "-42"
+    assert "${negate(42)}" == "-42"
+    assert "${0 - negate(a)}" == "-42"
+}
