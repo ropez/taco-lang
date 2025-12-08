@@ -189,7 +189,7 @@ fn test_implied_return_wrong_type() {
 #[test]
 fn test_explicit_return_inside_if() {
     let src = r#"
-        enum Color(Green, Blue)
+        enum Color { Green, Blue }
 
         fun select(col: Color): str {
             if col == Color::Green {
@@ -212,7 +212,7 @@ fn test_explicit_return_inside_if() {
 #[test]
 fn test_implicit_return_inside_if_with_explicit_function_type() {
     let src = r#"
-        enum Color(Green, Blue)
+        enum Color { Green, Blue }
 
         fun select(col: Color): str {
             if col == Color::Green {
@@ -235,7 +235,7 @@ fn test_implicit_return_inside_if_with_explicit_function_type() {
 #[test]
 fn test_implicit_return_inside_if_with_inferred_function_type() {
     let src = r#"
-        enum Color(Green, Blue)
+        enum Color { Green, Blue }
 
         fun select(col: Color) {
             if col == Color::Green {
@@ -258,7 +258,7 @@ fn test_implicit_return_inside_if_with_inferred_function_type() {
 #[test]
 fn test_explicit_return_inside_list_iteration() {
     let src = r#"
-        enum Color(Green, Blue)
+        enum Color { Green, Blue }
 
         fun search(colors: [Color]): str {
             for col in colors {
@@ -282,7 +282,7 @@ fn test_explicit_return_inside_list_iteration() {
 #[test]
 fn test_explicit_return_inside_range_iteration() {
     let src = r#"
-        enum Color(Green, Blue)
+        enum Color { Green, Blue }
 
         fun search(r: int): str {
             for i in 0..100 {

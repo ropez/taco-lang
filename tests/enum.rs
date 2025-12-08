@@ -3,11 +3,11 @@ use taco::check_output;
 #[test]
 fn test_simple_enum() {
     let src = r#"
-        enum Hero(
+        enum Hero {
             Fred
             Wilma
             Barney
-        )
+        }
 
         hero = Hero::Fred
 
@@ -24,11 +24,11 @@ fn test_simple_enum() {
 #[test]
 fn test_comparison() {
     let src = r#"
-        enum Hero(
+        enum Hero {
             Fred
             Wilma
             Barney
-        )
+        }
 
         hero = Hero::Fred
 
@@ -46,8 +46,8 @@ fn test_comparison() {
 #[test]
 fn test_comparison_not_allowed_for_different_enums() {
     let src = r#"
-        enum Hero (Fred, Barney)
-        enum Villain(Vandercave, Butterbean)
+        enum Hero { Fred, Barney }
+        enum Villain { Vandercave, Butterbean }
 
         if Hero::Fred != Villain::Butterbean {
             print("poop")
@@ -64,24 +64,53 @@ fn test_comparison_not_allowed_for_different_enums() {
 }
 
 #[test]
-fn test_enum_with_value() {
+fn test_enum_with_value_x() {
     let src = r#"
-        enum Country (
+        enum Country {
             Spain
             France
             Italy
-        )
+        }
 
-        enum City (
+        enum City {
             Paris
             London
             Madrid
-        )
+        }
 
-        enum VacationPlan (
+        enum VacationPlan {
             StayAtHome
             TravelTo(Country, City)
-        )
+        }
+
+        print(typeof(VacationPlan::TravelTo))
+    "#;
+
+    match check_output(src) {
+        Ok(out) => assert_eq!("fun(Country, City): VacationPlan", out),
+        Err(err) => panic!("{err}"),
+    };
+}
+
+#[test]
+fn test_enum_with_value() {
+    let src = r#"
+        enum Country {
+            Spain
+            France
+            Italy
+        }
+
+        enum City {
+            Paris
+            London
+            Madrid
+        }
+
+        enum VacationPlan {
+            StayAtHome
+            TravelTo(Country, City)
+        }
 
         assert(typeof(VacationPlan::StayAtHome) == "VacationPlan")
         assert(typeof(VacationPlan::TravelTo) == "fun(Country, City): VacationPlan")
@@ -99,16 +128,16 @@ fn test_enum_with_value() {
 #[test]
 fn fails_for_missing_value() {
     let src = r#"
-        enum City (
+        enum City {
             Paris
             London
             Madrid
-        )
+        }
 
-        enum VacationPlan (
+        enum VacationPlan {
             StayAtHome
             TravelTo(City)
-        )
+        }
 
         fun foo(plan: VacationPlan) {
             print("$plan")
@@ -129,16 +158,16 @@ fn fails_for_missing_value() {
 #[test]
 fn fails_for_unexpected_call() {
     let src = r#"
-        enum City (
+        enum City {
             Paris
             London
             Madrid
-        )
+        }
 
-        enum VacationPlan (
+        enum VacationPlan {
             StayAtHome
             TravelTo(City)
-        )
+        }
 
         fun foo(plan: VacationPlan) {
             print("$plan")
@@ -156,10 +185,10 @@ fn fails_for_unexpected_call() {
 #[test]
 fn test_apply_arguments_from_tuple() {
     let src = r#"
-        enum Receiver(
+        enum Receiver {
             Person(name: str, age: int)
             Group(name: str)
-        )
+        }
 
         args = ("per", 42)
         per = Receiver::Person(=args)
@@ -176,10 +205,10 @@ fn test_apply_arguments_from_tuple() {
 #[test]
 fn test_pass_variant_as_function() {
     let src = r#"
-        enum Receiver(
+        enum Receiver {
             Person(name: str, age: int)
             Group(name: str)
-        )
+        }
 
         args = [
             ("per", 42)
@@ -203,10 +232,10 @@ fn test_pass_variant_as_function() {
 #[test]
 fn test_apply_params() {
     let src = r#"
-        enum Enum(
+        enum Enum {
             Bar
             Foo(a: int, b: int, c: int, d: int)
-        )
+        }
 
         fun dump(foo: Enum) {
             println("$foo")

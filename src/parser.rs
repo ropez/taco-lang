@@ -407,9 +407,9 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Enum => {
                     let (name, _) = self.expect_ident()?;
-                    self.expect_kind(TokenKind::LeftParen)?;
+                    self.expect_kind(TokenKind::LeftBrace)?;
                     let variants = self.parse_variants()?;
-                    self.expect_kind(TokenKind::RightParen)?;
+                    self.expect_kind(TokenKind::RightBrace)?;
 
                     let rec = Arc::new(Enumeration { name, variants });
                     ast.push(AstNode::Enum(rec));
@@ -815,7 +815,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_variants(&mut self) -> Result<Vec<Variant>> {
-        self.parse_list(TokenKind::RightParen, |p| {
+        self.parse_list(TokenKind::RightBrace, |p| {
             let (name, _) = p.expect_ident()?;
 
             if p.next_if_kind(&TokenKind::LeftParen).is_some() {
