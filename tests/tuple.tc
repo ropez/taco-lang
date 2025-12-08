@@ -1,0 +1,140 @@
+
+fun test_simple_tuple() {
+    tuple = ("apple", 50)
+
+    (fruit, amount) = tuple
+
+    assert fruit == "apple"
+    assert amount == 50
+}
+
+fun test_tuple_type() {
+    enum Recipient {
+        Person(name: (str, valid: bool))
+    }
+    tuple = ("apple", (50, false), Recipient::Person)
+
+    assert typeof(tuple) == "(str, (int, bool), fun(name: (str, valid: bool)): Recipient)"
+}
+
+fun test_tuple_as_function_argument() {
+    fun show(arg: (str, int)): str {
+        (fruit, amount) = arg
+        return "$fruit -- $amount"
+    }
+
+    assert show(("banana", 99)) == "banana -- 99"
+}
+
+fun test_three_tuple_as_function_argument() {
+    fun show(arg: (str, int, bool)): str {
+        (fruit, amount, ok) = arg
+        return "$fruit -- $amount -- $ok"
+    }
+
+    assert show(("banana", 99, false)) == "banana -- 99 -- false"
+}
+
+fun test_named_tuple_as_function_argument() {
+    fun show(arg: (a: int, b: int, c: int)): str {
+        return "$arg"
+    }
+
+    assert show(arg: (1, 2, 3)) == "(a: 1, b: 2, c: 3)"
+}
+
+fun test_call_with_named_tuple_args() {
+    fun show(arg: (a: int, b: int, c: int)): str {
+        (a, b, c) = arg
+        return "$a $b $c"
+    }
+
+    assert show((1, c: 3, b: 2)) == "1 2 3"
+}
+
+fun test_destructure_discard_value() {
+    (_, fruit, _) = (99, "banana", false)
+    assert fruit == "banana"
+}
+
+fun test_named_tuple() {
+    pos = (lat: 23, lon: 69)
+    (lat, lon) = pos
+
+    assert (lat, lon) == (23, 69)
+}
+
+fun test_named_tuple_access() {
+    pos = (lat: 23, lon: 69)
+
+    assert pos.lat == 23
+    assert pos.lon == 69
+}
+
+fun test_named_tuple_destruction() {
+    fun foo(tup: (name: str, age: int)): str {
+        (name, age) = tup
+        return "name: $name, age: $age"
+    }
+
+    tup = (age: 25, name: "Erling")
+    assert foo(tup) == "name: Erling, age: 25"
+}
+
+fun test_type_checking_formal_to_formal() {
+    fun foo(tup: (str, name: str, age: int, more: str)): str {
+        (_, name) = tup
+        return name
+    }
+
+    fun bar(tup: (str, str, age: int, str)): str {
+        foo(tup)
+    }
+
+    assert bar(("", "ok", 42, "")) == "ok"
+}
+
+fun test_named_destruction_patterns() {
+    expect = (1, 2, 3, 4)
+
+    (a, b, c, d) = (1, 2, 3, 4)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (1, 2, 3, d: 4)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (1, 2, d: 4, c: 3)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (1, d: 4, c: 3, b: 2)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (c: 3, d: 4, a: 1, b: 2)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (b: 2, c: 3, d: 4, 1)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (b: 2, 1, c: 3, d: 4)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (d: 4, 1, c: 3, 2)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (1, d: 4, 2, 3)
+    assert (a, b, c, d) == expect
+    (a, b, c, d) = (1, c: 3, 2, 4)
+    assert (a, b, c, d) == expect
+}
+
+fun test_nested_destruction() {
+    expect = (1, 2, 3, 4)
+
+    (a, (b, (c, d))) = (1, (2, (3, 4)))
+    assert (a, b, c, d) == expect
+    ((a, b), (c, d)) = ((1, 2), (3, 4))
+    assert (a, b, c, d) == expect
+    ((a, (b, (c, d)))) = ((1, (2, (3, 4))))
+    assert (a, b, c, d) == expect
+}
+
+fun test_nested_named_destruction() {
+    (foo, bar) = (foo: (1, 2), bar: (3, 4))
+    assert foo == (1, 2)
+    assert bar == (3, 4)
+
+    (foo: (a, b), bar: (c, d)) = (foo: (1, 2), bar: (3, 4))
+    assert (a, b, c, d) == (1, 2, 3, 4)
+}
