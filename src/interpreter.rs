@@ -470,18 +470,56 @@ impl Interpreter {
                     }
                 }
                 AstNode::Assert(expr) => {
-                    let val = self.eval_expr(expr, &scope)?;
-                    if !val.as_boolean() {
-                        return Err(ScriptError::new(ScriptErrorKind::AssertionFailed(
-                            "TODO".into(),
-                        ))
-                        .at(expr.loc));
-                    }
+                    self.eval_assert_expr(expr, &scope)?;
                 }
             }
         }
 
         Ok(Completion::EndOfBlock(scope))
+    }
+
+    fn eval_assert_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<()> {
+        match expr.as_ref() {
+            Expression::Equal(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope)?;
+                let rhs = self.eval_expr(rhs, scope)?;
+
+                // TODO Smart handling of complex type equality (which list item is different etc)
+
+                if lhs.eq(&rhs) {
+                    Ok(())
+                } else {
+                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
+                        "\n        + {lhs} == {rhs}"
+                    )))
+                    .at(expr.loc))
+                }
+            }
+            Expression::NotEqual(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope)?;
+                let rhs = self.eval_expr(rhs, scope)?;
+
+                if !lhs.eq(&rhs) {
+                    Ok(())
+                } else {
+                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
+                        "\n        + {lhs} != {rhs}"
+                    )))
+                    .at(expr.loc))
+                }
+            }
+            _ => {
+                let val = self.eval_expr(expr, scope)?;
+                if val.as_boolean() {
+                    Ok(())
+                } else {
+                    Err(
+                        ScriptError::new(ScriptErrorKind::AssertionFailed("".into()))
+                            .at(expr.loc),
+                    )
+                }
+            }
+        }
     }
 
     fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptValue> {
