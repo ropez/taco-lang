@@ -38,7 +38,7 @@ pub fn check_output(src: &str) -> Result<String> {
 
 pub fn check_call<O>(src: &str, out: O) -> Result<()>
 where
-    O: Write + 'static,
+    O: Write + Send + Sync + 'static,
 {
     let (validator, interpreter) = setup(out);
 
@@ -110,7 +110,7 @@ pub fn run_tests(src: &str) -> Result<()> {
 
 fn setup<O>(out: O) -> (Validator, Interpreter)
 where
-    O: Write + 'static,
+    O: Write + Send + Sync + 'static,
 {
     let out = Arc::new(Mutex::new(out));
 
@@ -147,7 +147,7 @@ struct Builder {
 impl Builder {
     pub fn add_function<T>(&mut self, name: impl Into<Ident>, func: T)
     where
-        T: NativeFunction + 'static,
+        T: NativeFunction + Send + Sync + 'static,
     {
         self.functions
             .insert(name.into(), NativeFunctionRef::from(func));
@@ -155,7 +155,7 @@ impl Builder {
 
     pub fn add_method<T>(&mut self, ns: impl Into<Ident>, name: impl Into<Ident>, method: T)
     where
-        T: NativeMethod + 'static,
+        T: NativeMethod + Send + Sync + 'static,
     {
         self.methods
             .insert((ns.into(), name.into()), NativeMethodRef::from(method));

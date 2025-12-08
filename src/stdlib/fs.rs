@@ -1,4 +1,4 @@
-use std::{fmt::Write, fs};
+use std::fs;
 
 use crate::{
     Builder,

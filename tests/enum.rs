@@ -76,4 +76,3 @@ fn fails_for_unexpected_call() {
         Err(err) => assert_eq!(err.message, "Expected a callable, found 'VacationPlan'"),
     };
 }
-

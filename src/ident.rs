@@ -1,7 +1,7 @@
-use std::{fmt::Display, rc::Rc};
+use std::{fmt::Display, sync::Arc};
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
-pub struct Ident(Rc<str>);
+pub struct Ident(Arc<str>);
 
 impl From<&str> for Ident {
     fn from(value: &str) -> Self {

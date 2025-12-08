@@ -1,7 +1,6 @@
 use std::{
     collections::HashMap,
     fmt::{self, Display, Formatter, Write as _},
-    rc::Rc,
     result,
     sync::Arc,
 };
@@ -111,6 +110,7 @@ impl PartialEq for ScriptValue {
             (Self::String(l), Self::String(r)) => l == r,
             (Self::Boolean(l), Self::Boolean(r)) => l == r,
             (Self::Int(l), Self::Int(r)) => l == r,
+            (Self::Tuple(l), Self::Tuple(r)) => l == r,
             (
                 Self::Enum {
                     def: dl,
@@ -255,12 +255,12 @@ pub enum Completion {
 
 #[derive(Debug, Clone)]
 pub struct External {
-    pub(crate) typ: Rc<ExternalType>,
-    pub(crate) value: Rc<dyn ExternalValue>,
+    pub(crate) typ: Arc<ExternalType>,
+    pub(crate) value: Arc<dyn ExternalValue + Send + Sync>,
 }
 
 impl External {
-    pub fn new(typ: Rc<ExternalType>, value: Rc<dyn ExternalValue>) -> Self {
+    pub fn new(typ: Arc<ExternalType>, value: Arc<dyn ExternalValue + Send + Sync>) -> Self {
         Self { typ, value }
     }
 
@@ -513,10 +513,7 @@ impl Interpreter {
                 if val.as_boolean() {
                     Ok(())
                 } else {
-                    Err(
-                        ScriptError::new(ScriptErrorKind::AssertionFailed("".into()))
-                            .at(expr.loc),
-                    )
+                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed("".into())).at(expr.loc))
                 }
             }
         }

@@ -1,4 +1,7 @@
-use std::{any::Any, cell::RefCell, rc::Rc, sync::Arc};
+use std::{
+    any::Any,
+    sync::{Arc, RwLock},
+};
 
 use crate::{
     Builder,
@@ -13,29 +16,29 @@ pub fn build(builder: &mut Builder) {
 }
 
 struct StateValue {
-    inner: RefCell<ScriptValue>,
+    inner: RwLock<ScriptValue>,
 }
 
 impl StateValue {
     fn new(inner: ScriptValue) -> Self {
         Self {
-            inner: RefCell::new(inner),
+            inner: RwLock::new(inner),
         }
     }
 
     fn get(&self) -> ScriptValue {
-        self.inner.borrow().clone()
+        self.inner.read().unwrap().clone()
     }
 
     fn set(&self, value: ScriptValue) {
-        *self.inner.borrow_mut() = value;
+        *self.inner.write().unwrap() = value;
     }
 
     fn update(
         &self,
         f: impl FnOnce(&ScriptValue) -> Result<ScriptValue, ScriptError>,
     ) -> Result<(), ScriptError> {
-        let mut val = self.inner.borrow_mut();
+        let mut val = self.inner.write().unwrap();
         *val = f(&val)?;
         Ok(())
     }
@@ -77,7 +80,7 @@ impl NativeFunction for MakeState {
         let arg = arguments.single();
         let value = StateValue::new(arg.clone());
         let typ = ExternalType::new("State", self.methods.clone());
-        let ext = External::new(Rc::new(typ), Rc::new(value));
+        let ext = External::new(Arc::new(typ), Arc::new(value));
         Ok(ScriptValue::Ext(ext))
     }
 }

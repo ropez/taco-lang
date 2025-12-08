@@ -13,7 +13,7 @@ use crate::{
 
 pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)
 where
-    O: io::Write + 'static,
+    O: io::Write + Send + Sync + 'static,
 {
     builder.add_function(
         "print",
@@ -34,7 +34,7 @@ where
 
 struct PrintFunc<O>
 where
-    O: io::Write + 'static,
+    O: io::Write + Send + Sync + 'static,
 {
     out: Arc<Mutex<O>>,
     newline: bool,
@@ -42,7 +42,7 @@ where
 
 impl<O> NativeFunction for PrintFunc<O>
 where
-    O: io::Write + 'static,
+    O: io::Write + Send + Sync + 'static,
 {
     fn arguments_type(&self) -> TupleType {
         TupleType::from_single(ScriptType::Str)

@@ -9,7 +9,7 @@ use crate::{
         ArgumentExpression, Assignee, AstNode, CallExpression, Expression, Function,
         ParamExpression, TypeExpression,
     },
-    stdlib::{Methods, NativeFunctionRef, NativeMethodRef, parse::ParseFunc},
+    stdlib::{Methods, NativeFunctionRef, NativeMethodRef},
 };
 
 type Result<T> = result::Result<T, TypeError>;
@@ -362,7 +362,7 @@ pub struct ExternalType {
 }
 
 impl ExternalType {
-    pub fn new(name: impl Into<Ident>, methods: Arc<Methods>) -> Self {
+    pub(crate) fn new(name: impl Into<Ident>, methods: Arc<Methods>) -> Self {
         Self {
             name: name.into(),
             methods,

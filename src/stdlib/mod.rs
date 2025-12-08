@@ -24,7 +24,7 @@ pub trait ExternalValue {
     fn as_any(&self) -> &dyn Any;
 }
 
-impl fmt::Debug for dyn ExternalValue {
+impl fmt::Debug for dyn ExternalValue + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         todo!()
     }
@@ -66,11 +66,11 @@ pub trait NativeMethod {
 }
 
 #[derive(Clone)]
-pub struct NativeFunctionRef(Arc<dyn NativeFunction>);
+pub struct NativeFunctionRef(Arc<dyn NativeFunction + Send + Sync>);
 
 impl<T> From<T> for NativeFunctionRef
 where
-    T: NativeFunction + 'static,
+    T: NativeFunction + Send + Sync + 'static,
 {
     fn from(func: T) -> Self {
         Self::new(Arc::new(func))
@@ -78,7 +78,7 @@ where
 }
 
 impl NativeFunctionRef {
-    pub(crate) fn new(value: Arc<dyn NativeFunction>) -> Self {
+    pub(crate) fn new(value: Arc<dyn NativeFunction + Send + Sync>) -> Self {
         Self(value)
     }
 }
@@ -104,11 +104,11 @@ impl PartialEq for NativeFunctionRef {
 }
 
 #[derive(Clone)]
-pub struct NativeMethodRef(Arc<dyn NativeMethod>);
+pub struct NativeMethodRef(Arc<dyn NativeMethod + Send + Sync>);
 
 impl<T> From<T> for NativeMethodRef
 where
-    T: NativeMethod + 'static,
+    T: NativeMethod + Send + Sync + 'static,
 {
     fn from(method: T) -> Self {
         Self::new(Arc::new(method))
@@ -116,7 +116,7 @@ where
 }
 
 impl NativeMethodRef {
-    pub(crate) fn new(inner: Arc<dyn NativeMethod>) -> Self {
+    pub(crate) fn new(inner: Arc<dyn NativeMethod + Send + Sync>) -> Self {
         Self(inner)
     }
 }
@@ -147,7 +147,7 @@ pub(crate) struct Methods(HashMap<Ident, NativeMethodRef>);
 impl Methods {
     pub(crate) fn add<T>(&mut self, name: impl Into<Ident>, method: T)
     where
-        T: NativeMethod + 'static,
+        T: NativeMethod + Send + Sync + 'static,
     {
         self.0.insert(name.into(), NativeMethodRef::from(method));
     }
