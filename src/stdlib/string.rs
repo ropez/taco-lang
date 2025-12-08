@@ -21,7 +21,7 @@ impl NativeMethod for StringLength {
     fn call(
         &self,
         _: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {
@@ -42,7 +42,7 @@ impl NativeMethod for StringLines {
     fn call(
         &self,
         _: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {
@@ -67,7 +67,7 @@ impl NativeMethod for StringSplit {
     fn call(
         &self,
         _: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single();
@@ -101,7 +101,7 @@ impl NativeMethod for StringSplitAt {
     fn call(
         &self,
         _: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {

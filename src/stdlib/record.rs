@@ -12,14 +12,15 @@ impl NativeMethod for RecordWithMethod {
     fn call(
         &self,
         _: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let ScriptValue::Rec { def, value } = subject else {
+        let ScriptValue::Rec { def, mut value } = subject else {
             panic!("Not a rec");
         };
 
-        let mut values: Vec<_> = value.items().into();
+        // Clone on write, and get a mutable reference to the items
+        let values = Arc::make_mut(&mut value).mut_items();
 
         // XXX Kind-of works by accedent, because interpreter is not inserting 'None' for
         // optional arguments
@@ -33,8 +34,8 @@ impl NativeMethod for RecordWithMethod {
         }
 
         Ok(ScriptValue::Rec {
-            def: Arc::clone(def),
-            value: Arc::new(Tuple::new(values)),
+            def,
+            value
         })
     }
 

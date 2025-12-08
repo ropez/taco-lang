@@ -49,7 +49,7 @@ impl ListMethod for ListPush {
     fn list_call(
         &self,
         _: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         // This is the Copy on Write feature of the language in play.
@@ -93,7 +93,7 @@ trait ListMethod {
     fn list_call(
         &self,
         interpreter: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError>;
 }
@@ -111,7 +111,7 @@ impl ListMethod for ListFind {
     fn list_call(
         &self,
         _: &Interpreter,
-        list: &List,
+        list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let val = arguments.single();
@@ -133,7 +133,7 @@ impl ListMethod for ListCount {
     fn list_call(
         &self,
         _: &Interpreter,
-        list: &List,
+        list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let val = arguments.single();
@@ -151,7 +151,7 @@ impl ListMethod for ListUnzip {
     fn list_call(
         &self,
         _: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         // TODO These methods should create "stream" or "iterator" instead of just copying the whole list up-front
@@ -256,7 +256,7 @@ impl ListMethod for ListSum {
     fn list_call(
         &self,
         _: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         if subject.items().iter().any(|v| v.is_nan()) {
@@ -286,7 +286,7 @@ impl ListMethod for ListSort {
     fn list_call(
         &self,
         _: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let mut values: Vec<_> = subject.items().iter().map(|val| val.as_int()).collect();
@@ -319,13 +319,13 @@ impl ListMethod for ListMap {
     fn list_call(
         &self,
         interpreter: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single();
+        let callable = arguments.single(); // XXX Maybe we can have owned args here
         let mut mapped = Vec::new();
         for item in subject.items() {
-            let value = interpreter.eval_callable(callable, &item.to_single_argument())?;
+            let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
             mapped.push(value);
         }
         Ok(ScriptValue::List(Arc::new(List::new(mapped))))
@@ -348,13 +348,13 @@ impl ListMethod for ListFilter {
     fn list_call(
         &self,
         interpreter: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
-            let value = interpreter.eval_callable(callable, &item.to_single_argument())?;
+            let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
             if let ScriptValue::Boolean(v) = value
                 && v
             {
@@ -380,7 +380,7 @@ impl ListMethod for ListFlatten {
     fn list_call(
         &self,
         _: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let mut items = Vec::new();
@@ -413,14 +413,14 @@ impl ListMethod for ListMapTo {
     fn list_call(
         &self,
         interpreter: &Interpreter,
-        subject: &List,
+        subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let callable = arguments.single();
         let mut mapped = Vec::new();
         for item in subject.items() {
             let tuple = item.as_tuple().expect("list of tuples");
-            let value = interpreter.eval_callable(callable, &tuple)?;
+            let value = interpreter.eval_callable(callable.clone(), &tuple)?;
             mapped.push(value);
         }
         Ok(ScriptValue::List(Arc::new(List::new(mapped))))
@@ -434,15 +434,15 @@ where
     fn call(
         &self,
         interpreter: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::List(list) = subject {
             self.list_call(interpreter, list, arguments)
         } else if let ScriptValue::Range(l, r) = subject {
             // XXX list_call should have some kind of iterator
-            let list = List::new((*l..=*r).map(ScriptValue::Int).collect());
-            self.list_call(interpreter, &list, arguments)
+            let list = Arc::new(List::new((l..=r).map(ScriptValue::Int).collect()));
+            self.list_call(interpreter, list, arguments)
         } else {
             panic!("Not a list")
         }

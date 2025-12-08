@@ -73,8 +73,8 @@ where
         .execute(&ast)
         .map_err(|err| err.into_source_error(src))?;
 
-    for (ident, value) in &exported {
-        if let ScriptValue::ScriptFunction { function, .. } = value {
+    for (ident, value) in exported {
+        if let ScriptValue::ScriptFunction { function, .. } = &value {
             if function.params.is_empty() {
                 eprint!("- {ident}");
                 match interpreter.eval_callable(value, &Tuple::identity()) {

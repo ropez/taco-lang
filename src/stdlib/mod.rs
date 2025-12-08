@@ -50,7 +50,7 @@ pub trait NativeMethod {
     fn call(
         &self,
         interpreter: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError>;
 

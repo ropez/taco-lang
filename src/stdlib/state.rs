@@ -96,7 +96,7 @@ impl NativeMethod for StateGet {
     fn call(
         &self,
         _: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         Ok(subject.as_state().get())
@@ -124,7 +124,7 @@ impl NativeMethod for StateSet {
     fn call(
         &self,
         _: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let val = arguments.single();
@@ -158,10 +158,10 @@ impl NativeMethod for StateUpdate {
     fn call(
         &self,
         interpreter: &Interpreter,
-        subject: &ScriptValue,
+        subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single();
+        let callable = arguments.single().clone(); // XXX Maybe we can have owned args here
         let state = subject.as_state();
         state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()))?;
         Ok(state.get())

@@ -204,6 +204,10 @@ impl Tuple {
         &self.0
     }
 
+    pub fn mut_items(&mut self) -> &mut Vec<TupleItem> {
+        &mut self.0
+    }
+
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -632,7 +636,7 @@ impl Interpreter {
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
                 let arguments = self.eval_args(arguments, scope)?;
-                self.eval_callable(&subject, &arguments)
+                self.eval_callable(subject, &arguments)
                     .map_err(|err| err.at(expr.loc))?
             }
         };
@@ -685,7 +689,7 @@ impl Interpreter {
 
     pub(crate) fn eval_callable(
         &self,
-        callable: &ScriptValue,
+        callable: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue> {
         let return_value = match callable {
@@ -693,7 +697,7 @@ impl Interpreter {
                 function,
                 captured_scope,
             } => {
-                let mut inner_scope = Scope::clone(captured_scope);
+                let mut inner_scope = Scope::clone(&captured_scope);
                 let values = transform_args(&function.params, arguments);
                 for item in &values.0 {
                     if let Some(name) = &item.name {
@@ -711,18 +715,18 @@ impl Interpreter {
             ScriptValue::Record(rec) => {
                 let values = transform_args(&rec.params, arguments);
                 ScriptValue::Rec {
-                    def: Arc::clone(rec),
+                    def: Arc::clone(&rec),
                     value: Arc::new(values),
                 }
             }
             ScriptValue::EnumVariant { def, index } => {
-                let variant = &def.variants[*index];
+                let variant = &def.variants[index];
                 // XXX Should be non-option
                 let params = variant.params.as_ref().unwrap();
                 let values = transform_args(params, arguments);
                 ScriptValue::Enum {
-                    def: Arc::clone(def),
-                    index: *index,
+                    def: Arc::clone(&def),
+                    index,
                     value: Arc::new(values),
                 }
             }
@@ -731,7 +735,7 @@ impl Interpreter {
             // RecordWith kind-of works by accident for this reason.
             ScriptValue::NativeFunction(func) => func.call(self, arguments)?,
             ScriptValue::NativeMethodBound(method, subject) => {
-                method.call(self, subject, arguments)?
+                method.call(self, *subject, arguments)?
             }
             _ => panic!("Expected a callable, got: {callable:?}"),
         };
