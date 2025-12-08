@@ -1,0 +1,37 @@
+
+fun test_empty_string() {
+    assert "".len() == 0
+}
+
+fun test_interpolation_escape_sequence() {
+    assert "$$foo$$bar".len() == 8
+}
+
+fun test_compact_interpolation() {
+    prefix = "--"
+    fruit = "banana"
+
+    assert "$prefix$fruit$prefix" == "--banana--"
+}
+
+fun test_interpolation_expression() {
+    prefix = "--"
+    fruit = "banana"
+
+    assert "eq: ${fruit == prefix}" == "eq: false"
+}
+
+fun test_interpolation_call() {
+    fun foo(arg: str): str {
+        return "-- $arg"
+    }
+
+    fruit = "apple"
+    assert "call: '${foo(fruit)}'" == "call: '-- apple'"
+}
+
+fun test_variable_names() {
+    foo_bar_123 = "ok"
+
+    assert "$foo_bar_123" == "ok"
+}
