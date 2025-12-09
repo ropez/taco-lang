@@ -77,7 +77,7 @@ impl NativeFunction for MakeState {
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single();
+        let arg = arguments.single()?;
         let value = StateValue::new(arg.clone());
         let typ = ExternalType::new("State", self.methods.clone());
         let ext = External::new(Arc::new(typ), Arc::new(value));
@@ -139,7 +139,7 @@ impl NativeMethod for StateSet {
         subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single();
+        let val = arguments.single()?;
         let state = subject.as_state()?;
         state.set(val.clone());
         Ok(state.get())
@@ -179,7 +179,7 @@ impl NativeMethod for StateUpdate {
         subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single().clone(); // XXX Maybe we can have owned args here
+        let callable = arguments.single()?.clone(); // XXX Maybe we can have owned args here
         let state = subject.as_state()?;
         state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()))?;
         Ok(state.get())

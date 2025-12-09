@@ -68,7 +68,11 @@ impl TestStats {
     }
 
     pub fn error() -> Self {
-        Self { failed: 0, succeeded: 0, errors: 1 }
+        Self {
+            failed: 0,
+            succeeded: 0,
+            errors: 1,
+        }
     }
 }
 

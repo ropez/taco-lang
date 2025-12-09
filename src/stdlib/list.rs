@@ -36,6 +36,10 @@ impl List {
     pub fn items(&self) -> &[ScriptValue] {
         &self.0
     }
+
+    pub fn push(&mut self, item: ScriptValue) {
+        self.0.push(item);
+    }
 }
 
 impl From<List> for ScriptValue {
@@ -49,16 +53,12 @@ impl ListMethod for ListPush {
     fn list_call(
         &self,
         _: &Interpreter,
-        subject: Arc<List>,
+        mut subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        // This is the Copy on Write feature of the language in play.
-        // Can we avoid copy, if we see that the original will not be used again?
-        let mut res = Vec::clone(&subject.0);
-        for arg in arguments.items() {
-            res.push(arg.value.clone());
-        }
-        Ok(List::new(res).into())
+        let arg = arguments.single()?;
+        Arc::make_mut(&mut subject).push(arg.clone());
+        Ok(ScriptValue::List(subject))
     }
 
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
@@ -114,7 +114,7 @@ impl ListMethod for ListFind {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single();
+        let val = arguments.single()?;
         let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, val));
         Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
     }
@@ -136,7 +136,7 @@ impl ListMethod for ListCount {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single();
+        let val = arguments.single()?;
         let count = list
             .items()
             .iter()
@@ -262,13 +262,13 @@ impl ListMethod for ListSum {
         if subject.items().iter().any(|v| v.is_nan()) {
             Ok(ScriptValue::NaN)
         } else {
+            let numbers = subject
+                .items()
+                .iter()
+                .map(|val| val.as_int())
+                .collect::<Result<Vec<_>, ScriptError>>()?;
             Ok(ScriptValue::Int(
-                subject
-                    .items()
-                    .iter()
-                    .map(|val| val.as_int())
-                    .reduce(|n, a| n + a)
-                    .unwrap_or_default(),
+                numbers.into_iter().reduce(|n, a| n + a).unwrap_or_default(),
             ))
         }
     }
@@ -289,7 +289,11 @@ impl ListMethod for ListSort {
         subject: Arc<List>,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let mut values: Vec<_> = subject.items().iter().map(|val| val.as_int()).collect();
+        let mut values: Vec<_> = subject
+            .items()
+            .iter()
+            .map(|val| val.as_int())
+            .collect::<Result<Vec<_>, ScriptError>>()?;
 
         values.sort();
 
@@ -322,7 +326,7 @@ impl ListMethod for ListMap {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single(); // XXX Maybe we can have owned args here
+        let callable = arguments.single()?; // XXX Maybe we can have owned args here
         let mut mapped = Vec::new();
         for item in subject.items() {
             let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
@@ -351,7 +355,7 @@ impl ListMethod for ListFilter {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single();
+        let callable = arguments.single()?;
         let mut mapped = Vec::new();
         for item in subject.items() {
             let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
@@ -419,7 +423,7 @@ impl ListMethod for ListMapTo {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single();
+        let callable = arguments.single()?;
         let mut mapped = Vec::new();
         for item in subject.items() {
             let tuple = item.as_tuple().expect("list of tuples");

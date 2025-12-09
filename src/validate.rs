@@ -906,9 +906,7 @@ impl Validator {
             }
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
-                let (params, ret) = subject
-                    .as_callable()
-                    .map_err(|err| err.at(expr.loc))?;
+                let (params, ret) = subject.as_callable().map_err(|err| err.at(expr.loc))?;
                 let arguments = self.eval_call_expr(arguments, scope)?;
                 let found_types = self.validate_arguments(&params, &arguments, scope)?;
                 if let Ok(inferred) = infer_types(ret, &found_types) {

@@ -69,10 +69,10 @@ impl ScriptValue {
         matches!(self, Self::NaN)
     }
 
-    pub fn as_int(&self) -> i64 {
+    pub fn as_int(&self) -> Result<i64> {
         match self {
-            Self::Int(num) => *num,
-            _ => panic!("Expected integer, found {self}"),
+            Self::Int(num) => Ok(*num),
+            _ => Err(ScriptError::panic("Expected integer, found {self}")),
         }
     }
 
@@ -231,12 +231,12 @@ impl Tuple {
         self.0.get(index).map(|item| &item.value)
     }
 
-    pub fn single(&self) -> &ScriptValue {
+    pub fn single(&self) -> Result<&ScriptValue> {
         self.0
             .iter()
             .find(|i| i.name.is_none())
             .map(|item| &item.value)
-            .expect("Expected argument")
+            .ok_or_else(|| ScriptError::panic("Expected argument"))
     }
 }
 
@@ -640,8 +640,8 @@ impl Interpreter {
                 ScriptValue::Boolean(!lhs.eq(&rhs))
             }
             Expression::Range(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope)?.as_int();
-                let rhs = self.eval_expr(rhs, scope)?.as_int();
+                let lhs = self.eval_expr(lhs, scope)?.as_int()?;
+                let rhs = self.eval_expr(rhs, scope)?.as_int()?;
 
                 ScriptValue::Range(lhs, rhs)
             }
@@ -715,7 +715,7 @@ impl Interpreter {
         if lhs.is_nan() || rhs.is_nan() {
             Ok(ScriptValue::NaN)
         } else {
-            Ok(op(lhs.as_int(), rhs.as_int())
+            Ok(op(lhs.as_int()?, rhs.as_int()?)
                 .map(ScriptValue::Int)
                 .unwrap_or(ScriptValue::NaN))
         }

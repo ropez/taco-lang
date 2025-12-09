@@ -24,7 +24,7 @@ impl NativeFunction for ReadFunc {
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let name = arguments.single();
+        let name = arguments.single()?;
 
         match name {
             ScriptValue::String(name) => match fs::read_to_string(name.as_ref()) {

@@ -26,7 +26,7 @@ impl NativeFunction for JsonFunc {
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let jv = JsonValue::from(arguments.single());
+        let jv = JsonValue::from(arguments.single()?);
         match jv.stringify() {
             Ok(json) => Ok(ScriptValue::String(json.into())),
             Err(err) => Err(ScriptError::panic(err)),

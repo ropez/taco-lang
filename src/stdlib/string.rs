@@ -70,7 +70,7 @@ impl NativeMethod for StringSplit {
         subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single();
+        let arg = arguments.single()?;
         let ScriptValue::String(arg) = arg else {
             panic!("Expected a string");
         };
@@ -105,7 +105,7 @@ impl NativeMethod for StringSplitAt {
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {
-            let arg = arguments.single().as_int() as usize;
+            let arg = arguments.single()?.as_int()? as usize;
             let (l, r) = subject.split_at(arg);
 
             let items = [l, r]
