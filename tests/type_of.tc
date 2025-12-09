@@ -1,0 +1,21 @@
+fun test_simple_type() {
+    s = "Hello"
+    assert typeof(s) == "str"
+}
+
+fun test_complex_type() {
+    s = ("foo", bar: (a: 10, b: [1, 2]), [])
+    assert typeof(s) == "(str, bar: (a: int, b: [int]), [])"
+}
+
+fun test_function_with_return() {
+    fun foo(a: int, b: bool): str? { "foo" }
+
+    assert typeof(foo) == "fun(a: int, b: bool): str?"
+}
+
+fun test_function_without_return() {
+    fun foo(a: int, b: bool) {}
+
+    assert typeof(foo) == "fun(a: int, b: bool): ()"
+}

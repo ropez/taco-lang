@@ -47,6 +47,13 @@ impl ScriptValue {
             ScriptValue::Enum { def, .. } => {
                 format!("{}", def.name)
             }
+            ScriptValue::ScriptFunction { function, .. } => {
+                if let Some(type_expr) = &function.type_expr {
+                    format!("fun{}: {}", params_to_type(&function.params), type_expr_to_str(type_expr))
+                } else {
+                    format!("fun{}: ()", params_to_type(&function.params))
+                }
+            }
             ScriptValue::EnumVariant { def, index } => {
                 let variant = def.variants.get(*index).expect("enum variant exists");
                 let params = variant.params.as_ref().expect("enum variant has params");
@@ -106,6 +113,14 @@ fn write_param_expr(f: &mut String, o: &ParamExpression) -> fmt::Result {
     }
     write_type_expr(f, &o.type_expr)?;
     Ok(())
+}
+
+fn type_expr_to_str(type_expr: &TypeExpression) -> String {
+    let mut s = String::new();
+
+    write_type_expr(&mut s, type_expr).unwrap();
+
+    s
 }
 
 fn write_type_expr(f: &mut String, type_expr: &TypeExpression) -> fmt::Result {
