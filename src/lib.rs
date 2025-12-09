@@ -11,7 +11,6 @@ use crate::{
     parser::Parser,
     stdlib::{
         NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::ListZip,
-        record::RecordWithMethod,
     },
     validate::Validator,
 };
@@ -135,6 +134,7 @@ where
     stdlib::string::build(&mut builder);
     stdlib::math::build(&mut builder);
     stdlib::list::build(&mut builder);
+    stdlib::with::build(&mut builder);
     stdlib::state::build(&mut builder);
     stdlib::print::build(&mut builder, out);
     stdlib::parse::build(&mut builder);
@@ -148,8 +148,6 @@ where
 
     // XXX Namespace for functions (List::zip)
     builder.add_function("List::zip", ListZip);
-
-    builder.add_method(global::REC, "with", RecordWithMethod);
 
     let validator = builder.build_validator();
     let interpreter = builder.build_interpreter();

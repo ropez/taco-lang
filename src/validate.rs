@@ -482,6 +482,7 @@ impl Validator {
             ScriptType::Str => global::STRING.into(),
             ScriptType::Range => global::RANGE.into(),
             ScriptType::Rec { .. } => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
+            ScriptType::Tuple(_) => global::TUPLE.into(),
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
             ScriptType::Ext(ext) => return ext.get_method(name),
             _ => todo!("NS for {subject}"),

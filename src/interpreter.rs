@@ -330,6 +330,7 @@ impl Interpreter {
             ScriptValue::String(_) => global::STRING.into(),
             ScriptValue::Range(_, _) => global::RANGE.into(),
             ScriptValue::List(_) => global::LIST.into(),
+            ScriptValue::Tuple(_) => global::TUPLE.into(),
             ScriptValue::Rec { .. } => global::REC.into(),
             ScriptValue::Ext(ext) => return ext.typ.get_method(name),
             _ => todo!("NS for {subject}"),

@@ -1,0 +1,34 @@
+
+fun test_with_method_for_record() {
+    rec Person(
+        name: str
+        email: str
+    )
+
+    old = Person(
+        email: "foo@bar.com"
+        name: "per"
+    )
+
+    new = old.with(email: "new@email.com")
+
+    assert old.name == "per"
+    assert old.email == "foo@bar.com"
+    assert new.name == "per"
+    assert new.email == "new@email.com"
+}
+
+fun test_with_method_for_tuple() {
+    old = (
+        email: "foo@bar.com"
+        name: "per"
+    )
+
+    new = old.with(email: "new@email.com")
+
+    assert old.name == "per"
+    assert old.email == "foo@bar.com"
+    assert new.name == "per"
+    assert new.email == "new@email.com"
+}
+
