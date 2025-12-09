@@ -12,7 +12,7 @@ use crate::{
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("state", MakeState::new());
+    builder.add_function("State", MakeState::new());
 }
 
 struct StateValue {

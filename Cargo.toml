@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["json"]
+default = ["fs", "json"]
+fs = []
 json = ["dep:tinyjson"]
 
 [dependencies]

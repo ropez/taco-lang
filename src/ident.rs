@@ -9,6 +9,12 @@ impl From<&str> for Ident {
     }
 }
 
+impl From<String> for Ident {
+    fn from(value: String) -> Self {
+        Self(value.into())
+    }
+}
+
 impl Ident {
     pub fn as_str(&self) -> &str {
         self.0.as_ref()
@@ -25,5 +31,6 @@ pub(crate) mod global {
     pub(crate) const REC: &str = "__rec__";
     pub(crate) const LIST: &str = "__list__";
     pub(crate) const RANGE: &str = "__range__";
+    pub(crate) const INT: &str = "__int__";
     pub(crate) const STRING: &str = "__string__";
 }

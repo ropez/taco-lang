@@ -1,0 +1,42 @@
+
+fun test_normal_variables_are_immutable() {
+    a = 10
+
+    if a == 10 {
+        a = a + 5
+        assert a == 15
+    }
+
+    fun foo() {
+        a = 20
+    }
+
+    foo()
+    assert a == 10
+}
+
+fun test_get_and_set_primitive() {
+    a = State(10)
+
+    if a.get() == 10 {
+        a.set(a.get() + 5)
+    }
+
+    assert a.get() == 15
+
+    if 15 == a.get() {
+        a.set(5 + a.get())
+    }
+
+    assert a.get() == 20
+}
+
+fun test_update_primitive() {
+    a = State(10)
+
+    a.update(fun(v: int) { v * 2 })
+    a.update(fun(v: int) { v - 5 })
+
+    assert a.get() == 15
+}
+

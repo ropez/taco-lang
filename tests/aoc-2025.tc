@@ -1,0 +1,55 @@
+fun day1_secret_entrance() {
+    sample = "
+L68
+L30
+R48
+L5
+R60
+L55
+L1
+L99
+R14
+L82
+"
+
+    # The built-in Turn::parse expects inputs separated by whitespace
+    fun normalize_input(s: str): str {
+        (dir, num) = s.split_at(1)
+        return "$dir $num"
+    }
+
+    rec Turn(dir: str, count: int)
+
+    turns = sample.lines().map(normalize_input).map(Turn::parse)
+
+    pos = State(50)
+    seq = turns.map(fun(turn: Turn) {
+        pos.update(fun(pos: int) {
+            if turn.dir == "L" {
+                { pos - turn.count } % 100
+            } else {
+                { pos + turn.count } % 100
+            }
+        })
+    })
+
+    password = seq.count(0)
+
+    assert password == 3
+}
+
+fun day2_gift_shop() {
+    sample = "11-22,95-115,998-1012,1188511880-1188511890,222220-222224,1698522-1698528,446443-446449,38593856-38593862,565653-565659,824824821-824824827,2121212118-2121212124"
+
+    inputs = sample.split(",").map(Range::parse)
+
+    fun is_invalid(id: int): bool {
+        id_str = "$id"
+        (l, r) = id_str.split_at(id_str.len() / 2)
+        return l == r
+    }
+
+    total = inputs.flatten().filter(is_invalid).sum()
+
+    assert total == 1227775554
+}

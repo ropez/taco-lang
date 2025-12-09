@@ -6,7 +6,7 @@ use std::{
 
 use crate::{
     ident::Ident,
-    lexer::{Loc, Src},
+    lexer::Loc,
     validate::{ScriptType, TupleType},
 };
 
@@ -64,7 +64,7 @@ pub enum TypeErrorKind {
     TypeNotInferred,
     MissingReturnStatement,
     EmptyList,
-    TypeAssertionFailed(String)
+    TypeAssertionFailed(String),
 }
 
 // Promote ArgumentError to "Error" below

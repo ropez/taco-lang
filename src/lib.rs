@@ -117,19 +117,21 @@ where
     let mut builder = Builder::default();
 
     stdlib::string::build(&mut builder);
+    stdlib::math::build(&mut builder);
     stdlib::list::build(&mut builder);
     stdlib::state::build(&mut builder);
     stdlib::print::build(&mut builder, out);
     stdlib::parse::build(&mut builder);
+    stdlib::type_of::build(&mut builder);
 
     #[cfg(feature = "json")]
     stdlib::json::build(&mut builder);
 
+    #[cfg(feature = "fs")]
     stdlib::fs::build(&mut builder);
-    stdlib::type_of::build(&mut builder);
 
     // XXX Namespace for functions (List::zip)
-    builder.add_function("zip", ListZip);
+    builder.add_function("List::zip", ListZip);
 
     builder.add_method(global::REC, "with", RecordWithMethod);
 

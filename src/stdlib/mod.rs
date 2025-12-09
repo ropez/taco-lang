@@ -7,18 +7,21 @@ use crate::{
     validate::{ScriptType, TupleType},
 };
 
-pub(crate) mod fs;
 pub(crate) mod list;
 
-#[cfg(feature = "json")]
-pub(crate) mod json;
-
+pub(crate) mod math;
 pub(crate) mod parse;
 pub(crate) mod print;
 pub(crate) mod record;
 pub(crate) mod state;
 pub(crate) mod string;
 pub(crate) mod type_of;
+
+#[cfg(feature = "fs")]
+pub(crate) mod fs;
+
+#[cfg(feature = "json")]
+pub(crate) mod json;
 
 pub trait ExternalValue {
     fn as_any(&self) -> &dyn Any;

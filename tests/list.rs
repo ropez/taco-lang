@@ -229,7 +229,7 @@ fn test_zip_combines_two_lists() {
 
         heroes = [ "fred", "barney" ]
 
-        zipped = zip(fruits, heroes)
+        zipped = List::zip(fruits, heroes)
         print("$zipped")
     "#;
 
@@ -249,7 +249,7 @@ fn test_zip_combines_different_typed_lists() {
             (110, 100)
         ]
 
-        zipped = zip(heroes, score)
+        zipped = List::zip(heroes, score)
         print("$zipped")
     "#;
 
@@ -269,7 +269,7 @@ fn test_zip_infers_type_correctly() {
             (110, 100)
         ]
 
-        zipped = zip(heroes, score)
+        zipped = List::zip(heroes, score)
         print(typeof(zipped))
 
         # static type check:

@@ -11,7 +11,7 @@ use crate::{
 
 pub fn build(builder: &mut Builder) {
     // XXX Should be range::parse
-    builder.add_function("range__parse", ParseRangeFunc);
+    builder.add_function("Range::parse", ParseRangeFunc);
 }
 
 pub(crate) struct ParseFunc {

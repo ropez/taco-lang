@@ -478,6 +478,7 @@ impl Validator {
         name: &Ident,
     ) -> Option<&'a NativeMethodRef> {
         let ns = match subject {
+            ScriptType::Int => global::INT.into(),
             ScriptType::Str => global::STRING.into(),
             ScriptType::Range => global::RANGE.into(),
             ScriptType::Rec { .. } => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
@@ -786,9 +787,17 @@ impl Validator {
                         .at(expr.loc))
                     }
                 }
-                None => Err(
-                    TypeError::new(TypeErrorKind::UndefinedReference(prefix.clone())).at(expr.loc),
-                ),
+                None => {
+                    // XXX Little bit hackish to re-combine the full name like this
+                    let full_ident = format!("{prefix}::{name}").into();
+                    if let Some(value) = scope.locals.get(&full_ident) {
+                        Ok(value.clone())
+                    } else {
+                        Err(
+                            TypeError::new(TypeErrorKind::UndefinedReference(prefix.clone())).at(expr.loc),
+                        )
+                    }
+                },
             },
             Expression::Access { subject, key } => {
                 let subject = self.validate_expr(subject, scope)?;
@@ -1166,10 +1175,7 @@ impl Validator {
 
         for par in formal.0.iter() {
             if let Some(name) = &par.name {
-                if let Some(arg) = arguments
-                    .iter()
-                    .find(|a| a.name.as_ref() == Some(name))
-                {
+                if let Some(arg) = arguments.iter().find(|a| a.name.as_ref() == Some(name)) {
                     self.validate_single_arg(&par.value, arg)?;
                 } else if let Some(arg) = positional.next() {
                     self.validate_single_arg(&par.value, arg)?;

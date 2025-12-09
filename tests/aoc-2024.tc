@@ -1,0 +1,17 @@
+
+fun day1_historian_hysteria() {
+    sample = read("examples/sample.txt")
+
+    rec Input(int, int)
+
+    pairs = sample.lines().map(Input::parse)
+
+    (left, right) = pairs.unzip()
+    (left, right) = (left.sort(), right.sort())
+
+    ordered = List::zip(left, right)
+
+    sum = ordered.map_to(fun(a: int, b: int) { {a - b}.abs() }).sum()
+
+    assert sum == 11
+}

@@ -326,6 +326,7 @@ impl Interpreter {
         name: &Ident,
     ) -> Option<&'a NativeMethodRef> {
         let ns = match subject {
+            ScriptValue::Int(_) => global::INT.into(),
             ScriptValue::String(_) => global::STRING.into(),
             ScriptValue::Range(_, _) => global::RANGE.into(),
             ScriptValue::List(_) => global::LIST.into(),
@@ -589,7 +590,13 @@ impl Interpreter {
                         panic!("Enum variant not found: {name} in {prefix}");
                     }
                 } else {
-                    panic!("Enum not found: {prefix}")
+                    // XXX Little bit hackish to re-combine the full name like this
+                    let full_ident = format!("{prefix}::{name}").into();
+                    if let Some(value) = scope.locals.get(&full_ident) {
+                        value.clone()
+                    } else {
+                        panic!("Enum not found: {prefix}")
+                    }
                 }
             }
             Expression::Access { subject, key } => {
