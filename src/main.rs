@@ -41,7 +41,7 @@ fn main() -> io::Result<()> {
 
             eprintln!();
             if stats.failed == 0 && stats.errors == 0 {
-                eprintln!("All tests passed!");
+                eprintln!("All {} tests passed!", stats.succeeded);
             } else {
                 eprintln!(
                     "Test results: {} succeeded, {} failed, {} errors",
