@@ -1,0 +1,43 @@
+# TODO Equality for Rec
+# Must recursively check that all values support equality, during validation
+# This will be similar to automatically deriging PartialEq in Rust
+
+fun test_parse_unnamed_record() {
+    rec Point(int, int)
+
+    p = Point::parse("100 200")
+
+    assert "$p" == "Point(100, 200)"
+}
+
+fun test_parse_named_record() {
+    rec Point(x: int, y: int)
+
+    p = Point::parse("100 200")
+
+    assert p.x == 100
+    assert p.y == 200
+    assert "$p" == "Point(x: 100, y: 200)"
+}
+
+fun test_parse_list() {
+    rec Point(int, int)
+
+    input = [
+        "100  200"
+        "400  600"
+        "0 0"
+    ]
+
+    points = input.map(Point::parse)
+
+    assert "$points" == "[Point(100, 200), Point(400, 600), Point(0, 0)]"
+}
+
+fun test_parse_str_and_int() {
+    rec Point(a: str, b: int)
+
+    p = Point::parse("L 200")
+
+    assert "$p" == "Point(a: L, b: 200)"
+}
