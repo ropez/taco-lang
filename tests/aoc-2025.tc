@@ -1,26 +1,26 @@
 fun day1_secret_entrance() {
     sample = "
-L68
-L30
-R48
-L5
-R60
-L55
-L1
-L99
-R14
-L82
-"
+        L68
+        L30
+        R48
+        L5
+        R60
+        L55
+        L1
+        L99
+        R14
+        L82
+    "
 
     # The built-in Turn::parse expects inputs separated by whitespace
     fun normalize_input(s: str): str {
-        (dir, num) = s.split_at(1)
+        (dir, num) = s.trim().split_at(1)
         return "$dir $num"
     }
 
     rec Turn(dir: str, count: int)
 
-    turns = sample.lines().map(normalize_input).map(Turn::parse)
+    turns = sample.trim().lines().map(normalize_input).map(Turn::parse)
 
     pos = State(50)
     seq = turns.map(fun(turn: Turn) {
