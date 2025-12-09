@@ -56,7 +56,20 @@ where
     Ok(())
 }
 
-pub fn run_tests(src: &str) -> Result<()> {
+#[derive(Clone, Debug, Default)]
+pub struct TestStats {
+    pub failed: i32,
+    pub succeeded: i32,
+}
+
+impl TestStats {
+    pub fn update(&mut self, other: &Self) {
+        self.failed += other.failed;
+        self.succeeded += other.succeeded;
+    }
+}
+
+pub fn run_tests(src: &str) -> Result<TestStats> {
     let (mut reader, writer) = pipe().expect("create pipe");
 
     let (validator, interpreter) = setup(writer);
@@ -72,20 +85,23 @@ pub fn run_tests(src: &str) -> Result<()> {
         .execute(&ast)
         .map_err(|err| err.into_source_error(src))?;
 
+    let mut stats = TestStats::default();
     for (ident, value) in exported {
         if let ScriptValue::ScriptFunction { function, .. } = &value {
             if function.params.is_empty() {
-                eprint!("- {ident}");
+                eprint!("  {ident}...");
 
                 let eval_result = interpreter.eval_callable(value, &Tuple::identity());
                 // XXX Read and display output for each test
                 match eval_result {
                     Ok(_) => {
-                        eprintln!("\x1b[32m ok\x1b[0m");
+                        eprintln!("\x1b[32m ok \x1b[0m");
+                        stats.succeeded += 1;
                     }
                     Err(err) => {
-                        eprintln!("\x1b[32m failed\x1b[0m");
+                        eprintln!("\x1b[31m failed\x1b[0m");
                         eprintln!("{}", err.into_source_error(src));
+                        stats.failed += 1;
                     }
                 }
             } else {
@@ -105,7 +121,7 @@ pub fn run_tests(src: &str) -> Result<()> {
         eprintln!("{buf}");
     }
 
-    Ok(())
+    Ok(stats)
 }
 
 fn setup<O>(out: O) -> (Validator, Interpreter)

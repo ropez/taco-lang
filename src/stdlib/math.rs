@@ -1,4 +1,11 @@
-use crate::{error::{ScriptError, TypeError}, ident::global, interpreter::{Interpreter, ScriptValue, Tuple}, stdlib::NativeMethod, validate::ScriptType, Builder};
+use crate::{
+    Builder,
+    error::{ScriptError, TypeError},
+    ident::global,
+    interpreter::{Interpreter, ScriptValue, Tuple},
+    stdlib::NativeMethod,
+    validate::ScriptType,
+};
 
 pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::INT, "abs", AbsMethod);

@@ -794,10 +794,11 @@ impl Validator {
                         Ok(value.clone())
                     } else {
                         Err(
-                            TypeError::new(TypeErrorKind::UndefinedReference(prefix.clone())).at(expr.loc),
+                            TypeError::new(TypeErrorKind::UndefinedReference(prefix.clone()))
+                                .at(expr.loc),
                         )
                     }
-                },
+                }
             },
             Expression::Access { subject, key } => {
                 let subject = self.validate_expr(subject, scope)?;
