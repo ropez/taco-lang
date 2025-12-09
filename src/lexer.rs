@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, ops, sync::Arc};
 
 use crate::{
     error::{Error, Result},
@@ -61,6 +61,14 @@ impl<T> Src<T> {
 
 impl<T> AsRef<T> for Src<T> {
     fn as_ref(&self) -> &T {
+        &self.inner
+    }
+}
+
+impl<T> ops::Deref for Src<T> {
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
         &self.inner
     }
 }

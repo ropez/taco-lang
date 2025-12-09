@@ -542,7 +542,6 @@ impl Interpreter {
             }
             Expression::Tuple(s) => {
                 let items = s
-                    .as_ref()
                     .iter()
                     .map(|arg| {
                         let value = self.eval_expr(&arg.expr, scope)?;
@@ -796,7 +795,6 @@ impl Interpreter {
         let tuple = match arguments {
             CallExpression::Inline(arguments) => {
                 let items: Vec<_> = arguments
-                    .as_ref()
                     .iter()
                     .map(|a| {
                         let val = self.eval_expr(&a.expr, scope)?;
@@ -861,7 +859,7 @@ fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
     }
 
     fn transform_value(par: &ParamExpression, arg: &TupleItem) -> ScriptValue {
-        match (par.type_expr.as_ref(), &arg.value) {
+        match (&*par.type_expr, &arg.value) {
             (TypeExpression::Tuple(t), ScriptValue::Tuple(tup)) => {
                 let applied = transform_args(t, tup);
                 ScriptValue::Tuple(Arc::new(applied))
@@ -878,7 +876,6 @@ fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
 }
 
 fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
-    let lhs = lhs.as_ref();
     match (&lhs.name, &lhs.pattern) {
         (None, None) => {}
         (Some(name), None) => scope.set_local(name.clone(), rhs.clone()),
@@ -893,7 +890,7 @@ fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
 fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
     let mut positional = rhs.0.iter().filter(|arg| arg.name.is_none());
     for par in lhs.iter() {
-        if let Some(name) = &par.as_ref().name {
+        if let Some(name) = &par.name {
             if let Some(arg) = rhs.0.iter().find(|a| a.name.as_ref() == Some(name)) {
                 eval_assignment(par, &arg.value, scope);
             } else if let Some(arg) = positional.next() {

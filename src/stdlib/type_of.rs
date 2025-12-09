@@ -104,7 +104,7 @@ fn write_param_expr(f: &mut String, o: &ParamExpression) -> fmt::Result {
     if let Some(name) = &o.name {
         write!(f, "{name}: ")?;
     }
-    write_type_expr(f, o.type_expr.as_ref())?;
+    write_type_expr(f, &o.type_expr)?;
     Ok(())
 }
 
@@ -113,11 +113,11 @@ fn write_type_expr(f: &mut String, type_expr: &TypeExpression) -> fmt::Result {
         TypeExpression::Scalar(ident) => write!(f, "{ident}")?,
         TypeExpression::List(inner) => {
             write!(f, "[")?;
-            write_type_expr(f, inner.as_ref().as_ref())?;
+            write_type_expr(f, inner.as_ref())?;
             write!(f, "]")?;
         }
         TypeExpression::Opt(inner) => {
-            write_type_expr(f, inner.as_ref().as_ref())?;
+            write_type_expr(f, inner.as_ref())?;
             write!(f, "?")?;
         }
         TypeExpression::Tuple(params) => {

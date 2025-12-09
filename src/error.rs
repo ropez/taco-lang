@@ -64,10 +64,7 @@ pub enum TypeErrorKind {
     TypeNotInferred,
     MissingReturnStatement,
     EmptyList,
-    TypeAssertionFailed {
-        expected: String,
-        actual: ScriptType,
-    },
+    TypeAssertionFailed(String)
 }
 
 // Promote ArgumentError to "Error" below
@@ -165,8 +162,8 @@ impl TypeError {
                 format!("Expected a list of tuples, found '{actual}'")
             }
             TypeErrorKind::TypeNotInferred => "Type can not be inferred".into(),
-            TypeErrorKind::TypeAssertionFailed { expected, actual } => {
-                format!("Type assertion failed. Expected '{expected}', found '{actual}'")
+            TypeErrorKind::TypeAssertionFailed(msg) => {
+                format!("Assertion failed during static analysis.\n\t{msg}")
             }
         };
 

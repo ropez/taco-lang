@@ -70,7 +70,7 @@ fn transform_record(def: &Record, value: &Tuple) -> HashMap<String, JsonValue> {
             // It means that the params to the "@json" attribute must be defined somewhere, so that
             // we can validate etc. Probably it should just be a function!
             if let Some(args) = &attr.args {
-                if let Some(f) = args.as_ref().first() {
+                if let Some(f) = args.first() {
                     if let Expression::Str(s) = f.expr.as_ref() {
                         s.to_string()
                     } else if let Expression::String(t) = f.expr.as_ref() {

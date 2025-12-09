@@ -345,12 +345,7 @@ pub enum CallExpressionType {
 
 impl Display for Src<Vec<ArgumentExpressionType>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        fmt_tuple(
-            f,
-            self.as_ref()
-                .iter()
-                .map(|a| (a.name.clone(), a.value.as_ref())),
-        )
+        fmt_tuple(f, self.iter().map(|a| (a.name.clone(), &*a.value)))
     }
 }
 
@@ -445,7 +440,7 @@ impl ReturnType {
     fn into_opt(self) -> Self {
         Self {
             typ: Src::new(
-                ScriptType::Opt(Box::new(ScriptType::clone(self.typ.as_ref()))),
+                ScriptType::Opt(Box::new(ScriptType::clone(&self.typ))),
                 self.typ.loc,
             ),
             ..self
@@ -901,7 +896,6 @@ impl Validator {
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
                 let (params, ret) = subject
-                    .as_ref()
                     .as_callable()
                     .map_err(|err| err.at(expr.loc))?;
                 let arguments = self.eval_call_expr(arguments, scope)?;
@@ -934,7 +928,7 @@ impl Validator {
         let found_ret_type = self.eval_return_type(&fun.body, &inner)?;
         let found_type = found_ret_type
             .as_ref()
-            .map(|r| r.typ.as_ref().clone())
+            .map(|r| ScriptType::clone(&r.typ))
             .unwrap_or(ScriptType::identity());
         if let Some(typ) = &declared_type
             && !typ.accepts(&found_type)
@@ -1118,7 +1112,6 @@ impl Validator {
         scope: &Scope,
     ) -> Result<Src<Vec<ArgumentExpressionType>>> {
         let args = arguments
-            .as_ref()
             .iter()
             .map(|arg| {
                 Ok(ArgumentExpressionType {
@@ -1168,13 +1161,12 @@ impl Validator {
         arguments: &Src<Vec<ArgumentExpressionType>>,
     ) -> Result<HashMap<u16, ScriptType>> {
         // For each formal: If args contain named, take it, else take next unnamed
-        let mut positional = arguments.as_ref().iter().filter(|arg| arg.name.is_none());
+        let mut positional = arguments.iter().filter(|arg| arg.name.is_none());
         let mut found_types = HashMap::new();
 
         for par in formal.0.iter() {
             if let Some(name) = &par.name {
                 if let Some(arg) = arguments
-                    .as_ref()
                     .iter()
                     .find(|a| a.name.as_ref() == Some(name))
                 {
@@ -1234,7 +1226,7 @@ impl Validator {
     }
 
     fn validate_single_arg(&self, formal: &ScriptType, arg: &ArgumentExpressionType) -> Result<()> {
-        if !formal.accepts(arg.value.as_ref()) {
+        if !formal.accepts(&arg.value) {
             return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                 expected: formal.clone(),
                 actual: arg.value.cloned(),
@@ -1290,9 +1282,9 @@ impl Validator {
         if let Some(first) = iter.next() {
             let mut typ = first;
             for t in iter {
-                if t.as_ref().accepts(typ.as_ref()) {
+                if t.accepts(typ) {
                     typ = t;
-                } else if !typ.as_ref().accepts(t.as_ref()) {
+                } else if !typ.accepts(t) {
                     return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                         expected: typ.cloned(),
                         actual: t.cloned(),
@@ -1315,8 +1307,7 @@ impl Validator {
         other: &ScriptType,
         scope: &mut Scope,
     ) -> Result<()> {
-        let assignee = lhs.as_ref();
-        match (&assignee.name, &assignee.pattern) {
+        match (&lhs.name, &lhs.pattern) {
             (None, None) => {}
             (Some(name), None) => scope.set_local(name.clone(), other.clone()),
             (_, Some(pattern)) => match other {
@@ -1348,7 +1339,7 @@ impl Validator {
         let mut positional = other.0.iter().filter(|arg| arg.name.is_none());
 
         for assignee in lhs.iter() {
-            if let Some(name) = &assignee.as_ref().name {
+            if let Some(name) = &assignee.name {
                 if let Some(item) = other.0.iter().find(|a| a.name.as_ref() == Some(name)) {
                     self.eval_assignment(assignee, &item.value, scope)?;
                 } else if let Some(item) = positional.next() {
@@ -1385,46 +1376,58 @@ impl Validator {
 
     fn try_static_assert(&self, expr: &Src<Expression>, scope: &Scope) -> Result<()> {
         if let Expression::Equal(lhs, rhs) = expr.as_ref() {
-            if let Expression::Call { subject, arguments } = lhs.as_ref().as_ref() {
-                if let Expression::Ref(f) = subject.as_ref().as_ref()
-                    && f.as_str() == "typeof"
-                {
-                    let actual = self.eval_call_expr(arguments, scope)?;
-                    if let CallExpressionType::Inline(i) = actual {
-                        let actual = i.as_ref().first();
-                        let expected = match rhs.as_ref().as_ref() {
-                            Expression::Str(s) => Some(s.to_string()),
-                            Expression::String(s) => {
-                                if s.len() == 1
-                                    && let Some(Expression::Str(f)) =
-                                        s.first().map(|k| k.0.as_ref())
-                                {
-                                    Some(f.to_string())
-                                } else {
-                                    None
-                                }
-                            }
-                            _ => None,
-                        };
+            let rhs = self.try_static_eval(rhs.as_ref(), scope)?;
+            let lhs = self.try_static_eval(lhs.as_ref(), scope)?;
 
-                        if let Some(actual) = actual
-                            && let Some(expected) = expected
-                        {
-                            let actual_typ = actual.value.as_ref();
-                            if actual_typ.to_string() != expected {
-                                return Err(TypeError::new(TypeErrorKind::TypeAssertionFailed {
-                                    expected,
-                                    actual: actual_typ.clone(),
-                                })
-                                .at(expr.loc));
-                            }
-                        }
-                    }
-                }
+            if let Some(lhs) = lhs
+                && let Some(rhs) = rhs
+                && lhs != rhs
+            {
+                return Err(TypeError::new(TypeErrorKind::TypeAssertionFailed(format!(
+                    "{lhs} == {rhs}"
+                )))
+                .at(expr.loc));
             }
         }
 
         Ok(())
+    }
+
+    // XXX For general purpose, this should return ScriptValue instead of String
+    fn try_static_eval(&self, expr: &Expression, scope: &Scope) -> Result<Option<String>> {
+        let opt = match expr {
+            Expression::Str(s) => Some(s.to_string()),
+            Expression::String(s) => {
+                if s.len() == 1
+                    && let Some(Expression::Str(f)) = s.first().map(|k| &*k.0)
+                {
+                    Some(f.to_string())
+                } else {
+                    None
+                }
+            }
+            Expression::Call { subject, arguments } => {
+                if let Expression::Ref(f) = subject.as_ref().as_ref()
+                    && f.as_str() == "typeof"
+                {
+                    let actual = self.eval_call_expr(arguments, scope)?;
+                    let CallExpressionType::Inline(inline) = actual else {
+                        return Ok(None);
+                    };
+                    let actual = inline.first();
+                    let Some(actual) = actual else {
+                        return Ok(None);
+                    };
+
+                    Some(actual.value.to_string())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        Ok(opt)
     }
 }
 

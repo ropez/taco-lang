@@ -152,7 +152,7 @@ pub struct ParamExpression {
 
 impl ParamExpression {
     pub(crate) fn is_optional(&self) -> bool {
-        matches!(self.type_expr.as_ref(), TypeExpression::Opt(_))
+        matches!(*self.type_expr, TypeExpression::Opt(_))
     }
 }
 
@@ -697,7 +697,7 @@ impl<'a> Parser<'a> {
             let Some(next) = self.iter.peek() else {
                 return Err(self.fail_at_end("Unexpected end of input"));
             };
-            if *next.as_ref() == until {
+            if **next == until {
                 break;
             }
 
@@ -926,7 +926,7 @@ impl<'a> Parser<'a> {
             let Some(next) = self.iter.peek() else {
                 return Err(self.fail_at_end("Unexpected end of input"));
             };
-            if *next.as_ref() == until {
+            if **next == until {
                 break;
             }
 
@@ -985,7 +985,7 @@ impl<'a> Parser<'a> {
 
     fn expect_kind(&mut self, kind: TokenKind) -> Result<Token> {
         let token = self.expect_token()?;
-        if *token.as_ref() == kind {
+        if *token == kind {
             Ok(token)
         } else {
             Err(self.fail_at(&format!("Expected to find {kind:?} here"), &token))
