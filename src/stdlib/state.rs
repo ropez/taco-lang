@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, TypeError, TypeErrorKind},
     interpreter::{External, Interpreter, ScriptValue, Tuple},
     stdlib::{ExternalValue, Methods, NativeFunction, NativeMethod},
     validate::{ExternalType, ScriptType, TupleType},
@@ -92,7 +92,10 @@ impl NativeMethod for StateGet {
             // XXX downcast to some opague struct instead?
             Ok(ext.inner().unwrap().clone())
         } else {
-            panic!("Not a state")
+            Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                expected: "State".into(),
+                actual: subject.clone(),
+            }))
         }
     }
 
@@ -102,7 +105,7 @@ impl NativeMethod for StateGet {
         subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        Ok(subject.as_state().get())
+        Ok(subject.as_state()?.get())
     }
 }
 
@@ -112,7 +115,10 @@ impl NativeMethod for StateSet {
         if let ScriptType::Ext(ext) = subject {
             Ok(TupleType::from_single(ext.inner().unwrap().clone()))
         } else {
-            panic!("Not a state")
+            Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                expected: "State".into(),
+                actual: subject.clone(),
+            }))
         }
     }
 
@@ -120,7 +126,10 @@ impl NativeMethod for StateSet {
         if let ScriptType::Ext(ext) = subject {
             Ok(ext.inner().unwrap().clone())
         } else {
-            panic!("Not a state")
+            Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                expected: "State".into(),
+                actual: subject.clone(),
+            }))
         }
     }
 
@@ -131,7 +140,7 @@ impl NativeMethod for StateSet {
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let val = arguments.single();
-        let state = subject.as_state();
+        let state = subject.as_state()?;
         state.set(val.clone());
         Ok(state.get())
     }
@@ -146,7 +155,10 @@ impl NativeMethod for StateUpdate {
                 ret: Box::new(ext.inner().unwrap().clone()),
             }))
         } else {
-            panic!("Not a state")
+            Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                expected: "State".into(),
+                actual: subject.clone(),
+            }))
         }
     }
 
@@ -154,7 +166,10 @@ impl NativeMethod for StateUpdate {
         if let ScriptType::Ext(ext) = subject {
             Ok(ext.inner().unwrap().clone())
         } else {
-            panic!("Not a state")
+            Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                expected: "State".into(),
+                actual: subject.clone(),
+            }))
         }
     }
 
@@ -165,22 +180,22 @@ impl NativeMethod for StateUpdate {
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let callable = arguments.single().clone(); // XXX Maybe we can have owned args here
-        let state = subject.as_state();
+        let state = subject.as_state()?;
         state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()))?;
         Ok(state.get())
     }
 }
 
 impl ScriptValue {
-    fn as_state(&self) -> &StateValue {
+    fn as_state(&self) -> Result<&StateValue, ScriptError> {
         if let ScriptValue::Ext(ext) = self {
             if let Some(state) = ext.downcast_ref::<StateValue>() {
-                state
+                Ok(state)
             } else {
-                panic!("Invalid state data");
+                Err(ScriptError::panic("Invalid state data"))
             }
         } else {
-            panic!("Not a state");
+            Err(ScriptError::panic("Not a state"))
         }
     }
 }

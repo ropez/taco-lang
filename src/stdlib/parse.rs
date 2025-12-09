@@ -50,7 +50,7 @@ impl NativeFunction for ParseFunc {
                 value: Arc::new(Tuple::new(values)),
             })
         } else {
-            panic!("Expected string, got {arguments:?}");
+            Err(ScriptError::panic("Expected string, got {arguments:?}"))
         }
     }
 }
@@ -59,20 +59,16 @@ struct ParseRangeFunc;
 impl NativeFunction for ParseRangeFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let Some(ScriptValue::String(s)) = arguments.first() else {
-            panic!("Expected string, got {arguments:?}");
+            return Err(ScriptError::panic("Not a string"));
         };
         if let Some(n) = s.find('-') {
             let (l, r) = s.split_at(n);
-            let l = l
-                .parse()
-                .map_err(|_| ScriptError::new(ScriptErrorKind::unknown("Parse error")))?;
-            let r = r[1..]
-                .parse()
-                .map_err(|_| ScriptError::new(ScriptErrorKind::unknown("Parse error")))?;
+            let l = l.parse().map_err(ScriptError::panic)?;
+            let r = r[1..].parse().map_err(ScriptError::panic)?;
 
             Ok(ScriptValue::Range(l, r))
         } else {
-            panic!("Parse error");
+            Err(ScriptError::panic("Parse error"))
         }
     }
 

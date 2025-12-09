@@ -1,6 +1,6 @@
 
 fun day1_historian_hysteria() {
-    sample = read("examples/sample.txt")
+    sample = File::read_all("examples/sample.txt")
 
     rec Input(int, int)
 

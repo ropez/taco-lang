@@ -12,10 +12,10 @@ pub(crate) mod list;
 pub(crate) mod math;
 pub(crate) mod parse;
 pub(crate) mod print;
-pub(crate) mod with;
 pub(crate) mod state;
 pub(crate) mod string;
 pub(crate) mod type_of;
+pub(crate) mod with;
 
 #[cfg(feature = "fs")]
 pub(crate) mod fs;

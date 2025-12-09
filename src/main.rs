@@ -5,7 +5,7 @@ use std::{
     path::Path,
 };
 
-use taco::{check_call, run_tests, TestStats};
+use taco::{TestStats, check_call, run_tests};
 
 // TODO Command line
 // Try to use subcommands, but default to "run" if no subcommand given.
@@ -29,7 +29,7 @@ fn main() -> io::Result<()> {
 
             Ok(())
         } else {
-            let mut stats = TestStats::default();;
+            let mut stats = TestStats::default();
             for entry in fs::read_dir("tests")? {
                 let path = entry?.path();
                 let s = path.as_os_str().to_str().expect("path to str");
@@ -40,10 +40,13 @@ fn main() -> io::Result<()> {
             }
 
             eprintln!();
-            if stats.failed == 0 {
+            if stats.failed == 0 && stats.errors == 0 {
                 eprintln!("All tests passed!");
             } else {
-                eprintln!("Test results: {} succeeded, {} failed", stats.succeeded, stats.failed);
+                eprintln!(
+                    "Test results: {} succeeded, {} failed, {} errors",
+                    stats.succeeded, stats.failed, stats.errors
+                );
             }
             Ok(())
         }
@@ -70,7 +73,7 @@ where
         Ok(stats) => stats,
         Err(err) => {
             eprintln!("{err}");
-            TestStats::default()
+            TestStats::error()
         }
     }
 }

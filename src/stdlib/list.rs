@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError, TypeErrorKind},
+    error::{ScriptError, ScriptErrorKind, TypeError, TypeErrorKind},
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     stdlib::{NativeFunction, NativeMethod},
@@ -369,12 +369,15 @@ pub(crate) struct ListFlatten;
 impl ListMethod for ListFlatten {
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         // XXX Need something like inner.as_iterable()
-        let typ = match inner {
-            ScriptType::List(i) => ScriptType::clone(i),
-            ScriptType::Range => ScriptType::Int,
-            _ => panic!("Not a list of lists"),
+        let res = match inner {
+            ScriptType::List(i) => Ok(ScriptType::clone(i)),
+            ScriptType::Range => Ok(ScriptType::Int),
+            _ => Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                expected: "list of lists".into(),
+                actual: inner.clone(),
+            })),
         };
-        Ok(ScriptType::list_of(typ))
+        res.map(ScriptType::list_of)
     }
 
     fn list_call(
@@ -444,7 +447,7 @@ where
             let list = Arc::new(List::new((l..=r).map(ScriptValue::Int).collect()));
             self.list_call(interpreter, list, arguments)
         } else {
-            panic!("Not a list")
+            Err(ScriptError::panic("Not a list"))
         }
     }
 
@@ -453,7 +456,9 @@ where
             ScriptType::EmptyList => self.empty_list_arguments_type(),
             ScriptType::List(inner) => self.list_arguments_type(inner),
             ScriptType::Range => self.list_arguments_type(&ScriptType::Int),
-            _ => panic!("Not a list"),
+            _ => Err(TypeError::new(TypeErrorKind::InvalidIterable(
+                subject.clone(),
+            ))),
         }
     }
 
@@ -462,7 +467,9 @@ where
             ScriptType::EmptyList => self.empty_list_return_type(),
             ScriptType::List(inner) => self.list_return_type(inner),
             ScriptType::Range => self.list_return_type(&ScriptType::Int),
-            _ => panic!("Not a list"),
+            _ => Err(TypeError::new(TypeErrorKind::InvalidIterable(
+                subject.clone(),
+            ))),
         }
     }
 }

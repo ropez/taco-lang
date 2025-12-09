@@ -49,7 +49,11 @@ impl ScriptValue {
             }
             ScriptValue::ScriptFunction { function, .. } => {
                 if let Some(type_expr) = &function.type_expr {
-                    format!("fun{}: {}", params_to_type(&function.params), type_expr_to_str(type_expr))
+                    format!(
+                        "fun{}: {}",
+                        params_to_type(&function.params),
+                        type_expr_to_str(type_expr)
+                    )
                 } else {
                     format!("fun{}: ()", params_to_type(&function.params))
                 }

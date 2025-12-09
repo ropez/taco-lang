@@ -32,6 +32,10 @@ pub enum TypeErrorKind {
         subject: ScriptType,
         attr_name: Ident,
     },
+    InvalidArgument {
+        expected: String,
+        actual: ScriptType,
+    },
     InvalidArgumentType {
         expected: ScriptType,
         actual: ScriptType,
@@ -109,6 +113,9 @@ impl TypeError {
             TypeErrorKind::UndefinedAttribute { subject, attr_name } => {
                 format!("Attribute not found: {attr_name} in {subject}")
             }
+            TypeErrorKind::InvalidArgument { expected, actual } => {
+                format!("Expected '{expected}', found '{actual}'")
+            }
             TypeErrorKind::InvalidArgumentType { expected, actual } => {
                 format!("Expected '{expected}', found '{actual}'")
             }
@@ -179,13 +186,20 @@ pub struct ScriptError {
 
 #[derive(Clone)]
 pub enum ScriptErrorKind {
-    UnknownError(String),
+    Panic(String),
     AssertionFailed(String),
 }
 
 impl ScriptError {
     pub fn new(kind: ScriptErrorKind) -> Self {
         Self { kind, loc: None }
+    }
+
+    pub fn panic(error: impl ToString) -> Self {
+        Self {
+            kind: ScriptErrorKind::Panic(error.to_string()),
+            loc: None,
+        }
     }
 
     pub fn at(self, loc: Loc) -> Self {
@@ -198,17 +212,11 @@ impl ScriptError {
 
     pub(crate) fn into_source_error(self, source: &str) -> Error {
         let msg = match self.kind {
-            ScriptErrorKind::UnknownError(msg) => format!("Unknown error: {msg}"),
+            ScriptErrorKind::Panic(error) => format!("Script panicked: {error}"),
             ScriptErrorKind::AssertionFailed(msg) => format!("Assertion failed: {msg}"),
         };
 
         Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
-    }
-}
-
-impl ScriptErrorKind {
-    pub fn unknown(msg: impl Into<String>) -> Self {
-        Self::UnknownError(msg.into())
     }
 }
 

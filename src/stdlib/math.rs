@@ -21,14 +21,14 @@ impl NativeMethod for AbsMethod {
     ) -> Result<ScriptValue, ScriptError> {
         match subject {
             ScriptValue::Int(n) => Ok(ScriptValue::Int(n.abs())),
-            _ => panic!("Not an int"),
+            _ => Err(ScriptError::panic("Not an int")),
         }
     }
 
     fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
         match subject {
             ScriptType::Int => Ok(ScriptType::Int),
-            _ => panic!("Not an int"),
+            _ => Err(TypeError::expected_number(subject.clone())),
         }
     }
 }

@@ -9,9 +9,7 @@ use crate::{
     ident::{Ident, global},
     interpreter::{Interpreter, ScriptValue, Tuple},
     parser::Parser,
-    stdlib::{
-        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::ListZip,
-    },
+    stdlib::{NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::ListZip},
     validate::Validator,
 };
 
@@ -59,12 +57,18 @@ where
 pub struct TestStats {
     pub failed: i32,
     pub succeeded: i32,
+    pub errors: i32,
 }
 
 impl TestStats {
     pub fn update(&mut self, other: &Self) {
         self.failed += other.failed;
         self.succeeded += other.succeeded;
+        self.errors += other.errors;
+    }
+
+    pub fn error() -> Self {
+        Self { failed: 0, succeeded: 0, errors: 1 }
     }
 }
 

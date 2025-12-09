@@ -29,7 +29,7 @@ impl NativeFunction for JsonFunc {
         let jv = JsonValue::from(arguments.single());
         match jv.stringify() {
             Ok(json) => Ok(ScriptValue::String(json.into())),
-            Err(err) => Err(ScriptError::new(ScriptErrorKind::unknown(err.message()))),
+            Err(err) => Err(ScriptError::panic(err)),
         }
     }
 }

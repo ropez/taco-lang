@@ -9,7 +9,7 @@ use crate::{
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("read", ReadFunc);
+    builder.add_function("File::read_all", ReadFunc);
 }
 
 struct ReadFunc;
@@ -29,11 +29,9 @@ impl NativeFunction for ReadFunc {
         match name {
             ScriptValue::String(name) => match fs::read_to_string(name.as_ref()) {
                 Ok(content) => Ok(ScriptValue::String(content.into())),
-                Err(err) => Err(ScriptError::new(ScriptErrorKind::unknown(err.to_string()))),
+                Err(err) => Err(ScriptError::panic(err)),
             },
-            _ => {
-                todo!("Return errors from extensions")
-            }
+            _ => Err(ScriptError::panic("Expected a string")),
         }
     }
 }
