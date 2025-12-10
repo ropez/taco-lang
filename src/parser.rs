@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub enum AstNode {
+pub enum Statement {
     Assignment {
         assignee: Src<Assignee>,
         value: Src<Expression>,
@@ -30,28 +30,30 @@ pub enum AstNode {
     Iteration {
         ident: Ident,
         iterable: Src<Expression>,
-        body: Vec<AstNode>,
+        body: Vec<Statement>,
     },
 
     Condition {
         cond: Src<Expression>,
-        body: Vec<AstNode>,
-        else_body: Option<Vec<AstNode>>,
+        body: Vec<Statement>,
+        else_body: Option<Vec<Statement>>,
     },
 
     IfIn {
         assignee: Src<Assignee>,
         value: Src<Expression>,
-        body: Vec<AstNode>,
-        else_body: Option<Vec<AstNode>>,
+        body: Vec<Statement>,
+        else_body: Option<Vec<Statement>>,
     },
 
     Rec(Arc<Record>),
     Enum(Arc<Enumeration>),
 
-    Expression(Src<Expression>),
     Return(Option<Src<Expression>>),
     Assert(Src<Expression>),
+
+    // Everything else is expressions
+    Expression(Src<Expression>),
 }
 
 #[derive(Debug)]
@@ -134,7 +136,7 @@ pub enum TypeExpression {
 pub struct Function {
     pub(crate) params: Vec<ParamExpression>,
     pub(crate) type_expr: Option<Src<TypeExpression>>,
-    pub(crate) body: Vec<AstNode>,
+    pub(crate) body: Vec<Statement>,
 }
 
 #[derive(Debug)]
@@ -223,7 +225,7 @@ impl<'a> Parser<'a> {
         }
     }
 
-    pub fn parse(&mut self) -> Result<Vec<AstNode>> {
+    pub fn parse(&mut self) -> Result<Vec<Statement>> {
         self.parse_block(true)
     }
 
@@ -237,7 +239,7 @@ impl<'a> Parser<'a> {
         Ok(expr)
     }
 
-    pub fn parse_block(&mut self, root: bool) -> Result<Vec<AstNode>> {
+    pub fn parse_block(&mut self, root: bool) -> Result<Vec<Statement>> {
         let mut ast = Vec::new();
 
         while let Some(token) = self.iter.next() {
@@ -263,60 +265,63 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::LeftBrace)?;
 
                     let body = self.parse_block(false)?;
+                    self.expect_end_of_line()?;
 
                     let fun = Arc::new(Function {
                         body,
                         params,
                         type_expr,
                     });
-                    ast.push(AstNode::Function { name, fun });
+                    ast.push(Statement::Function { name, fun });
                 }
                 TokenKind::Return => {
                     if let Some(TokenKind::NewLine | TokenKind::RightBrace) = self.peek_kind() {
-                        ast.push(AstNode::Return(None));
+                        ast.push(Statement::Return(None));
                     } else {
                         let expr = self.parse_expression(0)?;
-                        ast.push(AstNode::Return(Some(expr)));
+                        self.expect_end_of_line()?;
+                        ast.push(Statement::Return(Some(expr)));
                     }
                 }
                 TokenKind::Assert => {
                     let expr = self.parse_expression(0)?;
-                    ast.push(AstNode::Assert(expr));
+                        self.expect_end_of_line()?;
+                    ast.push(Statement::Assert(expr));
                 }
                 TokenKind::Identifier(name) => {
                     if self.next_if_kind(&TokenKind::Assign).is_some() {
                         let assignee = Assignee::scalar(name.clone());
                         let assignee = Src::new(assignee, token.loc);
                         let value = self.parse_expression(0)?;
-                        ast.push(AstNode::Assignment { assignee, value });
+                        ast.push(Statement::Assignment { assignee, value });
                         self.expect_end_of_line()?;
                     } else {
                         let expr = Src::new(Expression::Ref(name.clone()), token.loc);
                         let expr = self.parse_continuation(expr, 0)?;
-                        ast.push(AstNode::Expression(expr));
+                        ast.push(Statement::Expression(expr));
                     }
                 }
                 TokenKind::Number(num) => {
                     let expr = Src::new(Expression::Int(*num), token.loc);
                     let expr = self.parse_continuation(expr, 0)?;
-                    ast.push(AstNode::Expression(expr));
+                    ast.push(Statement::Expression(expr));
                 }
                 TokenKind::Minus => {
                     let expr = self.parse_expression(constants::BP_NEGATE)?;
                     let loc = wrap_locations(token.loc, expr.loc);
                     let expr = Expression::Negate(expr.into());
-                    ast.push(AstNode::Expression(Src::new(expr, loc)));
+                    ast.push(Statement::Expression(Src::new(expr, loc)));
                 }
                 TokenKind::String(s) => {
                     let expr = self.parse_string(s.as_ref(), token.loc)?;
                     let expr = self.parse_continuation(expr, 0)?;
-                    ast.push(AstNode::Expression(expr));
+                    ast.push(Statement::Expression(expr));
                 }
                 TokenKind::LeftBrace => {
                     let expr = self.parse_expression(0)?;
                     self.expect_kind(TokenKind::RightBrace)?;
                     let expr = self.parse_continuation(expr, 0)?;
-                    ast.push(AstNode::Expression(expr));
+                    ast.push(Statement::Expression(expr));
                 }
                 TokenKind::LeftSquare => {
                     let list = self.parse_expressions(TokenKind::RightSquare)?;
@@ -325,7 +330,7 @@ impl<'a> Parser<'a> {
 
                     let expr = Src::new(Expression::List(list), loc);
                     let expr = self.parse_continuation(expr, 0)?;
-                    ast.push(AstNode::Expression(expr))
+                    ast.push(Statement::Expression(expr))
                 }
                 TokenKind::LeftParen => {
                     if let Some(TokenKind::Assign) = self.peek_after_paren() {
@@ -334,14 +339,14 @@ impl<'a> Parser<'a> {
                         let assignee = self.parse_destructuring_pattern(None, &token)?;
                         self.expect_kind(TokenKind::Assign)?;
                         let value = self.parse_expression(0)?;
-                        ast.push(AstNode::Assignment { assignee, value });
+                        ast.push(Statement::Assignment { assignee, value });
                         self.expect_end_of_line()?;
                     } else {
                         let args = self.parse_args(token.loc)?;
                         let loc = args.loc;
                         let expr = Src::new(Expression::Tuple(args), loc);
                         let expr = self.parse_continuation(expr, 0)?;
-                        ast.push(AstNode::Expression(expr));
+                        ast.push(Statement::Expression(expr));
                     }
                 }
                 TokenKind::If => {
@@ -362,7 +367,9 @@ impl<'a> Parser<'a> {
                             })
                             .transpose()?;
 
-                        ast.push(AstNode::IfIn {
+                        self.expect_end_of_line()?;
+
+                        ast.push(Statement::IfIn {
                             assignee,
                             value,
                             body,
@@ -381,7 +388,7 @@ impl<'a> Parser<'a> {
                             })
                             .transpose()?;
 
-                        ast.push(AstNode::Condition {
+                        ast.push(Statement::Condition {
                             cond,
                             body,
                             else_body,
@@ -395,7 +402,9 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::LeftBrace)?;
                     let body = self.parse_block(false)?;
 
-                    ast.push(AstNode::Iteration {
+                    self.expect_end_of_line()?;
+
+                    ast.push(Statement::Iteration {
                         ident,
                         iterable,
                         body,
@@ -406,18 +415,20 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::LeftParen)?;
                     let params = self.parse_params(TokenKind::RightParen)?;
                     let r = self.expect_kind(TokenKind::RightParen)?;
+                    self.expect_end_of_line()?;
 
                     let rec = Arc::new(Record { name, params });
-                    ast.push(AstNode::Rec(rec));
+                    ast.push(Statement::Rec(rec));
                 }
                 TokenKind::Enum => {
                     let (name, _) = self.expect_ident()?;
                     self.expect_kind(TokenKind::LeftBrace)?;
                     let variants = self.parse_variants()?;
                     self.expect_kind(TokenKind::RightBrace)?;
+                    self.expect_end_of_line()?;
 
                     let rec = Arc::new(Enumeration { name, variants });
-                    ast.push(AstNode::Enum(rec));
+                    ast.push(Statement::Enum(rec));
                 }
                 _ => {
                     return Err(self.fail_at("Unexpected token", &token));

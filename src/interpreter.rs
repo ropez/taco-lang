@@ -11,7 +11,7 @@ use crate::{
     ident::{Ident, global},
     lexer::Src,
     parser::{
-        Assignee, AstNode, CallExpression, Enumeration, Expression, Function, ParamExpression,
+        Assignee, Statement, CallExpression, Enumeration, Expression, Function, ParamExpression,
         Record, TypeExpression,
     },
     stdlib::{ExternalValue, NativeFunctionRef, NativeMethodRef, list::List, parse::ParseFunc},
@@ -338,7 +338,7 @@ impl Interpreter {
         self.methods.get(&(ns, name.clone()))
     }
 
-    pub fn execute(&self, ast: &[AstNode]) -> Result<HashMap<Ident, ScriptValue>> {
+    pub fn execute(&self, ast: &[Statement]) -> Result<HashMap<Ident, ScriptValue>> {
         let mut scope = Scope::default();
         scope.locals.extend(self.globals.clone());
         let end = self.execute_block(ast, scope)?;
@@ -349,27 +349,27 @@ impl Interpreter {
         })
     }
 
-    fn execute_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<Completion> {
+    fn execute_block(&self, ast: &[Statement], mut scope: Scope) -> Result<Completion> {
         for node in ast {
             match node {
-                AstNode::Assignment { assignee, value } => {
+                Statement::Assignment { assignee, value } => {
                     let rhs = self.eval_expr(value, &scope)?;
                     eval_assignment(assignee, &rhs, &mut scope);
                 }
-                AstNode::Function { name, fun, .. } => {
+                Statement::Function { name, fun, .. } => {
                     let fun = ScriptValue::ScriptFunction {
                         function: Arc::clone(fun),
                         captured_scope: Arc::new(scope.clone()),
                     };
                     scope.set_local(name.clone(), fun);
                 }
-                AstNode::Rec(rec) => {
+                Statement::Rec(rec) => {
                     scope.records.insert(rec.name.clone(), Arc::clone(rec));
                 }
-                AstNode::Enum(rec) => {
+                Statement::Enum(rec) => {
                     scope.enums.insert(rec.name.clone(), Arc::clone(rec));
                 }
-                AstNode::Iteration {
+                Statement::Iteration {
                     ident,
                     iterable,
                     body,
@@ -401,7 +401,7 @@ impl Interpreter {
                         _ => panic!("Expected iterable, found: {iterable}"),
                     }
                 }
-                AstNode::IfIn {
+                Statement::IfIn {
                     assignee,
                     value,
                     body,
@@ -429,7 +429,7 @@ impl Interpreter {
                         }
                     }
                 }
-                AstNode::Condition {
+                Statement::Condition {
                     cond,
                     body,
                     else_body,
@@ -453,7 +453,7 @@ impl Interpreter {
                         }
                     }
                 }
-                AstNode::Expression(expr) => {
+                Statement::Expression(expr) => {
                     let val = self.eval_expr(expr, &scope)?;
 
                     // Implied return if and only if the block consist of exactly one expression
@@ -461,7 +461,7 @@ impl Interpreter {
                         return Ok(Completion::ImpliedReturn(val));
                     }
                 }
-                AstNode::Return(expr) => {
+                Statement::Return(expr) => {
                     if let Some(expr) = expr {
                         let val = self.eval_expr(expr, &scope)?;
                         return Ok(Completion::ExplicitReturn(val));
@@ -469,7 +469,7 @@ impl Interpreter {
                         return Ok(Completion::ExplicitReturn(ScriptValue::None));
                     }
                 }
-                AstNode::Assert(expr) => {
+                Statement::Assert(expr) => {
                     self.eval_assert_expr(expr, &scope)?;
                 }
             }

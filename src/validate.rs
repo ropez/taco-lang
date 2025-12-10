@@ -6,8 +6,8 @@ use crate::{
     ident::{Ident, global},
     lexer::{Loc, Src},
     parser::{
-        ArgumentExpression, Assignee, AstNode, CallExpression, Expression, Function,
-        ParamExpression, TypeExpression,
+        ArgumentExpression, Assignee, CallExpression, Expression, Function, ParamExpression,
+        Statement, TypeExpression,
     },
     stdlib::{Methods, NativeFunctionRef, NativeMethodRef},
 };
@@ -490,19 +490,19 @@ impl Validator {
         self.methods.get(&(ns, name.clone()))
     }
 
-    pub fn validate(&self, ast: &[AstNode]) -> Result<()> {
+    pub fn validate(&self, ast: &[Statement]) -> Result<()> {
         self.validate_block(ast, Scope::with_globals(&self.globals))?;
         Ok(())
     }
 
-    fn validate_block(&self, ast: &[AstNode], mut scope: Scope) -> Result<Scope> {
+    fn validate_block(&self, ast: &[Statement], mut scope: Scope) -> Result<Scope> {
         for node in ast {
             match node {
-                AstNode::Assignment { assignee, value } => {
+                Statement::Assignment { assignee, value } => {
                     let typ = self.validate_expr(value, &scope)?;
                     self.eval_assignment(assignee, &typ, &mut scope)?;
                 }
-                AstNode::Function { name, fun } => {
+                Statement::Function { name, fun } => {
                     let (params, ret) = self.eval_function(fun, &scope)?;
 
                     scope.set_local(
@@ -513,7 +513,7 @@ impl Validator {
                         },
                     );
                 }
-                AstNode::Rec(rec) => {
+                Statement::Rec(rec) => {
                     let params = self.eval_params(&rec.params, &scope)?;
 
                     scope.types.insert(
@@ -524,7 +524,7 @@ impl Validator {
                         },
                     );
                 }
-                AstNode::Enum(rec) => {
+                Statement::Enum(rec) => {
                     let def = EnumType {
                         name: rec.name.clone(),
                         variants: rec
@@ -547,7 +547,7 @@ impl Validator {
                         .types
                         .insert(rec.name.clone(), TypeDefinition::EnumDefinition(def.into()));
                 }
-                AstNode::Iteration {
+                Statement::Iteration {
                     ident,
                     iterable,
                     body,
@@ -576,7 +576,7 @@ impl Validator {
                         }
                     }
                 }
-                AstNode::Condition {
+                Statement::Condition {
                     cond,
                     body,
                     else_body,
@@ -596,7 +596,7 @@ impl Validator {
                         self.validate_block(else_body, scope.clone())?;
                     }
                 }
-                AstNode::IfIn {
+                Statement::IfIn {
                     assignee,
                     value,
                     body,
@@ -617,10 +617,10 @@ impl Validator {
                         self.validate_block(else_body, scope.clone())?;
                     }
                 }
-                AstNode::Expression(expr) => {
+                Statement::Expression(expr) => {
                     self.validate_expr(expr, &scope)?;
                 }
-                AstNode::Return(expr) => {
+                Statement::Return(expr) => {
                     if let Some(expr) = expr {
                         let typ = self.validate_expr(expr, &scope)?;
                         match &scope.ret {
@@ -653,7 +653,7 @@ impl Validator {
                         }
                     }
                 }
-                AstNode::Assert(expr) => {
+                Statement::Assert(expr) => {
                     let typ = self.validate_expr(expr, &scope)?;
                     if !matches!(typ, ScriptType::Bool) {
                         return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
@@ -969,10 +969,10 @@ impl Validator {
         Ok((params, ret))
     }
 
-    fn eval_return_type(&self, ast: &[AstNode], scope: &Scope) -> Result<Option<ReturnType>> {
+    fn eval_return_type(&self, ast: &[Statement], scope: &Scope) -> Result<Option<ReturnType>> {
         let typ = match ast.last() {
             None => None,
-            Some(AstNode::Return(expr)) => {
+            Some(Statement::Return(expr)) => {
                 if let Some(expr) = expr {
                     let typ = self.validate_expr(expr, scope)?;
                     Some(ReturnType::explicit(Src::new(typ, expr.loc)))
@@ -980,7 +980,7 @@ impl Validator {
                     todo!("return without value");
                 }
             }
-            Some(AstNode::Expression(expr)) => {
+            Some(Statement::Expression(expr)) => {
                 if ast.len() == 1 {
                     let typ = self.validate_expr(expr, scope)?;
                     Some(ReturnType::implicit(Src::new(typ, expr.loc)))
@@ -988,7 +988,7 @@ impl Validator {
                     None
                 }
             }
-            Some(AstNode::Condition {
+            Some(Statement::Condition {
                 body, else_body, ..
             }) => {
                 let body_ret = self.eval_return_type(body, scope)?;
@@ -1016,7 +1016,7 @@ impl Validator {
                     (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
                 }
             }
-            Some(AstNode::IfIn {
+            Some(Statement::IfIn {
                 assignee,
                 value,
                 body,
