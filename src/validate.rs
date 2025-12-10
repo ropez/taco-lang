@@ -909,7 +909,7 @@ impl Validator {
                 let (params, ret) = subject.as_callable().map_err(|err| err.at(expr.loc))?;
                 let arguments = self.eval_call_expr(arguments, scope)?;
                 let found_types = self.validate_arguments(&params, &arguments, scope)?;
-                if let Ok(inferred) = infer_types(ret, &found_types) {
+                if let Ok(inferred) = apply_inferred_types(ret, &found_types) {
                     Ok(inferred)
                 } else {
                     Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
@@ -1189,27 +1189,7 @@ impl Validator {
                 }
             } else if let Some(arg) = positional.next() {
                 self.validate_single_arg(&par.value, arg)?;
-                if let ScriptType::Infer(n) = par.value {
-                    found_types.insert(n, arg.value.cloned());
-                }
-                if let ScriptType::List(l) = &par.value {
-                    if let ScriptType::Infer(n) = l.as_ref() {
-                        if let ScriptType::List(a) = &arg.value.as_ref() {
-                            found_types.insert(*n, a.as_ref().clone());
-                        }
-                    }
-                }
-                if let ScriptType::Function { ret, params: _ } = &par.value {
-                    if let ScriptType::Infer(n) = ret.as_ref() {
-                        if let ScriptType::Function { ret: a, params: _ } = arg.value.as_ref() {
-                            found_types.insert(*n, *a.clone());
-                        } else if let ScriptType::NativeFunction(f) = arg.value.as_ref() {
-                            found_types.insert(*n, f.return_type());
-                        } else if let ScriptType::EnumVariant(a, b) = arg.value.as_ref() {
-                            found_types.insert(*n, ScriptType::Enum(Arc::clone(a)));
-                        }
-                    }
-                }
+                found_types.extend(infer_types(&par.value, &arg.value));
             } else if !par.value.is_optional() {
                 return Err(TypeError::new(TypeErrorKind::MissingArgument {
                     name: None,
@@ -1437,7 +1417,37 @@ impl Validator {
     }
 }
 
-fn infer_types(
+fn infer_types(formal: &ScriptType, given: &ScriptType) -> HashMap<u16, ScriptType> {
+    let mut found = HashMap::new();
+
+    match (formal, given) {
+        (ScriptType::Infer(n), _) => {
+            found.insert(*n, given.clone());
+        }
+        (ScriptType::List(formal), ScriptType::List(given)) => {
+            found.extend(infer_types(formal, given));
+        }
+        (ScriptType::Function { ret: formal, .. }, ScriptType::Function { ret, .. }) => {
+            found.extend(infer_types(formal, ret));
+        }
+        (ScriptType::Function { ret: formal, .. }, ScriptType::NativeFunction(fun)) => {
+            found.extend(infer_types(formal, &fun.return_type()));
+        }
+        (ScriptType::Function { ret: formal, .. }, ScriptType::EnumVariant(def, _)) => {
+            found.extend(infer_types(formal, &ScriptType::Enum(Arc::clone(def))));
+        }
+        (ScriptType::Tuple(formal), ScriptType::Tuple(given)) => {
+            for (f, g) in formal.items().iter().zip(given.items()) {
+                found.extend(infer_types(&f.value, &g.value));
+            }
+        }
+        _ => (),
+    }
+
+    found
+}
+
+fn apply_inferred_types(
     t: ScriptType,
     found_types: &HashMap<u16, ScriptType>,
 ) -> result::Result<ScriptType, ()> {
@@ -1449,7 +1459,7 @@ fn infer_types(
         ScriptType::Ext(ext) => {
             //
             Ok(ScriptType::Ext(if let Some(inner) = ext.clone().inner() {
-                ext.with_inner(infer_types(ScriptType::clone(inner), found_types)?)
+                ext.with_inner(apply_inferred_types(ScriptType::clone(inner), found_types)?)
             } else {
                 ext
             }))
@@ -1461,15 +1471,18 @@ fn infer_types(
                 .map(|it| {
                     TupleItemType::new(
                         it.name.clone(),
-                        infer_types(it.value.clone(), found_types).unwrap(),
+                        apply_inferred_types(it.value.clone(), found_types).unwrap(),
                     )
                 })
                 .collect();
             Ok(ScriptType::Tuple(TupleType::from(items)))
         }
-        ScriptType::List(inner) => Ok(ScriptType::list_of(infer_types(*inner, found_types)?)),
-        ScriptType::Function { params: _, ret } => infer_types(*ret, found_types),
-        ScriptType::NativeFunction(f) => infer_types(f.return_type(), found_types),
+        ScriptType::List(inner) => Ok(ScriptType::list_of(apply_inferred_types(
+            *inner,
+            found_types,
+        )?)),
+        ScriptType::Function { params: _, ret } => apply_inferred_types(*ret, found_types),
+        ScriptType::NativeFunction(f) => apply_inferred_types(f.return_type(), found_types),
         other => Ok(other),
     }
 }
