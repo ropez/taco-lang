@@ -232,8 +232,8 @@ impl TupleItemType {
         Self { name, value }
     }
 
-    pub fn named(name: Ident, value: ScriptType) -> Self {
-        Self::new(Some(name), value)
+    pub fn named(name: impl Into<Ident>, value: ScriptType) -> Self {
+        Self::new(Some(name.into()), value)
     }
 
     pub fn unnamed(value: ScriptType) -> Self {
@@ -244,13 +244,11 @@ impl TupleItemType {
 #[derive(Default, Debug, Clone)]
 pub struct TupleType(Vec<TupleItemType>);
 
-impl From<Vec<TupleItemType>> for TupleType {
-    fn from(args: Vec<TupleItemType>) -> Self {
+impl TupleType {
+    pub fn new(args: Vec<TupleItemType>) -> Self {
         TupleType(args)
     }
-}
 
-impl TupleType {
     pub const fn identity() -> Self {
         Self(Vec::new())
     }
@@ -1475,7 +1473,7 @@ fn apply_inferred_types(
                     )
                 })
                 .collect();
-            Ok(ScriptType::Tuple(TupleType::from(items)))
+            Ok(ScriptType::Tuple(TupleType::new(items)))
         }
         ScriptType::List(inner) => Ok(ScriptType::list_of(apply_inferred_types(
             *inner,

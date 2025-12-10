@@ -198,7 +198,7 @@ impl ListMethod for ListUnzip {
             .map(|t| TupleItemType::unnamed(ScriptType::list_of(t.value.clone())))
             .collect();
 
-        Ok(ScriptType::Tuple(TupleType::from(types)))
+        Ok(ScriptType::Tuple(TupleType::new(types)))
     }
 }
 
@@ -239,7 +239,7 @@ impl NativeFunction for ListZip {
             TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(1))),
             TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(2))),
         ];
-        TupleType::from(args)
+        TupleType::new(args)
     }
 
     fn return_type(&self) -> ScriptType {
@@ -247,7 +247,7 @@ impl NativeFunction for ListZip {
             TupleItemType::unnamed(ScriptType::Infer(1)),
             TupleItemType::unnamed(ScriptType::Infer(2)),
         ];
-        ScriptType::list_of(ScriptType::Tuple(TupleType::from(args)))
+        ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
 }
 

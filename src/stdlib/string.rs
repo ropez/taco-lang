@@ -153,6 +153,6 @@ impl NativeMethod for StringSplitAt {
             TupleItemType::unnamed(ScriptType::Str),
             TupleItemType::unnamed(ScriptType::Str),
         ];
-        Ok(ScriptType::Tuple(TupleType::from(items)))
+        Ok(ScriptType::Tuple(TupleType::new(items)))
     }
 }

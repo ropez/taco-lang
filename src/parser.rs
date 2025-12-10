@@ -863,7 +863,7 @@ impl<'a> Parser<'a> {
 
                 if self.next_if_kind(&TokenKind::Colon).is_some() {
                     let value = self.parse_expression(0)?;
-                    args.push(ArgumentExpression::named(name.clone(), value));
+                    args.push(ArgumentExpression::named(name, value));
                 } else {
                     let expr = self.handle_identifier_expr(name.clone(), t.loc, 0)?;
 

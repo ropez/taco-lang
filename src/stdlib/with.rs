@@ -54,7 +54,7 @@ impl NativeMethod for WithMethod {
             }
         }
 
-        Ok(TupleType::from(items))
+        Ok(TupleType::new(items))
     }
 
     fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
