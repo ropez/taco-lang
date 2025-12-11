@@ -271,19 +271,17 @@ impl TupleType {
 
         let mut positional = other.0.iter().filter(|arg| arg.name.is_none());
         for par in self.0.iter() {
-            if let Some(name) = &par.name {
-                if let Some(arg) = other.0.iter().find(|a| a.name.as_ref() == Some(name)) {
-                    if !par.value.accepts(&arg.value) {
-                        return false;
-                    }
-                } else if let Some(arg) = positional.next() {
-                    if !par.value.accepts(&arg.value) {
-                        return false;
-                    }
-                } else {
-                    return false;
-                }
-            } else if let Some(arg) = positional.next() {
+            let opt_arg = if let Some(name) = &par.name {
+                other
+                    .0
+                    .iter()
+                    .find(|a| a.name.as_ref() == Some(name))
+                    .or_else(|| positional.next())
+            } else {
+                positional.next()
+            };
+
+            if let Some(arg) = opt_arg {
                 if !par.value.accepts(&arg.value) {
                     return false;
                 }
@@ -329,16 +327,6 @@ impl Src<Vec<ArgumentExpressionType>> {
 
         TupleType(args)
     }
-}
-
-// This is an "intermediate" struct, used while validating callable.
-// It is not part of the scope, but only used to represent the evaluated
-// call expression before validation.
-#[derive(Debug)]
-pub enum CallExpressionType {
-    Inline(Src<Vec<ArgumentExpressionType>>),
-    Destructure(Src<ScriptType>),
-    DestructureImplicit(Loc),
 }
 
 impl Display for Src<Vec<ArgumentExpressionType>> {
@@ -389,6 +377,8 @@ struct Scope {
     types: HashMap<Ident, TypeDefinition>,
     ret: Option<ScriptType>,
     arguments: TupleType,
+
+    expected_type: Option<ScriptType>,
 }
 
 impl Scope {
@@ -399,6 +389,14 @@ impl Scope {
             types: Default::default(),
             ret: None,
             arguments: TupleType::identity(),
+            expected_type: None,
+        }
+    }
+
+    fn with_expected(&self, exp: impl Into<Option<ScriptType>>) -> Self {
+        Self {
+            expected_type: exp.into(),
+            ..self.clone()
         }
     }
 
@@ -713,9 +711,9 @@ impl Validator {
                 }
             }
             Expression::Tuple(args) => {
-                let applied = self.eval_inline_args(args, scope)?;
+                let tuple = self.eval_tuple(args, scope)?;
 
-                Ok(ScriptType::Tuple(applied.into_tuple_type()))
+                Ok(ScriptType::Tuple(tuple))
             }
             Expression::Ref(ident) => {
                 if let Some(value) = scope.get_local(ident) {
@@ -905,9 +903,9 @@ impl Validator {
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
                 let (params, ret) = subject.as_callable().map_err(|err| err.at(expr.loc))?;
-                let arguments = self.eval_call_expr(arguments, scope)?;
-                let found_types = self.validate_arguments(&params, &arguments, scope)?;
-                if let Ok(inferred) = apply_inferred_types(ret, &found_types) {
+                let found_types = self.validate_arguments(&params, arguments, scope)?;
+                let (inferred, complete) = apply_inferred_types(&ret, &found_types);
+                if complete {
                     Ok(inferred)
                 } else {
                     Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
@@ -945,7 +943,7 @@ impl Validator {
                 .as_ref()
                 .map(|t| t.loc)
                 .unwrap_or(Loc::start());
-            if let Some(ret) = found_ret_type {
+            if let Some(_) = found_ret_type {
                 return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
                     expected: typ.clone(),
                     actual: found_type,
@@ -1065,9 +1063,35 @@ impl Validator {
     fn eval_params(&self, params: &[ParamExpression], scope: &Scope) -> Result<TupleType> {
         let mut res = TupleType::identity();
 
-        for param in params {
-            let typ = self.eval_type_expr(&param.type_expr, scope)?;
-            res.0.push(TupleItemType::new(param.name.clone(), typ))
+        let expected_params =
+            if let Some(ScriptType::Function { params, ret: _ }) = &scope.expected_type {
+                Some(params.items())
+            } else {
+                None
+            };
+
+        if let Some(expected) = expected_params {
+            let mut expected_positional = expected.iter().filter(|arg| arg.name.is_none());
+            for param in params {
+                let exp = if let Some(name) = &param.name {
+                    expected
+                        .iter()
+                        .find(|e| e.name.as_ref() == Some(name))
+                        .or_else(|| expected_positional.next())
+                } else {
+                    expected_positional.next()
+                };
+                let typ = self.eval_type_expr(
+                    &param.type_expr,
+                    &scope.with_expected(exp.map(|it| it.value.clone())),
+                )?;
+                res.0.push(TupleItemType::new(param.name.clone(), typ))
+            }
+        } else {
+            for param in params {
+                let typ = self.eval_type_expr(&param.type_expr, scope)?;
+                res.0.push(TupleItemType::new(param.name.clone(), typ))
+            }
         }
 
         Ok(res)
@@ -1092,107 +1116,95 @@ impl Validator {
         Ok(ScriptType::Int)
     }
 
-    fn eval_call_expr(
-        &self,
-        arguments: &CallExpression,
-        scope: &Scope,
-    ) -> Result<CallExpressionType> {
-        let res = match arguments {
-            CallExpression::Inline(arguments) => {
-                let inline = self.eval_inline_args(arguments, scope)?;
-                CallExpressionType::Inline(inline)
-            }
-            CallExpression::Destructure(expr) => {
-                let typ = self.eval_expr(expr, scope)?;
-                CallExpressionType::Destructure(typ)
-            }
-            CallExpression::DestructureImplicit(loc) => {
-                CallExpressionType::DestructureImplicit(*loc)
-            }
-        };
-        Ok(res)
-    }
-
-    fn eval_inline_args(
+    fn eval_tuple(
         &self,
         arguments: &Src<Vec<ArgumentExpression>>,
         scope: &Scope,
-    ) -> Result<Src<Vec<ArgumentExpressionType>>> {
-        let args = arguments
+    ) -> Result<TupleType> {
+        let items = arguments
             .iter()
             .map(|arg| {
-                Ok(ArgumentExpressionType {
+                let value = self.eval_expr(&arg.expr, scope)?;
+                Ok(TupleItemType {
                     name: arg.name.clone(),
-                    value: self.eval_expr(&arg.expr, scope)?,
+                    value: value.into_inner(),
                 })
             })
             .collect::<Result<Vec<_>>>()?;
 
-        Ok(Src::new(args, arguments.loc))
+        Ok(TupleType::new(items))
     }
 
     fn validate_arguments(
         &self,
         params: &TupleType,
-        arguments: &CallExpressionType,
+        arguments: &CallExpression,
         scope: &Scope,
     ) -> Result<HashMap<u16, ScriptType>> {
-        let found_type = match arguments {
-            CallExpressionType::Inline(arguments) => {
-                self.validate_inline_args(params, arguments)?
+        let found_types = match arguments {
+            CallExpression::Inline(arguments) => {
+                self.validate_inline_args(params, arguments, scope)?
             }
-            CallExpressionType::Destructure(t) => {
+            CallExpression::Destructure(expr) => {
+                let t = self.eval_expr(expr, scope)?;
                 let arg = ArgumentExpressionType {
                     name: None,
                     value: t.clone(),
                 };
-                self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
-                HashMap::new() // XXX
+                let mut found_types = HashMap::new();
+                self.validate_single_arg(
+                    &ScriptType::Tuple(params.clone()),
+                    &arg.value,
+                    &mut found_types,
+                )?;
+                found_types
             }
-            CallExpressionType::DestructureImplicit(loc) => {
+            CallExpression::DestructureImplicit(loc) => {
                 let typ = scope.arguments.clone();
                 let arg = ArgumentExpressionType {
                     name: None,
                     value: Src::new(ScriptType::Tuple(typ), *loc),
                 };
-                self.validate_single_arg(&ScriptType::Tuple(params.clone()), &arg)?;
-                HashMap::new() // XXX
+                let mut found_types = HashMap::new();
+                self.validate_single_arg(
+                    &ScriptType::Tuple(params.clone()),
+                    &arg.value,
+                    &mut found_types,
+                )?;
+                found_types
             }
         };
-        Ok(found_type)
+        Ok(found_types)
     }
 
     fn validate_inline_args(
         &self,
         formal: &TupleType,
-        arguments: &Src<Vec<ArgumentExpressionType>>,
+        arguments: &Src<Vec<ArgumentExpression>>,
+        scope: &Scope,
     ) -> Result<HashMap<u16, ScriptType>> {
         // For each formal: If args contain named, take it, else take next unnamed
         let mut positional = arguments.iter().filter(|arg| arg.name.is_none());
         let mut found_types = HashMap::new();
 
         for par in formal.0.iter() {
-            if let Some(name) = &par.name {
-                if let Some(arg) = arguments.iter().find(|a| a.name.as_ref() == Some(name)) {
-                    self.validate_single_arg(&par.value, arg)?;
-                } else if let Some(arg) = positional.next() {
-                    self.validate_single_arg(&par.value, arg)?;
-                } else if !par.value.is_optional() {
-                    return Err(TypeError::new(TypeErrorKind::MissingArgument {
-                        name: Some(name.clone()),
-                        expected: formal.clone(),
-                        actual: arguments.clone().into_tuple_type(),
-                    })
-                    .at(arguments.loc));
-                }
-            } else if let Some(arg) = positional.next() {
-                self.validate_single_arg(&par.value, arg)?;
-                found_types.extend(infer_types(&par.value, &arg.value));
+            let opt_arg = if let Some(name) = &par.name {
+                arguments
+                    .iter()
+                    .find(|a| a.name.as_ref() == Some(name))
+                    .or_else(|| positional.next())
+            } else {
+                positional.next()
+            };
+
+            if let Some(arg) = opt_arg {
+                let actual = self.eval_expr(&arg.expr, &scope.with_expected(par.value.clone()))?;
+                self.validate_single_arg(&par.value, &actual, &mut found_types)?;
             } else if !par.value.is_optional() {
                 return Err(TypeError::new(TypeErrorKind::MissingArgument {
-                    name: None,
+                    name: par.name.clone(),
                     expected: formal.clone(),
-                    actual: arguments.clone().into_tuple_type(),
+                    actual: self.eval_tuple(arguments, scope)?,
                 })
                 .at(arguments.loc));
             }
@@ -1201,7 +1213,7 @@ impl Validator {
         if positional.next().is_some() {
             return Err(TypeError::new(TypeErrorKind::UnexpectedArgument {
                 expected: formal.clone(),
-                actual: arguments.clone().into_tuple_type(),
+                actual: self.eval_tuple(arguments, scope)?,
             })
             .at(arguments.loc));
         }
@@ -1209,14 +1221,21 @@ impl Validator {
         Ok(found_types)
     }
 
-    fn validate_single_arg(&self, formal: &ScriptType, arg: &ArgumentExpressionType) -> Result<()> {
-        if !formal.accepts(&arg.value) {
+    fn validate_single_arg(
+        &self,
+        formal: &ScriptType,
+        actual: &Src<ScriptType>,
+        found_types: &mut HashMap<u16, ScriptType>,
+    ) -> Result<()> {
+        let (expected, _) = apply_inferred_types(formal, found_types);
+        if !expected.accepts(actual) {
             return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                 expected: formal.clone(),
-                actual: arg.value.cloned(),
+                actual: actual.cloned(),
             })
-            .at(arg.value.loc));
+            .at(actual.loc));
         }
+        found_types.extend(infer_types(&expected, actual));
         Ok(())
     }
 
@@ -1249,6 +1268,13 @@ impl Validator {
                         .at(type_expr.loc),
                 ),
             },
+            TypeExpression::Infer => {
+                if let Some(t) = &scope.expected_type {
+                    Ok(t.clone())
+                } else {
+                    Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(type_expr.loc))
+                }
+            }
         }
     }
 
@@ -1319,23 +1345,21 @@ impl Validator {
         let mut positional = other.0.iter().filter(|arg| arg.name.is_none());
 
         for assignee in lhs.iter() {
-            if let Some(name) = &assignee.name {
-                if let Some(item) = other.0.iter().find(|a| a.name.as_ref() == Some(name)) {
-                    self.eval_assignment(assignee, &item.value, scope)?;
-                } else if let Some(item) = positional.next() {
-                    self.eval_assignment(assignee, &item.value, scope)?;
-                } else {
-                    return Err(TypeError::new(TypeErrorKind::MissingDestructureArgument {
-                        name: Some(name.clone()),
-                        actual: other.clone(),
-                    })
-                    .at(assignee.loc));
-                }
-            } else if let Some(item) = positional.next() {
+            let opt_item = if let Some(name) = &assignee.name {
+                other
+                    .0
+                    .iter()
+                    .find(|a| a.name.as_ref() == Some(name))
+                    .or_else(|| positional.next())
+            } else {
+                positional.next()
+            };
+
+            if let Some(item) = opt_item {
                 self.eval_assignment(assignee, &item.value, scope)?;
             } else {
                 return Err(TypeError::new(TypeErrorKind::MissingDestructureArgument {
-                    name: None,
+                    name: assignee.name.clone(),
                     actual: other.clone(),
                 })
                 .at(assignee.loc));
@@ -1390,11 +1414,11 @@ impl Validator {
                 if let Expression::Ref(f) = subject.as_ref().as_ref()
                     && f.as_str() == "typeof"
                 {
-                    let actual = self.eval_call_expr(arguments, scope)?;
-                    let CallExpressionType::Inline(inline) = actual else {
+                    let CallExpression::Inline(arguments) = arguments.as_ref() else {
                         return Ok(None);
                     };
-                    let actual = inline.first();
+                    let inline = self.eval_tuple(arguments, scope)?;
+                    let actual = inline.items().first();
                     let Some(actual) = actual else {
                         return Ok(None);
                     };
@@ -1411,15 +1435,15 @@ impl Validator {
     }
 }
 
-fn infer_types(formal: &ScriptType, given: &ScriptType) -> HashMap<u16, ScriptType> {
+fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptType> {
     let mut found = HashMap::new();
 
-    match (formal, given) {
+    match (formal, actual) {
         (ScriptType::Infer(n), _) => {
-            found.insert(*n, given.clone());
+            found.insert(*n, actual.clone());
         }
-        (ScriptType::List(formal), ScriptType::List(given)) => {
-            found.extend(infer_types(formal, given));
+        (ScriptType::List(formal), ScriptType::List(inner)) => {
+            found.extend(infer_types(formal, inner));
         }
         (ScriptType::Function { ret: formal, .. }, ScriptType::Function { ret, .. }) => {
             found.extend(infer_types(formal, ret));
@@ -1430,8 +1454,8 @@ fn infer_types(formal: &ScriptType, given: &ScriptType) -> HashMap<u16, ScriptTy
         (ScriptType::Function { ret: formal, .. }, ScriptType::EnumVariant(def, _)) => {
             found.extend(infer_types(formal, &ScriptType::Enum(Arc::clone(def))));
         }
-        (ScriptType::Tuple(formal), ScriptType::Tuple(given)) => {
-            for (f, g) in formal.items().iter().zip(given.items()) {
+        (ScriptType::Tuple(formal), ScriptType::Tuple(actual)) => {
+            for (f, g) in formal.items().iter().zip(actual.items()) {
                 found.extend(infer_types(&f.value, &g.value));
             }
         }
@@ -1442,41 +1466,67 @@ fn infer_types(formal: &ScriptType, given: &ScriptType) -> HashMap<u16, ScriptTy
 }
 
 fn apply_inferred_types(
-    t: ScriptType,
+    t: &ScriptType,
     found_types: &HashMap<u16, ScriptType>,
-) -> result::Result<ScriptType, ()> {
+) -> (ScriptType, bool) {
     match t {
         ScriptType::Infer(n) => {
-            let ret = found_types.get(&n).ok_or(())?;
-            Ok(ret.clone())
+            if let Some(ret) = found_types.get(n) {
+                (ret.clone(), true)
+            } else {
+                (t.clone(), false)
+            }
         }
         ScriptType::Ext(ext) => {
-            //
-            Ok(ScriptType::Ext(if let Some(inner) = ext.clone().inner() {
-                ext.with_inner(apply_inferred_types(ScriptType::clone(inner), found_types)?)
+            if let Some(inner) = ext.clone().inner() {
+                let (inferred, complete) = apply_inferred_types(inner, found_types);
+                (ScriptType::Ext(ext.clone().with_inner(inferred)), complete)
             } else {
-                ext
-            }))
+                (ScriptType::Ext(ext.clone()), true)
+            }
         }
         ScriptType::Tuple(tuple) => {
-            let items: Vec<_> = tuple
-                .items()
-                .iter()
-                .map(|it| {
-                    TupleItemType::new(
-                        it.name.clone(),
-                        apply_inferred_types(it.value.clone(), found_types).unwrap(),
-                    )
-                })
-                .collect();
-            Ok(ScriptType::Tuple(TupleType::new(items)))
+            let (tuple, complete) = apply_inferred_types_tuple(tuple, found_types);
+            (ScriptType::Tuple(tuple), complete)
         }
-        ScriptType::List(inner) => Ok(ScriptType::list_of(apply_inferred_types(
-            *inner,
-            found_types,
-        )?)),
-        ScriptType::Function { params: _, ret } => apply_inferred_types(*ret, found_types),
-        ScriptType::NativeFunction(f) => apply_inferred_types(f.return_type(), found_types),
-        other => Ok(other),
+        ScriptType::List(inner) => {
+            let (inner, complete) = apply_inferred_types(inner, found_types);
+            (ScriptType::list_of(inner), complete)
+        }
+        ScriptType::Function { params, ret } => {
+            let (params, params_complete) = apply_inferred_types_tuple(params, found_types);
+            let (ret, ret_complete) = apply_inferred_types(ret, found_types);
+            (
+                ScriptType::Function {
+                    params,
+                    ret: ret.into(),
+                },
+                params_complete && ret_complete,
+            )
+        }
+        ScriptType::NativeFunction(f) => {
+            // XXX params
+            apply_inferred_types(&f.return_type(), found_types)
+        }
+        other => (other.clone(), true),
     }
+}
+
+fn apply_inferred_types_tuple(
+    tuple: &TupleType,
+    found_types: &HashMap<u16, ScriptType>,
+) -> (TupleType, bool) {
+    let items: Vec<_> = tuple
+        .items()
+        .iter()
+        .map(|it| {
+            let (inferred, complete) = apply_inferred_types(&it.value, found_types);
+            (TupleItemType::new(it.name.clone(), inferred), complete)
+        })
+        .collect();
+
+    let all_complete = items.iter().all(|(_, complete)| *complete);
+    let items = items.into_iter().map(|(t, _)| t).collect();
+
+    (TupleType::new(items), all_complete)
 }

@@ -18,6 +18,7 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "sort", ListSort);
     builder.add_method(global::LIST, "map", ListMap);
     builder.add_method(global::LIST, "map_to", ListMapTo);
+    builder.add_method(global::LIST, "scan", ListScan);
     builder.add_method(global::LIST, "filter", ListFilter);
     builder.add_method(global::LIST, "flatten", ListFlatten);
 
@@ -126,7 +127,7 @@ impl ListMethod for ListCount {
         Ok(TupleType::from_single(inner.clone()))
     }
 
-    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::Int)
     }
 
@@ -331,6 +332,50 @@ impl ListMethod for ListMap {
         for item in subject.items() {
             let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
             mapped.push(value);
+        }
+        Ok(ScriptValue::List(Arc::new(List::new(mapped))))
+    }
+}
+
+pub(crate) struct ListScan;
+impl ListMethod for ListScan {
+    fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::new(vec![
+            TupleItemType::named("initial", ScriptType::Infer(2)),
+            TupleItemType::named(
+                "mapper",
+                ScriptType::Function {
+                    params: TupleType::new(vec![
+                        TupleItemType::unnamed(ScriptType::Infer(2)),
+                        TupleItemType::unnamed(inner.clone()),
+                    ]),
+                    ret: ScriptType::Infer(1).into(),
+                },
+            ),
+        ]))
+    }
+
+    fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::list_of(ScriptType::Infer(1)))
+    }
+
+    fn list_call(
+        &self,
+        interpreter: &Interpreter,
+        subject: Arc<List>,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        // XXX Args are not transformed
+        let callable = arguments.at(0).expect("callable");
+        let mut value = arguments.at(1).expect("initial").clone();
+        let mut mapped = Vec::new();
+        for item in subject.items() {
+            let args = Tuple::new(vec![
+                TupleItem::unnamed(value.clone()),
+                TupleItem::unnamed(item.clone()),
+            ]);
+            value = interpreter.eval_callable(callable.clone(), &args)?;
+            mapped.push(value.clone());
         }
         Ok(ScriptValue::List(Arc::new(List::new(mapped))))
     }

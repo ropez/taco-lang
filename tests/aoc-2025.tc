@@ -20,18 +20,23 @@ fun day1_secret_entrance() {
 
     rec Turn(dir: str, count: int)
 
-    turns = sample.trim().lines().map(normalize_input).map(Turn::parse)
+    turns = sample.trim()
+        .lines()
+        .map(normalize_input)
+        .map(Turn::parse)
 
-    pos = State(50)
-    seq = turns.map(fun(turn: Turn) {
-        pos.update(fun(pos: int) {
+    # 'scan' is similar to 'map', but the callback receives the previous mapped value together
+    # with the current item, and we must provide an initial value for the first iteration.
+    seq = turns.scan(
+        fun(last: int, turn: Turn): int {
             if turn.dir == "L" {
-                { pos - turn.count } % 100
+                { last - turn.count } % 100
             } else {
-                { pos + turn.count } % 100
+                { last + turn.count } % 100
             }
-        })
-    })
+        }
+        initial: 50
+    )
 
     password = seq.count(0)
 
@@ -49,7 +54,10 @@ fun day2_gift_shop() {
         return l == r
     }
 
-    total = inputs.flatten().filter(is_invalid).sum()
+    total = inputs
+        .flatten()
+        .filter(is_invalid)
+        .sum()
 
     assert total == 1227775554
 }

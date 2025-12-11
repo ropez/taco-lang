@@ -146,6 +146,7 @@ fn write_type_expr(f: &mut String, type_expr: &TypeExpression) -> fmt::Result {
             write!(f, "{}", params_to_type(params))?;
         }
         TypeExpression::TypeName(ident) => write!(f, "{ident}")?,
+        TypeExpression::Infer => write!(f, "_")?,
     }
 
     Ok(())

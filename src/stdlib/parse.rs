@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::{ScriptError, ScriptErrorKind},
+    error::ScriptError,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     parser::{Record, TypeExpression},
     stdlib::NativeFunction,
@@ -10,7 +10,6 @@ use crate::{
 };
 
 pub fn build(builder: &mut Builder) {
-    // XXX Should be range::parse
     builder.add_function("Range::parse", ParseRangeFunc);
 }
 

@@ -11,7 +11,9 @@ fun day1_historian_hysteria() {
 
     ordered = List::zip(left, right)
 
-    sum = ordered.map_to(fun(a: int, b: int) { {a - b}.abs() }).sum()
+    sum = ordered
+        .map_to(fun(a, b) { {a - b}.abs() })
+        .sum()
 
     assert sum == 11
 }

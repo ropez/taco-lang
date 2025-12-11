@@ -18,7 +18,37 @@ fun test_map_to_string() {
 
 fun test_inline_callback() {
     list = ["foo", "bar"]
-    result = list.map(fun(i: str) { i.split_at(1) })
+
+    result = list.map(fun(i) { i.split_at(1) })
 
     assert result == [("f", "oo"), ("b", "ar")]
+}
+
+fun test_inline_callback_derived_type() {
+    result = [0, 1, 2, 3].map(fun(i): (str, str) {
+        assert typeof(i) == "int"
+        return "foo".split_at(i)
+    })
+
+    assert result == [("", "foo"), ("f", "oo"), ("fo", "o"), ("foo", "")]
+
+    result = ["foo", "bar"].map(fun(i): (str, str) {
+        assert typeof(i) == "str"
+        return i.split_at(1)
+    })
+
+    assert result == [("f", "oo"), ("b", "ar")]
+}
+
+fun test_inline_callback_derived_type_out_of_order() {
+    list = [(1, b: "foo"), (2, b: "bar")]
+
+    assert typeof(list) == "[(int, b: str)]"
+
+    result = list.map_to(fun(b, a): (str, str) {
+        assert typeof(arguments) == "(b: str, a: int)"
+        return b.split_at(a)
+    })
+
+    assert result == [("f", "oo"), ("ba", "r")]
 }

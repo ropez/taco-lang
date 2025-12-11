@@ -87,10 +87,20 @@ fun all_comparison_operations() {
 }
 
 fun test_comparizone_and_equality_precedence() {
-    assert 1 < 1 + 1 == 1 + 1 > 1 == true
-    assert 1 + 1 > 1 == 1 < 1 + 1 == true
-    assert 1 + 1 <= 1 == 1 >= 1 + 1 == true
-    assert 1 >= 1 + 1 == 1 + 1 <= 1 == true
+    assert { 1 < 1 + 1 == 1 + 1 > 1 } == true
+    assert { 1 + 1 > 1 == 1 < 1 + 1 } == true
+    assert { 1 + 1 <= 1 == 1 >= 1 + 1 } == true
+    assert { 1 >= 1 + 1 == 1 + 1 <= 1 } == true
+}
+
+fun test_span_multiple_lines() {
+    foo =
+        10 + 10
+        + 10 +
+        10 # foo
+        + 10
+
+    assert foo == 50
 }
 
 fun test_negative_numbers() {
