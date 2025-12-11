@@ -11,8 +11,8 @@ use crate::{
     ident::{Ident, global},
     lexer::Src,
     parser::{
-        Assignee, Statement, CallExpression, Enumeration, Expression, Function, ParamExpression,
-        Record, TypeExpression,
+        Assignee, CallExpression, Enumeration, Expression, Function, ParamExpression, Record,
+        Statement, TypeExpression,
     },
     stdlib::{ExternalValue, NativeFunctionRef, NativeMethodRef, list::List, parse::ParseFunc},
     validate::ExternalType,

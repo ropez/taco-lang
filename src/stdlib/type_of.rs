@@ -129,7 +129,10 @@ fn type_expr_to_str(type_expr: &TypeExpression) -> String {
 
 fn write_type_expr(f: &mut String, type_expr: &TypeExpression) -> fmt::Result {
     match type_expr {
-        TypeExpression::Scalar(ident) => write!(f, "{ident}")?,
+        TypeExpression::Int => write!(f, "int")?,
+        TypeExpression::Str => write!(f, "str")?,
+        TypeExpression::Bool => write!(f, "bool")?,
+        TypeExpression::Range => write!(f, "range")?,
         TypeExpression::List(inner) => {
             write!(f, "[")?;
             write_type_expr(f, inner.as_ref())?;
@@ -142,6 +145,7 @@ fn write_type_expr(f: &mut String, type_expr: &TypeExpression) -> fmt::Result {
         TypeExpression::Tuple(params) => {
             write!(f, "{}", params_to_type(params))?;
         }
+        TypeExpression::TypeName(ident) => write!(f, "{ident}")?,
     }
 
     Ok(())

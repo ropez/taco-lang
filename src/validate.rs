@@ -1222,25 +1222,10 @@ impl Validator {
 
     fn eval_type_expr(&self, type_expr: &Src<TypeExpression>, scope: &Scope) -> Result<ScriptType> {
         match type_expr.as_ref() {
-            TypeExpression::Scalar(ident) => match ident.as_str() {
-                "str" => Ok(ScriptType::Str),
-                "int" => Ok(ScriptType::Int),
-                "bool" => Ok(ScriptType::Bool),
-                "range" => Ok(ScriptType::Range),
-                _ => match scope.types.get(ident) {
-                    Some(TypeDefinition::RecDefinition { name, params }) => Ok(ScriptType::Rec {
-                        params: params.clone(),
-                        name: name.clone(),
-                    }),
-                    Some(TypeDefinition::EnumDefinition(def)) => {
-                        Ok(ScriptType::Enum(Arc::clone(def)))
-                    }
-                    None => Err(
-                        TypeError::new(TypeErrorKind::UndefinedReference(ident.clone()))
-                            .at(type_expr.loc),
-                    ),
-                },
-            },
+            TypeExpression::Int => Ok(ScriptType::Int),
+            TypeExpression::Str => Ok(ScriptType::Str),
+            TypeExpression::Bool => Ok(ScriptType::Bool),
+            TypeExpression::Range => Ok(ScriptType::Range),
             TypeExpression::Tuple(params) => {
                 let types = self.eval_params(params, scope)?;
                 Ok(ScriptType::Tuple(types))
@@ -1253,6 +1238,17 @@ impl Validator {
                 let inner = self.eval_type_expr(inner.as_ref(), scope)?;
                 Ok(ScriptType::Opt(inner.into()))
             }
+            TypeExpression::TypeName(ident) => match scope.types.get(ident) {
+                Some(TypeDefinition::RecDefinition { name, params }) => Ok(ScriptType::Rec {
+                    params: params.clone(),
+                    name: name.clone(),
+                }),
+                Some(TypeDefinition::EnumDefinition(def)) => Ok(ScriptType::Enum(Arc::clone(def))),
+                None => Err(
+                    TypeError::new(TypeErrorKind::UndefinedReference(ident.clone()))
+                        .at(type_expr.loc),
+                ),
+            },
         }
     }
 

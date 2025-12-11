@@ -33,13 +33,10 @@ impl NativeFunction for ParseFunc {
                 values.push(TupleItem::new(
                     d.name.clone(),
                     match d.type_expr.as_ref() {
-                        TypeExpression::Scalar(ident) => match ident.as_str() {
-                            "str" => ScriptValue::String(tokens.next().unwrap().into()),
-                            "int" => {
-                                ScriptValue::Int(tokens.next().unwrap().parse::<i64>().unwrap())
-                            }
-                            o => todo!("Don't know how to parse {o:?}"),
-                        },
+                        TypeExpression::Int => {
+                            ScriptValue::Int(tokens.next().unwrap().parse::<i64>().unwrap())
+                        }
+                        TypeExpression::Str => ScriptValue::String(tokens.next().unwrap().into()),
                         o => todo!("Don't know how to parse {o:?}"),
                     },
                 ));

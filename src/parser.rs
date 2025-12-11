@@ -126,10 +126,26 @@ pub enum CallExpression {
 
 #[derive(Debug)]
 pub enum TypeExpression {
-    Scalar(Ident),
+    Int,
+    Str,
+    Bool,
+    Range,
     List(Box<Src<TypeExpression>>),
-    Opt(Box<Src<TypeExpression>>),
     Tuple(Vec<ParamExpression>),
+    Opt(Box<Src<TypeExpression>>),
+    TypeName(Ident),
+}
+
+impl TypeExpression {
+    pub(crate) fn from_ident(ident: Ident) -> Self {
+        match ident.as_str() {
+            "int" => Self::Int,
+            "str" => Self::Str,
+            "bool" => Self::Bool,
+            "range" => Self::Range,
+            _ => Self::TypeName(ident),
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -675,7 +691,7 @@ impl<'a> Parser<'a> {
                     let param = p.complete_param_expr(Some(name), type_expr)?;
                     Ok(param)
                 } else {
-                    let type_expr = Src::new(TypeExpression::Scalar(name), t.loc);
+                    let type_expr = Src::new(TypeExpression::from_ident(name), t.loc);
                     let type_expr = p.parse_type_suffix(type_expr)?;
 
                     let param = p.complete_param_expr(None, type_expr)?;
@@ -831,8 +847,7 @@ impl<'a> Parser<'a> {
             self.parse_type_suffix(expr)
         } else {
             let (raw, loc) = self.expect_ident()?;
-            let kind = TypeExpression::Scalar(raw);
-            let expr = Src::new(kind, loc);
+            let expr = Src::new(TypeExpression::from_ident(raw), loc);
             self.parse_type_suffix(expr)
         }
     }
