@@ -15,8 +15,17 @@ fun test_normal_variables_are_immutable() {
     assert a == 10
 }
 
+fun test_typeof_state() {
+    a = State(10)
+
+    # assert typeof(a) == "" -- XXX not implemented
+    assert typeof(a.get()) == "int"
+    assert typeof(State("").get()) == "str"
+}
+
 fun test_get_and_set_primitive() {
     a = State(10)
+    assert typeof(a.get()) == "int"
 
     if a.get() == 10 {
         a.set(a.get() + 5)

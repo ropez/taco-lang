@@ -10,6 +10,7 @@ use crate::{
 };
 
 pub(crate) fn build(builder: &mut Builder) {
+    builder.add_method(global::LIST, "len", ListLen);
     builder.add_method(global::LIST, "push", ListPush);
     builder.add_method(global::LIST, "find", ListFind);
     builder.add_method(global::LIST, "count", ListCount);
@@ -38,6 +39,10 @@ impl List {
         &self.0
     }
 
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
     pub fn push(&mut self, item: ScriptValue) {
         self.0.push(item);
     }
@@ -46,6 +51,22 @@ impl List {
 impl From<List> for ScriptValue {
     fn from(value: List) -> Self {
         ScriptValue::List(Arc::new(value))
+    }
+}
+
+pub(crate) struct ListLen;
+impl ListMethod for ListLen {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: Arc<List>,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        Ok(ScriptValue::Int(subject.len() as i64))
+    }
+
+    fn list_return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Int)
     }
 }
 

@@ -652,7 +652,7 @@ impl Validator {
                 Statement::Assert(expr) => {
                     let typ = self.validate_expr(expr, &scope)?;
                     if !matches!(typ, ScriptType::Bool) {
-                        return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
+                        return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                             expected: ScriptType::Bool,
                             actual: typ,
                         })

@@ -1,0 +1,226 @@
+
+fun test_simple_list() {
+    fruits = [
+        "apple"
+        "orange"
+        "banana"
+    ]
+
+    assert fruits.len() == 3
+    assert fruits == ["apple", "orange", "banana"]
+}
+
+fun test_list_as_function_argument() {
+    fun show(items: [str]) { items }
+
+    assert show(["foo", "bar"]) == ["foo", "bar"]
+}
+
+fun test_print_lists() {
+    foo = "foo"
+    bar = "bar"
+
+    assert "${[]}" == "[]"
+    assert "${[foo, bar]}" == "[foo, bar]"
+    assert "${[1, 2, 3, 4]}" == "[1, 2, 3, 4]"
+}
+
+fun test_empty_list_promotes() {
+    a = []
+
+    assert typeof(a) == "[]"
+
+    if true {
+        a = a.push("foo")
+        assert typeof(a) == "[str]"
+    }
+
+    if true {
+        a = a.push(10) # Promotes [] to [int]
+        assert typeof(a) == "[int]"
+    }
+}
+
+fun test_empty_list_promotes_in_call() {
+    fun test(list: [bool]): str {
+        # assert typeof(list) == "[bool]" -- XXX fails in runtime
+        return "called with $list"
+    }
+
+    assert test([]) == "called with []"
+    assert test(list: []) == "called with []"
+}
+
+fun test_empty_list_promotes_list_items() {
+    list = []
+    list = list.push([10]) # list is now [[int]], list of int-lists
+    assert typeof(list) == "[[int]]"
+    assert list == [[10]]
+
+    list = list.push([])
+    assert "2: $list" == "2: [[10], []]"
+
+    list = [[42], []]
+    assert "3: $list" == "3: [[42], []]"
+
+    list = [[], [42]]
+    assert "4: $list" == "4: [[], [42]]"
+}
+
+fun test_empty_list_promote_in_return() {
+    fun foo(): [int] {
+        return []
+    }
+
+    fun bar(): [int] {
+        []
+    }
+
+    fun poop(): [[int]] {
+        [[]]
+    }
+
+    fun pooppoop(): [[[int]]] {
+        [[[]]]
+    }
+
+    # assert typeof(foo()) == "[int]" -- XXX fails in runtime
+    assert "${foo()}" == "[]"
+    assert "${bar()}" == "[]"
+
+    # assert typeof(poop()) == "[[int]]" -- XXX fails in runtime
+    assert "${poop()}" == "[[]]"
+
+    # assert typeof(pooppoop()) == "[[[int]]]" -- XXX fails in runtime
+    assert "${pooppoop()}" == "[[[]]]"
+}
+
+fun test_simple_map() {
+    fruits = [
+        "apple"
+        "orange"
+        "banana"
+    ]
+
+    fun quote(name: str) {
+        "'$name'"
+    }
+
+    assert typeof(fruits.map(quote)) == "[str]"
+    assert fruits.map(quote) == ["'apple'", "'orange'", "'banana'"]
+}
+
+fun test_map_as_tuple() {
+    fruits = [
+        ("apple", 5)
+        ("orange", 15)
+        ("banana", 42)
+    ]
+
+    fun quote(fruit: str, amount: int) {
+        "$amount ${fruit}s"
+    }
+
+    assert typeof(fruits.map_to(quote)) == "[str]"
+    assert fruits.map_to(quote) == ["5 apples", "15 oranges", "42 bananas"]
+}
+
+fun test_zip_combines_two_lists() {
+    fruits = [
+        "apple"
+        "orange"
+        "banana"
+    ]
+
+    heroes = [ "fred", "barney" ]
+
+    zipped = List::zip(fruits, heroes)
+
+    assert typeof(zipped) == "[(str, str)]"
+    assert zipped == [("apple", "fred"), ("orange", "barney")]
+}
+
+fun test_zip_combines_different_typed_lists() {
+    heroes = [ "fred", "barney" ]
+
+    score = [
+        (100, 120)
+        (110, 100)
+    ]
+
+    zipped = List::zip(heroes, score)
+
+    assert typeof(zipped) == "[(str, (int, int))]"
+    assert zipped == [("fred", (100, 120)), ("barney", (110, 100))]
+}
+
+fun test_zip_infers_type_correctly() {
+    heroes = [ "fred", "barney" ]
+
+    score = [
+        (100, 120)
+        (110, 100)
+    ]
+
+    zipped = List::zip(heroes, score)
+    assert typeof(zipped) == "[(str, (int, int))]"
+
+    # static type check:
+    for it in zipped {
+        (s, (a, b)) = it
+        s.lines()
+        a + b + 10
+    }
+}
+
+fun test_unzip_splits_list_of_tuples() {
+    items = [
+        ("apple", 5)
+        ("orange", 15)
+        ("banana", 42)
+    ]
+
+    unzipped = items.unzip()
+
+    assert typeof(unzipped) == "([str], [int])"
+    assert unzipped == (["apple", "orange", "banana"], [5, 15, 42])
+}
+
+fun test_find_an_item() {
+    fruits = [
+        "apple"
+        "orange"
+        "banana"
+    ]
+
+    fun test(s: str): str {
+        if item in fruits.find(s) {
+            "found $item"
+        } else {
+            "not found"
+        }
+    }
+
+    assert test("banana") == "found banana"
+    assert test("foobar") == "not found"
+
+    # assert typeof(fruits.find("banana")) == "str?" -- XXX fails in runtime
+    # assert typeof(fruits.find("foobar")) == "str?" -- XXX fails in runtime
+    assert fruits.find("banana") == "banana" # XXX maybe shouldn't work
+}
+
+fun test_sum_of_numbers() {
+    numbers = [16, 27, 3, 32, 11, 17, 34]
+
+    assert numbers.sum() == 140
+    assert typeof(numbers.sum()) == "int"
+}
+
+fun test_sort_numbers() {
+    numbers = [16, 27, 3, 32, 11, 17, 34]
+
+    sorted = numbers.sort().sort()
+
+    assert sorted == [3, 11, 16, 17, 27, 32, 34]
+    assert numbers == [16, 27, 3, 32, 11, 17, 34] # not affected
+}

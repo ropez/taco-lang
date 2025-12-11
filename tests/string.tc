@@ -1,0 +1,46 @@
+
+fun test_len() {
+    assert "".len() == 0
+    assert "  foo bar  ".len() == 11
+
+    s = 1234
+    assert "${s + 1}!".len() == 5
+}
+
+fun test_unicode_len() {
+    assert "blåbær".len() == 6
+    assert "Юлія ☃".len() == 6
+}
+
+fun test_lines() {
+    fruits = "
+apple
+orange
+banana
+"
+
+    assert fruits.lines() == ["apple", "orange", "banana"]
+}
+
+fun test_split() {
+    s = "1,123,foobar"
+    tokens = s.split(",")
+    assert tokens == ["1", "123", "foobar"]
+}
+
+fun test_split_at() {
+    s = "superstar"
+    assert s.split_at(5) == ("super", "star")
+}
+
+fun test_unicode_split_at() {
+    (name, symb) = "Юлія☃".split_at(4)
+
+    assert name == "Юлія"
+    assert symb == "☃"
+}
+
+fun test_split_into_named_tuple() {
+    (first, second) = "superstar".split_at(5)
+    assert "A $first cool $second" == "A super cool star"
+}

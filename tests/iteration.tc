@@ -1,0 +1,19 @@
+
+fun test_simple_iteration() {
+    list = [1, 2, 3]
+
+    s = State(0)
+    for it in list {
+        s.update(fun(s) { s + it })
+    }
+
+    assert s.get() == 6
+}
+
+fun test_empty_list_iteration() {
+    fun foo(): [int] { [] }
+
+    for item in foo() {
+        assert false
+    }
+}

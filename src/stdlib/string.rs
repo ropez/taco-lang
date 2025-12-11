@@ -126,11 +126,10 @@ impl NativeMethod for StringSplitAt {
     ) -> Result<ScriptValue, ScriptError> {
         if let ScriptValue::String(subject) = subject {
             let arg = arguments.single()?.as_int()?;
-            if arg < 0 || arg > subject.len() as i64 {
-                return Err(ScriptError::panic("Index out of range"));
-            }
 
-            let (l, r) = subject.split_at(arg as usize);
+            let arg = arg.clamp(0, subject.chars().count() as i64) as usize;
+            let l: String = subject.chars().take(arg).collect();
+            let r: String = subject.chars().skip(arg).collect();
 
             let items = [l, r]
                 .into_iter()
