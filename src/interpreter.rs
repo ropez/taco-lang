@@ -124,6 +124,9 @@ impl PartialEq for ScriptValue {
                 },
             ) => Arc::ptr_eq(dl, dr) && *il == *ir && *lv == *rv,
             (Self::List(l), Self::List(r)) => l.items() == r.items(),
+            (Self::Rec { def: ld, value: lv }, Self::Rec { def: rd, value: rv }) => {
+                Arc::ptr_eq(ld, rd) && *lv == *rv
+            }
             _ => todo!("Equality for {self:?}"),
         }
     }

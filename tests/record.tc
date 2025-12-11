@@ -1,0 +1,92 @@
+
+fun test_record_tuple_like() {
+    rec Point(x: int, y: int)
+
+    p = Point(100, 200)
+
+    assert p.x == 100
+    assert p.y == 200
+
+    assert "$p" == "Point(x: 100, y: 200)"
+}
+
+fun test_record_attribute_access() {
+    rec Point(x: int, y: int)
+
+    p = Point(100, 200)
+
+    assert p.x == 100
+    assert 200 == p.y
+    assert p.x != p.y
+}
+
+fun test_record_struct_like() {
+    rec Person(
+        name: str
+        email: str
+    )
+
+    per = Person(
+        email: "foo@bar.com"
+        name: "per"
+    )
+
+    assert per.name == "per"
+    assert per.email == "foo@bar.com"
+}
+
+fun test_record_with_unnamed_params() {
+    rec Person(str, str)
+
+    per = Person("foo@bar.com", "per")
+
+    (email, name) = per
+    assert name == "per"
+    assert email == "foo@bar.com"
+}
+
+fun test_apply_arguments_from_tuple() {
+    rec Person(name: str, age: int)
+
+    args = ("per", 42)
+    per = Person(=args)
+
+    assert "$per" == "Person(name: per, age: 42)"
+}
+
+fun test_pass_record_as_function() {
+    rec Person(name: str, age: int)
+
+    args = [
+        ("per", 42)
+        ("kari", 36)
+    ]
+
+    people = args.map_to(Person)
+
+    assert people == [
+        Person(name: "per", age: 42),
+        Person("kari", 36)
+    ]
+}
+
+
+fun test_apply_params() {
+    rec Foo(a: int, b: int, c: int, d: int)
+
+    fun dump(foo: Foo) {
+        (foo.a, foo.b, foo.c, foo.d)
+    }
+
+    expected = (1, 2, 3, 4)
+    assert dump(Foo(1, 2, 3, 4)) == expected
+    assert dump(Foo(1, 2, 3, d: 4)) == expected
+    assert dump(Foo(1, 2, d: 4, c: 3)) == expected
+    assert dump(Foo(1, d: 4, c: 3, b: 2)) == expected
+    assert dump(Foo(c: 3, d: 4, a: 1, b: 2)) == expected
+    assert dump(Foo(b: 2, c: 3, d: 4, 1)) == expected
+    assert dump(Foo(b: 2, 1, c: 3, d: 4)) == expected
+    assert dump(Foo(d: 4, 1, c: 3, 2)) == expected
+    assert dump(Foo(1, d: 4, 2, 3)) == expected
+    assert dump(Foo(1, c: 3, 2, 4)) == expected
+}
