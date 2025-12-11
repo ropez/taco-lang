@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::{ScriptError, ScriptErrorKind, TypeError, TypeErrorKind},
+    error::{ScriptError, TypeError, TypeErrorKind},
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     stdlib::{NativeFunction, NativeMethod},

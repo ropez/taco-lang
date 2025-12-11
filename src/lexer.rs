@@ -38,7 +38,9 @@ where
     pub fn cloned(&self) -> T {
         self.inner.clone()
     }
+}
 
+impl<T> Src<T> {
     pub fn into_inner(self) -> T {
         self.inner
     }

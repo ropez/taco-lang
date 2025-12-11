@@ -29,7 +29,7 @@ impl NativeFunction for ParseFunc {
         if let Some(ScriptValue::String(s)) = arguments.first() {
             let mut values = Vec::new();
             let mut tokens = s.split_ascii_whitespace();
-            for d in &self.def.params {
+            for d in self.def.params.as_ref() {
                 values.push(TupleItem::new(
                     d.name.clone(),
                     match d.type_expr.as_ref() {

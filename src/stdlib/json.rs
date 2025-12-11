@@ -54,7 +54,7 @@ impl From<&ScriptValue> for JsonValue {
 fn transform_record(def: &Record, value: &Tuple) -> HashMap<String, JsonValue> {
     let mut items = HashMap::new();
 
-    for (i, (item, d)) in value.items().iter().zip(&def.params).enumerate() {
+    for (i, (item, d)) in value.items().iter().zip(def.params.as_ref()).enumerate() {
         let default_name = d
             .name
             .as_ref()
