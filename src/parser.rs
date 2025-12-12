@@ -95,6 +95,8 @@ pub enum Expression {
     },
 
     Function(Arc<Function>),
+
+    Match(Box<Src<Expression>>, Vec<MatchArm>),
 }
 
 #[derive(Debug)]
@@ -213,6 +215,12 @@ impl Assignee {
             pattern: Some(pattern),
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct MatchArm {
+    pub(crate) pattern: Box<Src<Expression>>, // For now
+    pub(crate) expr: Box<Src<Expression>>,
 }
 
 pub struct Parser<'a> {
@@ -491,6 +499,21 @@ impl<'a> Parser<'a> {
                 let e = self.expect_kind(TokenKind::RightParen)?;
                 let args = Src::new(args, wrap_locations(token.loc, e.loc));
                 let expr = Src::new(Expression::Tuple(args), wrap_locations(token.loc, e.loc));
+                self.parse_continuation(expr, 0)?
+            }
+            TokenKind::Match => {
+                let expr = self.parse_expression(0)?;
+                self.expect_kind(TokenKind::LeftBrace)?;
+                let arms = self.parse_inner_list(TokenKind::RightBrace, |p| {
+                    let pattern = p.parse_expression(0)?;
+                    p.expect_kind(TokenKind::LeftBrace)?;
+                    let expr = p.parse_expression(0)?;
+                    p.expect_kind(TokenKind::RightBrace)?;
+
+                    Ok(MatchArm { pattern: pattern.into(), expr: expr.into() })
+                })?;
+                let e = self.expect_kind(TokenKind::RightBrace)?;
+                let expr = Src::new(Expression::Match(expr.into(), arms), wrap_locations(token.loc, e.loc));
                 self.parse_continuation(expr, 0)?
             }
             _ => return Err(self.fail_at("unexpected token", &token)),

@@ -698,6 +698,20 @@ impl Interpreter {
                 self.eval_callable(subject, &arguments)
                     .map_err(|err| err.at(expr.loc))?
             }
+            Expression::Match(expr, arms) => {
+                let val = self.eval_expr(expr, scope)?;
+
+                for arm in arms {
+                    let v = self.eval_expr(&arm.pattern, scope)?;
+                    if ScriptValue::eq(&val, &v) {
+                        let ret = self.eval_expr(&arm.expr, scope)?;
+
+                        return Ok(ret);
+                    }
+                }
+
+                ScriptValue::identity() // unreachable
+            }
         };
 
         Ok(value)

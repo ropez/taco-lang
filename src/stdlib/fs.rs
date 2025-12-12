@@ -2,7 +2,7 @@ use std::fs;
 
 use crate::{
     Builder,
-    error::{ScriptError, ScriptErrorKind},
+    error::ScriptError,
     interpreter::{Interpreter, ScriptValue, Tuple},
     stdlib::NativeFunction,
     validate::{ScriptType, TupleType},

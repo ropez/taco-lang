@@ -911,6 +911,10 @@ impl Validator {
                     Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
                 }
             }
+            Expression::Match(src, arms) => {
+                // todo!("validate match"),
+                Ok(ScriptType::Str)
+            }
         }
     }
 
