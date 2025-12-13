@@ -924,7 +924,7 @@ impl Validator {
             Expression::Division(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Modulo(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Try(inner) => {
-                if scope.ret.as_ref().is_some_and(|r| !r.is_optional()) {
+                if scope.ret.as_ref().is_none_or(|r| !r.is_optional()) {
                     return Err(TypeError::new(TypeErrorKind::TryNotAllowed).at(expr.loc));
                 }
                 let inner_typ = self.validate_expr(inner, scope)?;

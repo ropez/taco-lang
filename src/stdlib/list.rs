@@ -12,6 +12,7 @@ use crate::{
 pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "len", ListLen);
     builder.add_method(global::LIST, "push", ListPush);
+    builder.add_method(global::LIST, "at", ListAt);
     builder.add_method(global::LIST, "find", ListFind);
     builder.add_method(global::LIST, "count", ListCount);
     builder.add_method(global::LIST, "unzip", ListUnzip);
@@ -118,6 +119,28 @@ trait ListMethod {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError>;
+}
+
+pub(crate) struct ListAt;
+impl ListMethod for ListAt {
+    fn list_arguments_type(&self, _inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(ScriptType::Int))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Opt(Box::new(inner.clone())))
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        list: Arc<List>,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let val = arguments.single()?.as_int()?;
+        let opt_val = list.items().get(val as usize);
+        Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
+    }
 }
 
 pub(crate) struct ListFind;

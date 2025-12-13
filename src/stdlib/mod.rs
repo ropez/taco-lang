@@ -10,6 +10,7 @@ use crate::{
 pub(crate) mod list;
 
 pub(crate) mod math;
+pub(crate) mod opt;
 pub(crate) mod parse;
 pub(crate) mod print;
 pub(crate) mod state;

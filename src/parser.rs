@@ -270,7 +270,6 @@ pub struct Parser<'a> {
 }
 
 mod constants {
-    pub(crate) const BP_QUESTION: u32 = 2;
     pub(crate) const BP_EQUAL: u32 = 3;
     pub(crate) const BP_CMP: u32 = 4;
     pub(crate) const BP_SPREAD: u32 = 6;
@@ -281,6 +280,7 @@ mod constants {
     pub(crate) const BP_CALL: u32 = 90;
     pub(crate) const BP_NEGATE: u32 = 95;
     pub(crate) const BP_ACCESS: u32 = 100;
+    pub(crate) const BP_QUESTION: u32 = 110;
 }
 
 impl<'a> Parser<'a> {
@@ -648,9 +648,7 @@ impl<'a> Parser<'a> {
 
                         let loc = wrap_locations(lhs.loc, t.loc);
                         let expr = Src::new(Expression::Try(Box::new(lhs)), loc);
-                        // XXX Continuation
-
-                        expr
+                        self.parse_continuation(expr, bp)?
                     }
                 }
                 (_, TokenKind::Spread) => {

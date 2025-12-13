@@ -57,11 +57,7 @@ fun test_explicit_return_nothing() {
         assert s == "ok"
     }
 
-    if s in foo(false) {
-        assert false
-    } else {
-        assert true
-    }
+    assert Opt::is_none(foo(false))
 }
 
 fun test_tuple_destructuring() {
@@ -101,11 +97,7 @@ fun test_nested_opt() {
         assert false
     }
 
-    if x in bar(true, false) {
-        assert false
-    } else {
-        assert true
-    }
+    assert Opt::is_none(bar(true, false))
 }
 
 fun test_nested_opt_trick_with_tuple() {
@@ -172,11 +164,7 @@ fun test_question_operator() {
         assert false
     }
 
-    if r in try_buy("pineapple", 36) {
-        assert false
-    } else {
-        assert true
-    }
+    assert Opt::is_none(try_buy("pineapple", 36))
 }
 
 fun test_question_operator_nested_calls() {
@@ -205,9 +193,32 @@ fun test_question_operator_nested_calls() {
         assert false
     }
 
-    if r in try_buy("x", 36) {
-        assert false
-    } else {
-        assert true
+    assert Opt::is_none(try_buy("x", 36))
+}
+
+fun test_call_after_question() {
+    heroes = ["fred", "barney"]
+
+    fun foo(hero: str): (str, str)? {
+        heroes.find(hero)?.split_at(1)
     }
+
+    if (a, b) in foo("fred") {
+        assert a == "f"
+        assert b == "red"
+    } else {
+        assert false
+    }
+
+    assert Opt::is_none(foo("poop"))
+}
+
+fun test_multiple_question() {
+    nums = [25, 50, 75]
+    fun foo(i: int, j: int): int? {
+        nums.at(i)? + nums.at(j)?
+    }
+
+    assert foo(1, 2) == 125
+    assert Opt::is_none(foo(1, 4))
 }

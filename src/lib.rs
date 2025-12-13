@@ -149,6 +149,7 @@ where
     stdlib::string::build(&mut builder);
     stdlib::math::build(&mut builder);
     stdlib::list::build(&mut builder);
+    stdlib::opt::build(&mut builder);
     stdlib::with::build(&mut builder);
     stdlib::state::build(&mut builder);
     stdlib::print::build(&mut builder, out);
