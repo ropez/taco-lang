@@ -50,11 +50,13 @@ pub enum ScriptValue {
         function: Arc<Function>,
         captured_scope: Arc<Scope>, // XXX Fix warning with dedicated struct type
     },
+
     Record(Arc<Record>),
     EnumVariant {
         def: Arc<Enumeration>,
         index: usize,
     },
+
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
 
@@ -647,7 +649,7 @@ impl Interpreter {
                 function: Arc::clone(fun),
                 captured_scope: Arc::new(scope.clone()),
             },
-            Expression::Not(expr) => {
+            Expression::LogicNot(expr) => {
                 let val = self.eval_expr(expr, scope)?;
                 if let ScriptValue::Boolean(b) = val {
                     ScriptValue::Boolean(!b)
@@ -696,6 +698,8 @@ impl Interpreter {
             Expression::Modulo(lhs, rhs) => {
                 self.eval_arithmetic(i64::checked_rem_euclid, lhs, rhs, scope)?
             }
+            Expression::LogicAnd(lhs, rhs) => self.eval_logic(|a, b| a && b, lhs, rhs, scope)?,
+            Expression::LogicOr(lhs, rhs) => self.eval_logic(|a, b| a || b, lhs, rhs, scope)?,
             Expression::LessThan(lhs, rhs) => {
                 self.eval_comparison(|a, b| a < b, lhs, rhs, scope)?
             }
@@ -769,6 +773,21 @@ impl Interpreter {
             (ScriptValue::Int(_), ScriptValue::NaN) => Ok(ScriptValue::NaN),
             _ => panic!("Expected numbers"),
         }
+    }
+
+    fn eval_logic<F>(
+        &self,
+        op: F,
+        lhs: &Src<Expression>,
+        rhs: &Src<Expression>,
+        scope: &Scope,
+    ) -> Result<ScriptValue>
+    where
+        F: FnOnce(bool, bool) -> bool,
+    {
+        let lhs = self.eval_expr(lhs, scope)?.as_boolean()?;
+        let rhs = self.eval_expr(rhs, scope)?.as_boolean()?;
+        Ok(ScriptValue::Boolean(op(lhs, rhs)))
     }
 
     pub(crate) fn eval_callable(

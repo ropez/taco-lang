@@ -140,11 +140,16 @@ impl TypeError {
         Self { kind, loc: None }
     }
 
+    pub fn expected_type(expected: ScriptType, actual: ScriptType) -> Self {
+        Self::new(TypeErrorKind::InvalidArgumentType { expected, actual, })
+    }
+
     pub fn expected_number(actual: ScriptType) -> Self {
-        Self::new(TypeErrorKind::InvalidArgumentType {
-            expected: ScriptType::Int,
-            actual,
-        })
+        Self::expected_type(ScriptType::Int, actual)
+    }
+
+    pub fn expected_bool(actual: ScriptType) -> Self {
+        Self::expected_type(ScriptType::Bool, actual)
     }
 
     pub fn at(self, loc: impl Into<Option<Loc>>) -> Self {

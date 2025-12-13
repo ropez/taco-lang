@@ -88,7 +88,9 @@ pub enum TokenKind {
     RightSquare,
     Question,
     Alpha,
-    Not,
+    LogicNot,
+    LogicAnd,
+    LogicOr,
     Equal,
     NotEqual,
     LessThan,
@@ -176,7 +178,21 @@ impl<'a> Tokenizer<'a> {
                     if self.take_if_eq('=') {
                         Some(self.produce(TokenKind::NotEqual))
                     } else {
-                        Some(self.produce(TokenKind::Not))
+                        Some(self.produce(TokenKind::LogicNot))
+                    }
+                }
+                '&' => {
+                    if self.take_if_eq('&') {
+                        Some(self.produce(TokenKind::LogicAnd))
+                    } else {
+                        return Err(ParseError::unexpected_token().at(self.loc));
+                    }
+                }
+                '|' => {
+                    if self.take_if_eq('|') {
+                        Some(self.produce(TokenKind::LogicOr))
+                    } else {
+                        return Err(ParseError::unexpected_token().at(self.loc));
                     }
                 }
                 '(' => Some(self.produce(TokenKind::LeftParen)),

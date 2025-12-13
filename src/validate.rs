@@ -684,11 +684,7 @@ impl Validator {
                 Statement::Assert(expr) => {
                     let typ = self.validate_expr(expr, &scope)?;
                     if !matches!(typ, ScriptType::Bool) {
-                        return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
-                            expected: ScriptType::Bool,
-                            actual: typ,
-                        })
-                        .at(expr.loc));
+                        return Err(TypeError::expected_bool(typ).at(expr.loc));
                     }
 
                     self.try_static_assert(expr, &scope)?;
@@ -857,14 +853,10 @@ impl Validator {
                     ret: ret.into(),
                 })
             }
-            Expression::Not(expr) => {
+            Expression::LogicNot(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if !ScriptType::Bool.accepts(&typ) {
-                    return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
-                        expected: ScriptType::Bool,
-                        actual: typ.clone(),
-                    })
-                    .at(expr.loc));
+                    return Err(TypeError::expected_bool(typ).at(expr.loc));
                 }
                 Ok(ScriptType::Bool)
             }
@@ -882,6 +874,19 @@ impl Validator {
 
                 Ok(ScriptType::Bool)
             }
+            Expression::LogicAnd(lhs, rhs) | Expression::LogicOr(lhs, rhs) => {
+                let l = self.validate_expr(lhs, scope)?;
+                let r = self.validate_expr(rhs, scope)?;
+
+                if !ScriptType::Bool.accepts(&l) {
+                    return Err(TypeError::expected_bool(l).at(lhs.loc));
+                }
+                if !ScriptType::Bool.accepts(&r) {
+                    return Err(TypeError::expected_bool(r).at(rhs.loc));
+                }
+
+                Ok(ScriptType::Bool)
+            }
             Expression::LessThan(lhs, rhs)
             | Expression::GreaterThan(lhs, rhs)
             | Expression::LessOrEqual(lhs, rhs)
@@ -890,10 +895,10 @@ impl Validator {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if !ScriptType::Int.accepts(&l) {
-                    return Err(TypeError::expected_number(l.clone()).at(lhs.loc));
+                    return Err(TypeError::expected_number(l).at(lhs.loc));
                 }
                 if !ScriptType::Int.accepts(&r) {
-                    return Err(TypeError::expected_number(r.clone()).at(rhs.loc));
+                    return Err(TypeError::expected_number(r).at(rhs.loc));
                 }
 
                 Ok(ScriptType::Bool)
@@ -903,10 +908,10 @@ impl Validator {
                 let r = self.validate_expr(rhs, scope)?;
 
                 if !ScriptType::Int.accepts(&l) {
-                    return Err(TypeError::expected_number(l.clone()).at(lhs.loc));
+                    return Err(TypeError::expected_number(l).at(lhs.loc));
                 }
                 if !ScriptType::Int.accepts(&r) {
-                    return Err(TypeError::expected_number(r.clone()).at(rhs.loc));
+                    return Err(TypeError::expected_number(r).at(rhs.loc));
                 }
 
                 Ok(ScriptType::Range)
@@ -914,7 +919,7 @@ impl Validator {
             Expression::Negate(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
                 if !ScriptType::Int.accepts(&typ) {
-                    return Err(TypeError::expected_number(typ.clone()).at(expr.loc));
+                    return Err(TypeError::expected_number(typ).at(expr.loc));
                 }
                 Ok(typ)
             }

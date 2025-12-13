@@ -72,7 +72,9 @@ pub enum Expression {
     Arguments,
     List(Vec<Src<Expression>>),
     Tuple(Src<Vec<ArgumentExpression>>),
-    Not(Box<Src<Expression>>),
+    LogicNot(Box<Src<Expression>>),
+    LogicAnd(Box<Src<Expression>>, Box<Src<Expression>>),
+    LogicOr(Box<Src<Expression>>, Box<Src<Expression>>),
     Equal(Box<Src<Expression>>, Box<Src<Expression>>),
     NotEqual(Box<Src<Expression>>, Box<Src<Expression>>),
     LessThan(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -273,6 +275,8 @@ mod constants {
     pub(crate) const BP_EQUAL: u32 = 3;
     pub(crate) const BP_CMP: u32 = 4;
     pub(crate) const BP_SPREAD: u32 = 6;
+    pub(crate) const BP_LOGIC_OR: u32 = 7;
+    pub(crate) const BP_LOGIC_AND: u32 = 8;
     pub(crate) const BP_PLUS: u32 = 10;
     pub(crate) const BP_MINUS: u32 = 10;
     pub(crate) const BP_DIV: u32 = 20;
@@ -470,11 +474,11 @@ impl<'a> Parser<'a> {
 
         let expr = match token.as_ref() {
             TokenKind::Identifier(s) => self.handle_identifier_expr(s.clone(), token.loc, bp)?,
-            TokenKind::Not => {
+            TokenKind::LogicNot => {
                 // FIX continuation: !foo || bar
                 let expr = self.parse_expression(bp)?;
                 let loc = wrap_locations(token.loc, expr.loc);
-                Src::new(Expression::Not(expr.into()), loc)
+                Src::new(Expression::LogicNot(expr.into()), loc)
             }
             TokenKind::String(s) => {
                 let expr = self.parse_string(s, token.loc)?;
@@ -590,6 +594,12 @@ impl<'a> Parser<'a> {
         let expr = match self.peek_continuation() {
             None => lhs,
             Some((new_line, kind)) => match (new_line, kind) {
+                (_, TokenKind::LogicAnd) => {
+                    self.parse_binary_expr(lhs, Expression::LogicAnd, BP_LOGIC_AND, bp)?
+                }
+                (_, TokenKind::LogicOr) => {
+                    self.parse_binary_expr(lhs, Expression::LogicOr, BP_LOGIC_OR, bp)?
+                }
                 (_, TokenKind::Equal) => {
                     self.parse_binary_expr(lhs, Expression::Equal, BP_EQUAL, bp)?
                 }

@@ -75,24 +75,6 @@ fun all_operations_with_nan() {
     assert "${nan / 1}" == "NaN"
 }
 
-fun all_comparison_operations() {
-    assert 1 < 1 == false
-    assert 1 < 2 == true
-    assert 1 > 1 == false
-    assert 2 > 1 == true
-    assert 2 <= 1 == false
-    assert 2 <= 2 == true
-    assert 1 >= 2 == false
-    assert 2 >= 2 == true
-}
-
-fun test_comparizone_and_equality_precedence() {
-    assert { 1 < 1 + 1 == 1 + 1 > 1 } == true
-    assert { 1 + 1 > 1 == 1 < 1 + 1 } == true
-    assert { 1 + 1 <= 1 == 1 >= 1 + 1 } == true
-    assert { 1 >= 1 + 1 == 1 + 1 <= 1 } == true
-}
-
 fun test_span_multiple_lines() {
     foo =
         10 + 10

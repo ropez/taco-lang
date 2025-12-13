@@ -1,0 +1,76 @@
+
+fun test_equality() {
+    assert false == false
+    assert true == true == true
+    assert true != false
+    assert false != true
+}
+
+fun test_function_equality() {
+    fun test(a: int): bool { a != 0 }
+
+    assert test(0) == false
+    assert test(1) == true == test(1)
+    assert test(1) != false
+    assert test(0) != true
+    assert false == test(0)
+    assert true == test(1) == true
+    assert false != test(1)
+    assert true != test(0)
+}
+
+fun test_not() {
+    fun test(a: int): bool { a != 0 }
+
+    assert !false
+    assert !!true
+    assert !false == true
+    assert !true == false
+    assert !!!false == !!true
+    assert !!!true == !!false
+    assert true == !false
+    assert false == !true
+    assert !test(0) == true
+    assert !test(1) == false
+    assert !!test(1)
+    assert !!!test(0)
+    assert !{!{test(1)}}
+    assert !{!{!{test(0)}}}
+}
+
+fun test_and_or() {
+    assert true && true == true
+    assert true && false == false
+    assert false && true == false
+    assert false && false == false
+
+    assert true || true == true
+    assert true || false == true
+    assert false || true == true
+    assert false || false == false
+
+    # Precedence
+    assert { false && false || true } == true
+    assert { true || false && false } == true
+    assert { true == false || true } == true
+    assert { true || false == true } == true
+}
+
+fun all_comparison_operations() {
+    assert 1 < 1 == false
+    assert 1 < 2 == true
+    assert 1 > 1 == false
+    assert 2 > 1 == true
+    assert 2 <= 1 == false
+    assert 2 <= 2 == true
+    assert 1 >= 2 == false
+    assert 2 >= 2 == true
+}
+
+fun test_comparizone_and_equality_precedence() {
+    assert { 1 < 1 + 1 == 1 + 1 > 1 } == true
+    assert { 1 + 1 > 1 == 1 < 1 + 1 } == true
+    assert { 1 + 1 <= 1 == 1 >= 1 + 1 } == true
+    assert { 1 >= 1 + 1 == 1 + 1 <= 1 } == true
+}
+
