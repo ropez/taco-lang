@@ -23,6 +23,9 @@ pub mod parser;
 mod stdlib;
 pub mod validate;
 
+#[cfg(test)]
+mod tests;
+
 pub fn check_output(src: &str) -> Result<String, Error> {
     let (mut reader, writer) = pipe().expect("create pipe");
 

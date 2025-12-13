@@ -1,0 +1,44 @@
+
+fun test_arg_equals_string() {
+    fun test(arg: str): str {
+        if arg == "taco" {
+            return "equal"
+        } else {
+            return "not equal"
+        }
+    }
+
+    assert test("taco") == "equal"
+    assert test("foobar") == "not equal"
+}
+
+fun test_string_equals_arg() {
+    fun test(arg: str): str {
+        if "taco" == arg {
+            return "equal"
+        } else {
+            return "not equal"
+        }
+    }
+
+    assert test("taco") == "equal"
+    assert test("foobar") == "not equal"
+}
+
+fun test_function_returns_true() {
+    fun foo(arg: str): bool {
+        return arg == "taco"
+    }
+
+    fun test(arg: str): str {
+        if foo(arg) {
+            return "equal"
+        } else {
+            return "not equal"
+        }
+    }
+
+    assert test("taco") == "equal"
+    assert test("foobar") == "not equal"
+}
+
