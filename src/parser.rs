@@ -204,7 +204,7 @@ pub struct Variant {
     pub(crate) params: Option<Src<Vec<ParamExpression>>>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Assignee {
     pub(crate) name: Option<Ident>,
     pub(crate) pattern: Option<Vec<Src<Assignee>>>,
@@ -232,7 +232,7 @@ pub struct MatchArm {
     pub(crate) expr: Box<Src<Expression>>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone)]
 pub enum MatchPattern {
     // XXX DRY this into some "LiteralExpression"?
     Discard,
@@ -241,7 +241,19 @@ pub enum MatchPattern {
     False,
     Int(i64),
     Str(Arc<str>),
-    PrefixedName(Option<Ident>, Ident),
+    EnumVariant(Option<Ident>, Ident, Option<Src<Assignee>>),
+}
+
+impl MatchPattern {
+    pub(crate) fn matches(&self, other: &MatchPattern) -> bool {
+        match self {
+            Self::Discard => true,
+            Self::Assignee(_) => !matches!(other, Self::Discard),
+            Self::True => matches!(other, Self::True),
+            Self::False => matches!(other, Self::False),
+            _ => unreachable!("comparing patterns, {self:?}"),
+        }
+    }
 }
 
 pub struct Parser<'a> {
@@ -819,8 +831,14 @@ impl<'a> Parser<'a> {
             }
             TokenKind::DoubleColon => {
                 let (ident, e) = self.expect_ident()?;
-                let loc = wrap_locations(token.loc, e);
-                Src::new(MatchPattern::PrefixedName(None, ident), loc)
+                if let Some(TokenKind::LeftParen) = self.peek_kind() {
+                    let pattern = self.parse_destructuring_pattern(None)?;
+                    let loc = wrap_locations(token.loc, pattern.loc);
+                    Src::new(MatchPattern::EnumVariant(None, ident, Some(pattern)), loc)
+                } else {
+                    let loc = wrap_locations(token.loc, e);
+                    Src::new(MatchPattern::EnumVariant(None, ident, None), loc)
+                }
             }
             _ => todo!("Invalid pattern"),
         };
@@ -837,8 +855,17 @@ impl<'a> Parser<'a> {
         }
         if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
             let (name, l) = self.expect_ident()?;
-            let loc = wrap_locations(loc, l);
-            let expr = Src::new(MatchPattern::PrefixedName(Some(ident), name), loc);
+            let expr = if let Some(TokenKind::LeftParen) = self.peek_kind() {
+                let pattern = self.parse_destructuring_pattern(None)?;
+                let loc = wrap_locations(loc, pattern.loc);
+                Src::new(
+                    MatchPattern::EnumVariant(Some(ident), name, Some(pattern)),
+                    loc,
+                )
+            } else {
+                let loc = wrap_locations(loc, l);
+                Src::new(MatchPattern::EnumVariant(Some(ident), name, None), loc)
+            };
             Ok(expr)
         } else {
             let expr = Src::new(MatchPattern::Assignee(ident), loc);

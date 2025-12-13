@@ -68,3 +68,31 @@ fun test_pattern_mathing_variable() {
     assert test("x") == true
 }
 
+fun test_pattern_matching_destructure_enum() {
+    enum Country {
+        Spain
+        France
+        Italy
+    }
+
+    enum City {
+        Paris
+        London
+        Madrid
+    }
+
+    enum VacationPlan {
+        StayAtHome
+        TravelTo(Country, City)
+    }
+
+    fun test(plan: VacationPlan): str {
+        match plan {
+            VacationPlan::StayAtHome { "staying home this year" }
+            VacationPlan::TravelTo(country, city) { "visiting $city, $country!" }
+        }
+    }
+
+    assert test(VacationPlan::StayAtHome) == "staying home this year"
+    assert test(VacationPlan::TravelTo(Country::France, City::Paris)) == "visiting Paris, France!"
+}

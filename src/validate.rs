@@ -136,7 +136,7 @@ impl ScriptType {
             Self::Bool => {
                 if [MatchPattern::False, MatchPattern::True]
                     .iter()
-                    .all(|k| patterns.iter().any(|p| ***p == *k))
+                    .all(|k| patterns.iter().any(|p| k.matches(p)))
                 {
                     return true;
                 }
@@ -1445,13 +1445,25 @@ impl Validator {
     ) -> Result<Src<ScriptType>> {
         let mut inner_scope = scope.clone();
 
-        if let MatchPattern::Assignee(name) = arm.pattern.as_ref().as_ref() {
-            let inner_type = if let ScriptType::Opt(typ) = expr_type {
-                typ.as_ref().clone()
-            } else {
-                expr_type.clone()
-            };
-            inner_scope.set_local(name.clone(), inner_type);
+        match arm.pattern.as_ref().as_ref() {
+            MatchPattern::Assignee(name) => {
+                inner_scope.set_local(name.clone(), expr_type.flatten().clone());
+            }
+            MatchPattern::EnumVariant(_, name, Some(assignee)) => {
+                let var_typ = if let ScriptType::Enum(e) = expr_type.flatten() {
+                    e.variants.iter().find(|v| v.name == *name)
+                } else {
+                    todo!("complex error pattern")
+                };
+
+                // Need to "fake" enum variant type to tuple type
+                let var_params = var_typ.and_then(|t| t.params.as_ref());
+                if let Some(tuple) = var_params {
+                    let as_type = ScriptType::Tuple(tuple.clone());
+                    self.eval_assignment(assignee, &as_type, &mut inner_scope)?;
+                }
+            }
+            _ => (),
         }
 
         self.eval_expr(&arm.expr, &inner_scope)

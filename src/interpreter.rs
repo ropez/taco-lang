@@ -909,7 +909,7 @@ impl Interpreter {
                     Ok(Some(locals))
                 }
             }
-            MatchPattern::PrefixedName(prefix, name) => {
+            MatchPattern::EnumVariant(prefix, name, assignee) => {
                 if let ScriptValue::Enum { def, index, .. } = val {
                     let def = {
                         if let Some(ident) = prefix {
@@ -923,14 +923,16 @@ impl Interpreter {
                     }?;
 
                     if let Some((idx, var)) = def.find_variant(name) {
-                        if var.params.is_none() {
-                            if Arc::ptr_eq(def, def) && *index == idx {
-                                Ok(Some(HashMap::new()))
+                        if Arc::ptr_eq(def, def) && *index == idx {
+                            if let Some(assignee) = assignee {
+                                let mut locals = Scope::default();
+                                eval_assignment(assignee, val, &mut locals);
+                                Ok(Some(locals.locals))
                             } else {
-                                Ok(None)
+                                Ok(Some(HashMap::new()))
                             }
                         } else {
-                            todo!("pattern match enum with variants")
+                            Ok(None)
                         }
                     } else {
                         Err(ScriptError::panic(format!(
@@ -1007,8 +1009,9 @@ fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
         (None, None) => {}
         (Some(name), None) => scope.set_local(name.clone(), rhs.clone()),
         (_, Some(pattern)) => match rhs {
-            ScriptValue::Tuple(values) => eval_destructure(pattern, values, scope),
-            ScriptValue::Rec { value: values, .. } => eval_destructure(pattern, values, scope),
+            ScriptValue::Tuple(value) => eval_destructure(pattern, value, scope),
+            ScriptValue::Rec { value, .. } => eval_destructure(pattern, value, scope),
+            ScriptValue::Enum { value, .. } => eval_destructure(pattern, value, scope),
             _ => panic!("Expected tuple, found: {rhs}"),
         },
     }
