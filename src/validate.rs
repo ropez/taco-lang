@@ -68,6 +68,7 @@ impl ScriptType {
             (ScriptType::Range, ScriptType::Range) => true,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
+            (ScriptType::List(l), ScriptType::Range) => l.accepts(&ScriptType::Int),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
             (ScriptType::Enum(l), ScriptType::Enum(r)) => Arc::ptr_eq(l, r),
@@ -1583,6 +1584,9 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
         }
         (ScriptType::List(formal), ScriptType::List(inner)) => {
             found.extend(infer_types(formal, inner));
+        }
+        (ScriptType::List(formal), ScriptType::Range) => {
+            found.extend(infer_types(formal, &ScriptType::Int));
         }
         (ScriptType::Function { ret: formal, .. }, ScriptType::Function { ret, .. }) => {
             found.extend(infer_types(formal, ret));

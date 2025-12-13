@@ -167,10 +167,6 @@ fun day4_printing_department() {
 
     rec Coord(l: int, c: int)
 
-    fun all_coords(rows: range, cols: range) {
-        List::cartesian(rows.to_list(), cols.to_list()).map_to(Coord)
-    }
-
     fun is_roll(coord: Coord): bool {
         if line in grid.at(coord.l) {
             if ch in line.at(coord.c) {
@@ -181,17 +177,16 @@ fun day4_printing_department() {
     }
 
     fun adjacent_roll_count(ch: Coord): int {
-        adjacent_coords = all_coords(
-            ch.l-1..ch.l+1
-            ch.c-1..ch.c+1
-        )
-
-        return adjacent_coords.filter(is_roll).len()
+        List::cartesian(ch.l-1 .. ch.l+1, ch.c-1 .. ch.c+1)
+            .map_to(Coord)
+            .filter(is_roll)
+            .len()
     }
 
     height = grid.len()
     width = grid.at(0)!.len()
-    answer = all_coords(0..height, 0..width)
+    answer = List::cartesian(0..height-1, 0..width-1)
+        .map_to(Coord)
         .filter(fun(coord) {
             is_roll(coord) && adjacent_roll_count(coord) <= 4
         })
