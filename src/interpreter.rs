@@ -724,6 +724,13 @@ impl Interpreter {
                 }
                 val
             }
+            Expression::AssertSome(inner) => {
+                let val = self.eval_expr(inner, scope)?;
+                if let ScriptValue::None = val {
+                    return Err(ScriptError::panic("No value in assertion").at(expr.loc))
+                }
+                val
+            }
             Expression::Coalesce(lhs, rhs) => {
                 let val = self.eval_expr(lhs, scope)?;
                 match val {

@@ -190,8 +190,7 @@ fun day4_printing_department() {
     }
 
     height = grid.len()
-    first = grid.at(0) ?? []
-    width = first.len()
+    width = grid.at(0)!.len()
     answer = all_coords(0..height, 0..width)
         .filter(fun(coord) {
             is_roll(coord) && adjacent_roll_count(coord) <= 4

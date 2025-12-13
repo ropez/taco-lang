@@ -91,6 +91,8 @@ pub enum Expression {
 
     // An expression followed by the '?' operator
     Try(Box<Src<Expression>>),
+    // An expression followed by the '!' operator
+    AssertSome(Box<Src<Expression>>),
     // An opt expression with a fallback (e.g. find() ?? 0)
     Coalesce(Box<Src<Expression>>, Box<Src<Expression>>),
 
@@ -478,7 +480,7 @@ impl<'a> Parser<'a> {
 
         let expr = match token.as_ref() {
             TokenKind::Identifier(s) => self.handle_identifier_expr(s.clone(), token.loc, bp)?,
-            TokenKind::LogicNot => {
+            TokenKind::Exclamation => {
                 // FIX continuation: !foo || bar
                 let expr = self.parse_expression(bp)?;
                 let loc = wrap_locations(token.loc, expr.loc);
@@ -662,6 +664,17 @@ impl<'a> Parser<'a> {
 
                         let loc = wrap_locations(lhs.loc, t.loc);
                         let expr = Src::new(Expression::Try(Box::new(lhs)), loc);
+                        self.parse_continuation(expr, bp)?
+                    }
+                }
+                (_, TokenKind::Exclamation) => {
+                    if bp >= BP_QUESTION {
+                        lhs
+                    } else {
+                        let t = self.expect_token()?;
+
+                        let loc = wrap_locations(lhs.loc, t.loc);
+                        let expr = Src::new(Expression::AssertSome(Box::new(lhs)), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }

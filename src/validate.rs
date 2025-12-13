@@ -945,6 +945,15 @@ impl Validator {
                     }
                 }
             }
+            Expression::AssertSome(inner) => {
+                let inner_typ = self.validate_expr(inner, scope)?;
+                match inner_typ {
+                    ScriptType::Opt(inner) => Ok(*inner),
+                    _ => {
+                        Err(TypeError::new(TypeErrorKind::InvalidOptional(inner_typ)).at(inner.loc))
+                    }
+                }
+            }
             Expression::Coalesce(lhs, rhs) => {
                 let lhs_typ = self.validate_expr(lhs, scope)?;
                 let rhs_typ = self.validate_expr(rhs, scope)?;

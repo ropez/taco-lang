@@ -89,7 +89,7 @@ pub enum TokenKind {
     Question,
     Coalesce,
     Alpha,
-    LogicNot,
+    Exclamation,
     LogicAnd,
     LogicOr,
     Equal,
@@ -179,7 +179,7 @@ impl<'a> Tokenizer<'a> {
                     if self.take_if_eq('=') {
                         Some(self.produce(TokenKind::NotEqual))
                     } else {
-                        Some(self.produce(TokenKind::LogicNot))
+                        Some(self.produce(TokenKind::Exclamation))
                     }
                 }
                 '&' => {
