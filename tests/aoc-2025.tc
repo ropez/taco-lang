@@ -27,11 +27,10 @@ fun day1_secret_entrance() {
 
     seq = turns.scan(
         fun(last: int, turn: Turn) {
-            match turn.dir {
+            match? turn.dir {
                 "L" { { last - turn.count } % 100 }
                 "R" { { last + turn.count } % 100 }
-                _ { last }
-            }
+            }!
         }
         initial: 50
     )
