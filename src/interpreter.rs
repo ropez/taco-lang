@@ -11,8 +11,8 @@ use crate::{
     ident::{Ident, global},
     lexer::Src,
     parser::{
-        Assignee, CallExpression, Enumeration, Expression, Function, ParamExpression, Record,
-        Statement, TypeExpression,
+        Assignee, CallExpression, Enumeration, Expression, Function, MatchPattern, ParamExpression,
+        Record, Statement, TypeExpression,
     },
     stdlib::{ExternalValue, NativeFunctionRef, NativeMethodRef, list::List, parse::ParseFunc},
     validate::ExternalType,
@@ -76,10 +76,17 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_boolean(&self) -> bool {
+    pub fn as_boolean(&self) -> Result<bool> {
         match self {
-            Self::Boolean(b) => *b,
-            _ => panic!("Expected bool, found {self}"),
+            Self::Boolean(b) => Ok(*b),
+            _ => Err(ScriptError::panic("Expected boolean, found {self}")),
+        }
+    }
+
+    pub fn as_string(&self) -> Result<Arc<str>> {
+        match self {
+            Self::String(s) => Ok(Arc::clone(s)),
+            _ => Err(ScriptError::panic("Expected string, found {self}")),
         }
     }
 
@@ -291,6 +298,12 @@ impl Scope {
         if name.as_str() != "_" {
             self.locals.insert(name, value);
         }
+    }
+
+    fn with_locals(&self, locals: HashMap<Ident, ScriptValue>) -> Self {
+        let mut scope = self.clone();
+        scope.locals.extend(locals);
+        scope
     }
 }
 
@@ -513,7 +526,7 @@ impl Interpreter {
             }
             _ => {
                 let val = self.eval_expr(expr, scope)?;
-                if val.as_boolean() {
+                if val.as_boolean()? {
                     Ok(())
                 } else {
                     Err(ScriptError::new(ScriptErrorKind::AssertionFailed("".into())).at(expr.loc))
@@ -702,10 +715,8 @@ impl Interpreter {
                 let val = self.eval_expr(expr, scope)?;
 
                 for arm in arms {
-                    let v = self.eval_expr(&arm.pattern, scope)?;
-                    if ScriptValue::eq(&val, &v) {
-                        let ret = self.eval_expr(&arm.expr, scope)?;
-
+                    if let Some(locals) = self.eval_match_pattern(&arm.pattern, &val, scope)? {
+                        let ret = self.eval_expr(&arm.expr, &scope.with_locals(locals))?;
                         return Ok(ret);
                     }
                 }
@@ -841,6 +852,83 @@ impl Interpreter {
         };
 
         Ok(tuple)
+    }
+
+    fn eval_match_pattern(
+        &self,
+        pattern: &MatchPattern,
+        val: &ScriptValue,
+        scope: &Scope,
+    ) -> Result<Option<HashMap<Ident, ScriptValue>>> {
+        match pattern {
+            MatchPattern::Discard => Ok(Some(HashMap::new())),
+            MatchPattern::True => {
+                if val.as_boolean()? {
+                    Ok(Some(HashMap::new()))
+                } else {
+                    Ok(None)
+                }
+            }
+            MatchPattern::False => {
+                if !val.as_boolean()? {
+                    Ok(Some(HashMap::new()))
+                } else {
+                    Ok(None)
+                }
+            }
+            MatchPattern::Int(n) => {
+                if *n == val.as_int()? {
+                    Ok(Some(HashMap::new()))
+                } else {
+                    Ok(None)
+                }
+            }
+            MatchPattern::Str(s) => {
+                if *s == val.as_string()? {
+                    Ok(Some(HashMap::new()))
+                } else {
+                    Ok(None)
+                }
+            }
+            MatchPattern::Assignee(name) => {
+                let mut locals = HashMap::new();
+                locals.insert(name.clone(), val.clone());
+                Ok(Some(locals))
+            }
+            MatchPattern::PrefixedName(prefix, name) => {
+                if let ScriptValue::Enum { def, index, .. } = val {
+                    let def = {
+                        if let Some(ident) = prefix {
+                            match scope.enums.get(ident) {
+                                Some(e) => Ok(e),
+                                None => Err(ScriptError::panic(format!("Enum not found: {ident}"))),
+                            }
+                        } else {
+                            Ok(def)
+                        }
+                    }?;
+
+                    if let Some((idx, var)) = def.find_variant(name) {
+                        if var.params.is_none() {
+                            if Arc::ptr_eq(def, def) && *index == idx {
+                                Ok(Some(HashMap::new()))
+                            } else {
+                                Ok(None)
+                            }
+                        } else {
+                            todo!("pattern match enum with variants")
+                        }
+                    } else {
+                        Err(ScriptError::panic(format!(
+                            "Enum variant not found: {name} in {}",
+                            def.name
+                        )))
+                    }
+                } else {
+                    Err(ScriptError::panic("Not an enum"))
+                }
+            }
+        }
     }
 }
 

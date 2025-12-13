@@ -24,14 +24,11 @@ impl NativeFunction for ReadFunc {
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let name = arguments.single()?;
+        let name = arguments.single()?.as_string()?;
 
-        match name {
-            ScriptValue::String(name) => match fs::read_to_string(name.as_ref()) {
-                Ok(content) => Ok(ScriptValue::String(content.into())),
-                Err(err) => Err(ScriptError::panic(err)),
-            },
-            _ => Err(ScriptError::panic("Expected a string")),
+        match fs::read_to_string(name.as_ref()) {
+            Ok(content) => Ok(ScriptValue::String(content.into())),
+            Err(err) => Err(ScriptError::panic(err)),
         }
     }
 }

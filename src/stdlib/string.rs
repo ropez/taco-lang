@@ -25,12 +25,9 @@ impl NativeMethod for StringLength {
         subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        if let ScriptValue::String(subject) = subject {
-            let len = subject.chars().count() as i64;
-            Ok(ScriptValue::Int(len))
-        } else {
-            panic!("Not a string")
-        }
+        let subject = subject.as_string()?;
+        let len = subject.chars().count() as i64;
+        Ok(ScriptValue::Int(len))
     }
 
     fn return_type(&self, _subject: &ScriptType) -> Result<ScriptType, TypeError> {
@@ -46,16 +43,13 @@ impl NativeMethod for StringLines {
         subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        if let ScriptValue::String(subject) = subject {
-            let lines = subject
-                .lines()
-                .filter(|l| !l.is_empty())
-                .map(|l| ScriptValue::String(Arc::from(l)))
-                .collect();
-            Ok(ScriptValue::List(Arc::new(List::new(lines))))
-        } else {
-            panic!("Not a string")
-        }
+        let subject = subject.as_string()?;
+        let lines = subject
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| ScriptValue::String(Arc::from(l)))
+            .collect();
+        Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 
     fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
@@ -71,10 +65,8 @@ impl NativeMethod for StringTrim {
         subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        match subject {
-            ScriptValue::String(s) => Ok(ScriptValue::String(s.trim().into())),
-            _ => Err(ScriptError::panic("Not a string")),
-        }
+        let s = subject.as_string()?;
+        Ok(ScriptValue::String(s.trim().into()))
     }
 
     fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
@@ -90,21 +82,15 @@ impl NativeMethod for StringSplit {
         subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?;
-        let ScriptValue::String(arg) = arg else {
-            panic!("Expected a string");
-        };
+        let subject = subject.as_string()?;
+        let arg = arguments.single()?.as_string()?;
 
-        if let ScriptValue::String(subject) = subject {
-            let lines = subject
-                .split(arg.as_ref())
-                .filter(|l| !l.is_empty())
-                .map(|l| ScriptValue::String(Arc::from(l)))
-                .collect();
-            Ok(ScriptValue::List(Arc::new(List::new(lines))))
-        } else {
-            panic!("Not a string")
-        }
+        let lines = subject
+            .split(arg.as_ref())
+            .filter(|l| !l.is_empty())
+            .map(|l| ScriptValue::String(Arc::from(l)))
+            .collect();
+        Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 
     fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
@@ -124,23 +110,20 @@ impl NativeMethod for StringSplitAt {
         subject: ScriptValue,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        if let ScriptValue::String(subject) = subject {
-            let arg = arguments.single()?.as_int()?;
+        let subject = subject.as_string()?;
+        let arg = arguments.single()?.as_int()?;
 
-            let arg = arg.clamp(0, subject.chars().count() as i64) as usize;
-            let l: String = subject.chars().take(arg).collect();
-            let r: String = subject.chars().skip(arg).collect();
+        let arg = arg.clamp(0, subject.chars().count() as i64) as usize;
+        let l: String = subject.chars().take(arg).collect();
+        let r: String = subject.chars().skip(arg).collect();
 
-            let items = [l, r]
-                .into_iter()
-                .map(Arc::from)
-                .map(ScriptValue::String)
-                .map(TupleItem::unnamed)
-                .collect();
-            Ok(ScriptValue::Tuple(Tuple::new(items).into()))
-        } else {
-            panic!("Not a string")
-        }
+        let items = [l, r]
+            .into_iter()
+            .map(Arc::from)
+            .map(ScriptValue::String)
+            .map(TupleItem::unnamed)
+            .collect();
+        Ok(ScriptValue::Tuple(Tuple::new(items).into()))
     }
 
     fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {

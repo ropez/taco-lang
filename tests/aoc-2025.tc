@@ -28,11 +28,10 @@ fun day1_secret_entrance() {
     # 'scan' is similar to 'map', but the callback receives the previous mapped value together
     # with the current item, and we must provide an initial value for the first iteration.
     seq = turns.scan(
-        fun(last: int, turn: Turn): int {
-            if turn.dir == "L" {
-                { last - turn.count } % 100
-            } else {
-                { last + turn.count } % 100
+        fun(last: int, turn: Turn) {
+            match turn.dir {
+                "L" { { last - turn.count } % 100 }
+                "R" { { last + turn.count } % 100 }
             }
         }
         initial: 50

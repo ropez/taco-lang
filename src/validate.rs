@@ -6,8 +6,8 @@ use crate::{
     ident::{Ident, global},
     lexer::{Loc, Src},
     parser::{
-        ArgumentExpression, Assignee, CallExpression, Expression, Function, ParamExpression,
-        Statement, TypeExpression,
+        ArgumentExpression, Assignee, CallExpression, Expression, Function, MatchArm, MatchPattern,
+        ParamExpression, Statement, TypeExpression,
     },
     stdlib::{Methods, NativeFunctionRef, NativeMethodRef},
 };
@@ -404,7 +404,8 @@ impl Scope {
         self.locals.get(name)
     }
 
-    fn set_local(&mut self, name: Ident, value: ScriptType) {
+    fn set_local(&mut self, name: impl Into<Ident>, value: ScriptType) {
+        let name = name.into();
         // Make sure we never assign a type to '_'
         if name.as_str() != "_" {
             self.locals.insert(name, value);
@@ -911,9 +912,37 @@ impl Validator {
                     Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
                 }
             }
-            Expression::Match(src, arms) => {
-                // todo!("validate match"),
-                Ok(ScriptType::Str)
+            Expression::Match(expr, arms) => {
+                let expr_type = self.eval_expr(expr, scope)?;
+
+                let types = arms
+                    .iter()
+                    .map(|a| self.eval_match_arm(a, &expr_type, scope))
+                    .collect::<Result<Vec<_>>>()?;
+
+                // XXX TODO Check that patterns accept expr type
+
+                // XXX TODO Check exhaustiveness
+
+                let mut is_exhausted = false;
+                for arm in arms {
+                    if arm.pattern.is_any_pattern() {
+                        if is_exhausted {
+                            return Err(TypeError::new(TypeErrorKind::PatternAlreadyExhausted(
+                                arm.pattern.cloned(),
+                            ))
+                            .at(arm.pattern.loc));
+                        }
+
+                        is_exhausted = true;
+                    }
+                }
+
+                let arms_type = self.most_specific_type(&types)?;
+
+                Ok(arms_type
+                    .map(|t| t.into_inner())
+                    .unwrap_or_else(ScriptType::identity))
             }
         }
     }
@@ -1380,6 +1409,21 @@ impl Validator {
         }
 
         Ok(())
+    }
+
+    fn eval_match_arm(
+        &self,
+        arm: &MatchArm,
+        expr_type: &ScriptType,
+        scope: &Scope,
+    ) -> Result<Src<ScriptType>> {
+        let mut inner_scope = scope.clone();
+
+        if let MatchPattern::Assignee(name) = arm.pattern.as_ref().as_ref() {
+            inner_scope.set_local(name.clone(), expr_type.clone());
+        }
+
+        self.eval_expr(&arm.expr, &inner_scope)
     }
 
     fn try_static_assert(&self, expr: &Src<Expression>, scope: &Scope) -> Result<()> {

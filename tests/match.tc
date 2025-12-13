@@ -1,0 +1,70 @@
+
+fun test_basic_pattern_mathing_bool() {
+    fun test(b: bool) {
+        match b {
+            true { "foo" }
+            false { "bar" }
+        }
+    }
+
+    assert test(true) == "foo"
+    assert test(false) == "bar"
+}
+
+fun test_pattern_mathing_enum() {
+    enum Sign { Rock, Paper, Scissors }
+
+    fun test(sign: Sign) {
+        match sign {
+            Sign::Rock { "Rock beats Scissors" }
+            Sign::Paper { "Paper beats Rock" }
+            Sign::Scissors { "Scissors beats Paper" }
+        }
+    }
+
+    assert test(Sign::Rock) == "Rock beats Scissors"
+    assert test(Sign::Scissors) == "Scissors beats Paper"
+}
+
+fun test_pattern_mathing_implicit_enum() {
+    enum Sign { Rock, Paper, Scissors }
+
+    fun test(sign: Sign) {
+        match sign {
+            ::Rock { "Rock beats Scissors" }
+            ::Paper { "Paper beats Rock" }
+            ::Scissors { "Scissors beats Paper" }
+        }
+    }
+
+    assert test(Sign::Rock) == "Rock beats Scissors"
+    assert test(Sign::Scissors) == "Scissors beats Paper"
+}
+
+fun test_pattern_mathing_fallback() {
+    fun test(div: int) {
+        match div {
+            0 { 100000 }
+            _ { 100 / div }
+        }
+    }
+
+    assert test(0) == 100000
+    assert test(1) == 100
+    assert test(2) == 50
+}
+
+fun test_pattern_mathing_variable() {
+    fun test(token: str) {
+        match token {
+            "foo" { true }
+            "bar" { true }
+            other { other.len() == 1 }
+        }
+    }
+
+    assert test("foo") == true
+    assert test("koko") == false
+    assert test("x") == true
+}
+

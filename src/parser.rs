@@ -189,6 +189,15 @@ pub struct Enumeration {
     pub(crate) variants: Vec<Variant>,
 }
 
+impl Enumeration {
+    pub(crate) fn find_variant(&self, name: &Ident) -> Option<(usize, &Variant)> {
+        self.variants
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.name == *name)
+    }
+}
+
 #[derive(Debug)]
 pub struct Variant {
     pub(crate) name: Ident,
@@ -218,9 +227,27 @@ impl Assignee {
 }
 
 #[derive(Debug)]
-pub(crate) struct MatchArm {
-    pub(crate) pattern: Box<Src<Expression>>, // For now
+pub struct MatchArm {
+    pub(crate) pattern: Box<Src<MatchPattern>>,
     pub(crate) expr: Box<Src<Expression>>,
+}
+
+#[derive(Debug, Clone)]
+pub enum MatchPattern {
+    // XXX DRY this into some "LiteralExpression"?
+    Discard,
+    Assignee(Ident),
+    True,
+    False,
+    Int(i64),
+    Str(Arc<str>),
+    PrefixedName(Option<Ident>, Ident),
+}
+
+impl MatchPattern {
+    pub(crate) fn is_any_pattern(&self) -> bool {
+        matches!(self, Self::Discard | Self::Assignee(_))
+    }
 }
 
 pub struct Parser<'a> {
@@ -504,16 +531,12 @@ impl<'a> Parser<'a> {
             TokenKind::Match => {
                 let expr = self.parse_expression(0)?;
                 self.expect_kind(TokenKind::LeftBrace)?;
-                let arms = self.parse_inner_list(TokenKind::RightBrace, |p| {
-                    let pattern = p.parse_expression(0)?;
-                    p.expect_kind(TokenKind::LeftBrace)?;
-                    let expr = p.parse_expression(0)?;
-                    p.expect_kind(TokenKind::RightBrace)?;
-
-                    Ok(MatchArm { pattern: pattern.into(), expr: expr.into() })
-                })?;
+                let arms = self.parse_match_arms()?;
                 let e = self.expect_kind(TokenKind::RightBrace)?;
-                let expr = Src::new(Expression::Match(expr.into(), arms), wrap_locations(token.loc, e.loc));
+                let expr = Src::new(
+                    Expression::Match(expr.into(), arms),
+                    wrap_locations(token.loc, e.loc),
+                );
                 self.parse_continuation(expr, 0)?
             }
             _ => return Err(self.fail_at("unexpected token", &token)),
@@ -774,9 +797,63 @@ impl<'a> Parser<'a> {
         Ok(None)
     }
 
+    fn parse_match_arms(&mut self) -> Result<Vec<MatchArm>> {
+        let arms = self.parse_inner_list(TokenKind::RightBrace, |p| {
+            let pattern = p.parse_match_pattern()?;
+            p.expect_kind(TokenKind::LeftBrace)?;
+            let expr = p.parse_expression(0)?;
+            p.expect_kind(TokenKind::RightBrace)?;
+
+            Ok(MatchArm {
+                pattern: pattern.into(),
+                expr: expr.into(),
+            })
+        })?;
+
+        Ok(arms)
+    }
+
+    fn parse_match_pattern(&mut self) -> Result<Src<MatchPattern>> {
+        let token = self.expect_token()?;
+        let pattern = match token.as_ref() {
+            TokenKind::True => Src::new(MatchPattern::True, token.loc),
+            TokenKind::False => Src::new(MatchPattern::False, token.loc),
+            TokenKind::Number(n) => Src::new(MatchPattern::Int(*n), token.loc),
+            TokenKind::String(s) => Src::new(MatchPattern::Str(Arc::clone(s)), token.loc),
+            TokenKind::Identifier(s) => {
+                self.handle_identifier_match_pattern(s.clone(), token.loc)?
+            }
+            TokenKind::DoubleColon => {
+                let (ident, e) = self.expect_ident()?;
+                let loc = wrap_locations(token.loc, e);
+                Src::new(MatchPattern::PrefixedName(None, ident), loc)
+            }
+            _ => todo!("Invalid pattern"),
+        };
+        Ok(pattern)
+    }
+
+    fn handle_identifier_match_pattern(
+        &mut self,
+        ident: Ident,
+        loc: Loc,
+    ) -> Result<Src<MatchPattern>> {
+        if ident.as_str() == "_" {
+            return Ok(Src::new(MatchPattern::Discard, loc));
+        }
+        if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
+            let (name, l) = self.expect_ident()?;
+            let loc = wrap_locations(loc, l);
+            let expr = Src::new(MatchPattern::PrefixedName(Some(ident), name), loc);
+            Ok(expr)
+        } else {
+            let expr = Src::new(MatchPattern::Assignee(ident), loc);
+            Ok(expr)
+        }
+    }
+
     fn parse_assignee(&mut self) -> Result<Src<Assignee>> {
-        let token = self.peek_kind().cloned().expect("TODO");
-        match token {
+        match self.peek_kind_or_error()? {
             TokenKind::Identifier(ident) => {
                 let token = self.expect_token()?;
                 let assignee = Assignee::scalar(ident.clone());
@@ -896,10 +973,7 @@ impl<'a> Parser<'a> {
 
         loop {
             self.discard_whitespace();
-            let Some(next) = self.iter.peek() else {
-                return Err(self.fail_at_end("Unexpected end of input"));
-            };
-            if **next == until {
+            if self.peek_kind() == Some(&until) {
                 break;
             }
 
@@ -907,6 +981,7 @@ impl<'a> Parser<'a> {
 
             let kind = self.peek_kind();
             match kind {
+                None => break,
                 Some(kind) if *kind == until => break,
                 Some(TokenKind::Comma | TokenKind::NewLine) => {
                     self.iter.next();
@@ -1000,6 +1075,12 @@ impl<'a> Parser<'a> {
 
     fn peek_kind(&mut self) -> Option<&TokenKind> {
         self.iter.peek().map(|t| t.as_ref())
+    }
+
+    fn peek_kind_or_error(&mut self) -> Result<TokenKind> {
+        self.peek_kind()
+            .cloned()
+            .ok_or_else(|| self.fail_at_end("Unexpected end of input"))
     }
 
     // Skip newlines, and peek at the next "real" token

@@ -7,6 +7,7 @@ use std::{
 use crate::{
     ident::Ident,
     lexer::Loc,
+    parser::MatchPattern,
     validate::{ScriptType, TupleType},
 };
 
@@ -69,6 +70,7 @@ pub enum TypeErrorKind {
     MissingReturnStatement,
     EmptyList,
     TypeAssertionFailed(String),
+    PatternAlreadyExhausted(MatchPattern),
 }
 
 // Promote ArgumentError to "Error" below
@@ -171,6 +173,14 @@ impl TypeError {
             TypeErrorKind::TypeNotInferred => "Type can not be inferred".into(),
             TypeErrorKind::TypeAssertionFailed(msg) => {
                 format!("Assertion failed during static analysis.\n\t{msg}")
+            }
+            TypeErrorKind::PatternAlreadyExhausted(pattern) => {
+                let msg = "This pattern is already fully exhausted";
+                if let MatchPattern::Assignee(a) = pattern {
+                    format!("{msg} Note: '{a}' is treated as a variable name.")
+                } else {
+                    msg.into()
+                }
             }
         };
 
