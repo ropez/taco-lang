@@ -232,7 +232,7 @@ pub struct MatchArm {
     pub(crate) expr: Box<Src<Expression>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum MatchPattern {
     // XXX DRY this into some "LiteralExpression"?
     Discard,
@@ -242,12 +242,6 @@ pub enum MatchPattern {
     Int(i64),
     Str(Arc<str>),
     PrefixedName(Option<Ident>, Ident),
-}
-
-impl MatchPattern {
-    pub(crate) fn is_any_pattern(&self) -> bool {
-        matches!(self, Self::Discard | Self::Assignee(_))
-    }
 }
 
 pub struct Parser<'a> {

@@ -11,8 +11,8 @@ use crate::{
     ident::{Ident, global},
     lexer::Src,
     parser::{
-        Assignee, CallExpression, Enumeration, Expression, Function, MatchPattern, ParamExpression,
-        Record, Statement, TypeExpression,
+        Assignee, CallExpression, Enumeration, Expression, Function, MatchArm, MatchPattern,
+        ParamExpression, Record, Statement, TypeExpression,
     },
     stdlib::{ExternalValue, NativeFunctionRef, NativeMethodRef, list::List, parse::ParseFunc},
     validate::ExternalType,
@@ -67,6 +67,10 @@ impl ScriptValue {
 
     pub fn is_nan(&self) -> bool {
         matches!(self, Self::NaN)
+    }
+
+    pub fn is_none(&self) -> bool {
+        matches!(self, Self::None)
     }
 
     pub fn as_int(&self) -> Result<i64> {
@@ -711,18 +715,7 @@ impl Interpreter {
                 self.eval_callable(subject, &arguments)
                     .map_err(|err| err.at(expr.loc))?
             }
-            Expression::Match(expr, arms) => {
-                let val = self.eval_expr(expr, scope)?;
-
-                for arm in arms {
-                    if let Some(locals) = self.eval_match_pattern(&arm.pattern, &val, scope)? {
-                        let ret = self.eval_expr(&arm.expr, &scope.with_locals(locals))?;
-                        return Ok(ret);
-                    }
-                }
-
-                ScriptValue::identity() // unreachable
-            }
+            Expression::Match(expr, arms) => self.eval_match(expr, arms, scope)?,
         };
 
         Ok(value)
@@ -854,6 +847,23 @@ impl Interpreter {
         Ok(tuple)
     }
 
+    fn eval_match(
+        &self,
+        expr: &Src<Expression>,
+        arms: &Vec<MatchArm>,
+        scope: &Scope,
+    ) -> Result<ScriptValue> {
+        let value = self.eval_expr(expr, scope)?;
+        for arm in arms {
+            if let Some(locals) = self.eval_match_pattern(&arm.pattern, &value, scope)? {
+                let ret = self.eval_expr(&arm.expr, &scope.with_locals(locals))?;
+                return Ok(ret);
+            }
+        }
+
+        Err(ScriptError::panic("No match found"))
+    }
+
     fn eval_match_pattern(
         &self,
         pattern: &MatchPattern,
@@ -891,9 +901,13 @@ impl Interpreter {
                 }
             }
             MatchPattern::Assignee(name) => {
-                let mut locals = HashMap::new();
-                locals.insert(name.clone(), val.clone());
-                Ok(Some(locals))
+                if val.is_none() {
+                    Ok(None)
+                } else {
+                    let mut locals = HashMap::new();
+                    locals.insert(name.clone(), val.clone());
+                    Ok(Some(locals))
+                }
             }
             MatchPattern::PrefixedName(prefix, name) => {
                 if let ScriptValue::Enum { def, index, .. } = val {

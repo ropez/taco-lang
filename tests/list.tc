@@ -194,10 +194,9 @@ fun test_find_an_item() {
     ]
 
     fun test(s: str): str {
-        if item in fruits.find(s) {
-            "found $item"
-        } else {
-            "not found"
+        match fruits.find(s) {
+            item { "found $item" }
+            _ { "not found" }
         }
     }
 

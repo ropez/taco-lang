@@ -210,15 +210,14 @@ fn test_explicit_return_inside_if() {
 }
 
 #[test]
-fn test_implicit_return_inside_if_with_explicit_function_type() {
+fn test_implicit_return_with_explicit_function_type() {
     let src = r#"
         enum Color { Green, Blue }
 
         fun select(col: Color): str {
-            if col == Color::Green {
-                "The color is green"
-            } else {
-                "Not green, probably blue"
+            match col {
+                Color::Green { "The color is green" }
+                _ { "Not green, probably blue" }
             }
         }
 
@@ -237,11 +236,11 @@ fn test_implicit_return_inside_if_with_inferred_function_type() {
     let src = r#"
         enum Color { Green, Blue }
 
-        fun select(col: Color) {
+        fun select(col: Color): str {
             if col == Color::Green {
-                "The color is green"
+                return "The color is green"
             } else {
-                "Not green, probably blue"
+                return "Not green, probably blue"
             }
         }
 
@@ -319,32 +318,6 @@ fn test_missing_return_statement() {
 }
 
 #[test]
-fn test_missing_return_statement_in_one_condition() {
-    let src = r#"
-        fun foo(cond: bool): str {
-            if cond {
-                println("foo")
-                return "foo"
-            } else {
-                println("bar")
-                println("bar")
-            }
-        }
-    "#;
-
-    match check_output(src) {
-        Ok(_) => panic!("Expected error"),
-        Err(err) => {
-            println!("{err}");
-            assert_eq!(
-                err.message,
-                "Incompatible return type: Expected 'str', found 'str?'"
-            )
-        }
-    }
-}
-
-#[test]
 fn test_missing_return_statement_with_conditional_at_end() {
     let src = r#"
         fun foo(cond: bool): str {
@@ -388,20 +361,21 @@ fn test_return_from_conditional_at_end() {
 }
 
 #[test]
-fn test_return_from_nested_conditional() {
+fn test_return_from_nested_match() {
     let src = r#"
         fun foo(a: bool, b: bool): str {
-            if a {
-                if b {
-                    "ab"
-                } else {
-                    "a_"
+            match a {
+                true {
+                    match b {
+                        true { "ab" }
+                        false { "a_" }
+                    }
                 }
-            } else {
-                if b {
-                    "_b"
-                } else {
-                    "__"
+                false {
+                    match b {
+                        true { "_b" }
+                        false { "__" }
+                    }
                 }
             }
         }

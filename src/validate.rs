@@ -122,6 +122,39 @@ impl ScriptType {
         matches!(self, ScriptType::Opt(_))
     }
 
+    pub(crate) fn is_exhausted_by(&self, patterns: &[&Src<MatchPattern>]) -> bool {
+        for pat in patterns {
+            match pat.as_ref() {
+                MatchPattern::Discard => return true,
+                MatchPattern::Assignee(_) if !self.is_optional() => return true,
+                _ => {}
+            }
+        }
+
+        // Finite types
+        match self {
+            Self::Bool => {
+                if [MatchPattern::False, MatchPattern::True]
+                    .iter()
+                    .all(|k| patterns.iter().any(|p| ***p == *k))
+                {
+                    return true;
+                }
+            }
+            Self::Enum(def) => {
+                // This is obviously not a general solution, but it's sufficient as long as we're
+                // not supporting pattern-matching on inner values, and we're preventing duplicates
+                // and illegal patterns.
+                if patterns.len() == def.variants.len() {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+
+        false
+    }
+
     pub fn as_optional(&self) -> ScriptType {
         if let ScriptType::Opt(_) = self {
             self.clone()
@@ -643,9 +676,7 @@ impl Validator {
                             None => {}
                             Some(ScriptType::Opt(_)) => {}
                             Some(_) => {
-                                // XXX Location
-                                return Err(TypeError::new(TypeErrorKind::MissingReturnStatement)
-                                    .at(Loc::start()));
+                                return Err(TypeError::new(TypeErrorKind::MissingReturnStatement));
                             }
                         }
                     }
@@ -912,8 +943,8 @@ impl Validator {
                     Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
                 }
             }
-            Expression::Match(expr, arms) => {
-                let expr_type = self.eval_expr(expr, scope)?;
+            Expression::Match(match_expr, arms) => {
+                let expr_type = self.eval_expr(match_expr, scope)?;
 
                 let types = arms
                     .iter()
@@ -925,17 +956,28 @@ impl Validator {
                 // XXX TODO Check exhaustiveness
 
                 let mut is_exhausted = false;
-                for arm in arms {
-                    if arm.pattern.is_any_pattern() {
-                        if is_exhausted {
-                            return Err(TypeError::new(TypeErrorKind::PatternAlreadyExhausted(
-                                arm.pattern.cloned(),
-                            ))
-                            .at(arm.pattern.loc));
-                        }
+                let patterns: Vec<_> = arms.iter().map(|a| a.pattern.as_ref()).collect();
+                for (i, pat) in patterns.iter().enumerate() {
+                    // XXX Must check if this specific pattern is exhausted by all previous
+                    // patterns, even if all possible patterns aren't exhausted yet.
+                    // e.g.: (true, a), (true, b)
+                    if is_exhausted {
+                        return Err(TypeError::new(TypeErrorKind::PatternAlreadyExhausted(
+                            pat.cloned(),
+                        ))
+                        .at(pat.loc));
+                    }
 
+                    if expr_type.is_exhausted_by(&patterns[..=i]) {
                         is_exhausted = true;
                     }
+                }
+
+                if !is_exhausted {
+                    return Err(TypeError::new(TypeErrorKind::PatternNotExhausted(
+                        ScriptType::clone(&expr_type),
+                    ))
+                    .at(match_expr.loc));
                 }
 
                 let arms_type = self.most_specific_type(&types)?;
@@ -971,23 +1013,15 @@ impl Validator {
         if let Some(typ) = &declared_type
             && !typ.accepts(&found_type)
         {
-            let loc = fun
-                .type_expr
-                .as_ref()
-                .map(|t| t.loc)
-                .unwrap_or(Loc::start());
-            if let Some(_) = found_ret_type {
+            let loc = fun.type_expr.as_ref().map(|t| t.loc);
+            if found_ret_type.is_some() {
                 return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
                     expected: typ.clone(),
                     actual: found_type,
                 })
                 .at(loc));
             } else {
-                let loc = fun
-                    .type_expr
-                    .as_ref()
-                    .map(|t| t.loc)
-                    .unwrap_or(Loc::start());
+                let loc = fun.type_expr.as_ref().map(|t| t.loc);
                 return Err(TypeError::new(TypeErrorKind::MissingReturnStatement).at(loc));
             }
         }
@@ -1028,21 +1062,17 @@ impl Validator {
                     .flatten();
 
                 match (body_ret, else_ret) {
-                    (None, None) => None,
-                    (Some(l), Some(r)) => {
+                    (Some(l), Some(r)) if l.is_explicit && r.is_explicit => {
                         let types = vec![l.typ.clone(), r.typ.clone()];
                         let typ = self
                             .most_specific_type(&types)?
                             .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
-                        if l.is_explicit && r.is_explicit {
-                            Some(ReturnType::explicit(typ))
-                        } else if ast.len() == 1 {
-                            Some(ReturnType::implicit(typ))
-                        } else {
-                            None
-                        }
+                        Some(ReturnType::explicit(typ))
                     }
-                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
+                    (Some(typ), None) | (None, Some(typ)) if typ.is_explicit => {
+                        Some(typ.into_opt())
+                    }
+                    _ => None,
                 }
             }
             Some(Statement::IfIn {
@@ -1051,7 +1081,7 @@ impl Validator {
                 body,
                 else_body,
             }) => {
-                let opt_typ = self.validate_expr(value, &scope)?;
+                let opt_typ = self.validate_expr(value, scope)?;
                 let ScriptType::Opt(typ) = opt_typ else {
                     return Err(
                         TypeError::new(TypeErrorKind::InvalidOptional(opt_typ)).at(value.loc)
@@ -1070,21 +1100,17 @@ impl Validator {
                     .flatten();
 
                 match (body_ret, else_ret) {
-                    (None, None) => None,
-                    (Some(l), Some(r)) => {
+                    (Some(l), Some(r)) if l.is_explicit && r.is_explicit => {
                         let types = vec![l.typ.clone(), r.typ.clone()];
                         let typ = self
                             .most_specific_type(&types)?
                             .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
-                        if l.is_explicit && r.is_explicit {
-                            Some(ReturnType::explicit(typ))
-                        } else if ast.len() == 1 {
-                            Some(ReturnType::implicit(typ))
-                        } else {
-                            None
-                        }
+                        Some(ReturnType::explicit(typ))
                     }
-                    (Some(typ), None) | (None, Some(typ)) => Some(typ.into_opt()),
+                    (Some(typ), None) | (None, Some(typ)) if typ.is_explicit => {
+                        Some(typ.into_opt())
+                    }
+                    _ => None,
                 }
             }
             Some(_) => None,
@@ -1420,7 +1446,12 @@ impl Validator {
         let mut inner_scope = scope.clone();
 
         if let MatchPattern::Assignee(name) = arm.pattern.as_ref().as_ref() {
-            inner_scope.set_local(name.clone(), expr_type.clone());
+            let inner_type = if let ScriptType::Opt(typ) = expr_type {
+                typ.as_ref().clone()
+            } else {
+                expr_type.clone()
+            };
+            inner_scope.set_local(name.clone(), inner_type);
         }
 
         self.eval_expr(&arm.expr, &inner_scope)

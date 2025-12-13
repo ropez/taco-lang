@@ -71,6 +71,7 @@ pub enum TypeErrorKind {
     EmptyList,
     TypeAssertionFailed(String),
     PatternAlreadyExhausted(MatchPattern),
+    PatternNotExhausted(ScriptType),
 }
 
 // Promote ArgumentError to "Error" below
@@ -87,9 +88,9 @@ impl TypeError {
         })
     }
 
-    pub fn at(self, loc: Loc) -> Self {
+    pub fn at(self, loc: impl Into<Option<Loc>>) -> Self {
         Self {
-            loc: Some(self.loc.unwrap_or(loc)),
+            loc: self.loc.or(loc.into()),
             ..self
         }
     }
@@ -181,6 +182,9 @@ impl TypeError {
                 } else {
                     msg.into()
                 }
+            }
+            TypeErrorKind::PatternNotExhausted(actual) => {
+                format!("Type not fully exhausted by patterns. Found {actual}")
             }
         };
 

@@ -171,13 +171,13 @@ fn test_nested_opt() {
     let src = r#"
         fun foo(a: bool): str? {
             if a {
-                "foobar"
+                return "foobar"
             }
         }
 
         fun bar(a: bool, b: bool): str? {
             if a {
-                foo(b)
+                return foo(b)
             }
         }
 
@@ -197,13 +197,13 @@ fn test_nested_opt_empty() {
     let src = r#"
         fun foo(a: bool): str? {
             if a {
-                "foobar"
+                return "foobar"
             }
         }
 
         fun bar(a: bool, b: bool): str? {
             if a {
-                foo(b)
+                return foo(b)
             }
         }
 
@@ -227,13 +227,13 @@ fn test_nested_opt_trick_with_tuple() {
     let src = r#"
         fun foo(a: bool): str? {
             if a {
-                "foobar"
+                return "foobar"
             }
         }
 
         fun bar(a: bool, b: bool): (str?)? {
             if a {
-                (foo(b))
+                return (foo(b))
             }
         }
 
