@@ -76,21 +76,25 @@ impl ScriptValue {
     pub fn as_int(&self) -> Result<i64> {
         match self {
             Self::Int(num) => Ok(*num),
-            _ => Err(ScriptError::panic("Expected integer, found {self}")),
+            _ => Err(ScriptError::panic(format!(
+                "Expected integer, found {self}"
+            ))),
         }
     }
 
     pub fn as_boolean(&self) -> Result<bool> {
         match self {
             Self::Boolean(b) => Ok(*b),
-            _ => Err(ScriptError::panic("Expected boolean, found {self}")),
+            _ => Err(ScriptError::panic(format!(
+                "Expected boolean, found {self}"
+            ))),
         }
     }
 
     pub fn as_string(&self) -> Result<Arc<str>> {
         match self {
             Self::String(s) => Ok(Arc::clone(s)),
-            _ => Err(ScriptError::panic("Expected string, found {self}")),
+            _ => Err(ScriptError::panic(format!("Expected string, found {self}"))),
         }
     }
 
@@ -146,6 +150,7 @@ impl PartialEq for ScriptValue {
 impl Display for ScriptValue {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
+            ScriptValue::None => write!(f, "<no value>"),
             ScriptValue::String(s) => write!(f, "{s}"),
             ScriptValue::Int(n) => write!(f, "{n}"),
             ScriptValue::Boolean(b) => match b {
@@ -703,19 +708,18 @@ impl Interpreter {
             Expression::Try(inner) => {
                 let val = self.eval_expr(inner, scope)?;
                 if let ScriptValue::None = val {
-                    // Need to make ALL eval methods return some Result or custom outcome enum
-                    // Should be Result, so that we can use `?` sugar
-                    panic!("TODO return from here")
+                    return Err(ScriptError::no_value());
                 }
                 val
             }
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
                 let arguments = self.eval_args(arguments, scope)?;
-                self.eval_callable(subject, &arguments)
-                    .map_err(|err| err.at(expr.loc))?
+                try_save(self.eval_callable(subject, &arguments)).map_err(|err| err.at(expr.loc))?
             }
-            Expression::Match(expr, arms) => self.eval_match(expr, arms, scope)?,
+            Expression::Match { expr, arms, is_opt } => {
+                self.eval_match(expr, arms, *is_opt, scope)?
+            }
         };
 
         Ok(value)
@@ -851,6 +855,7 @@ impl Interpreter {
         &self,
         expr: &Src<Expression>,
         arms: &Vec<MatchArm>,
+        is_opt: bool,
         scope: &Scope,
     ) -> Result<ScriptValue> {
         let value = self.eval_expr(expr, scope)?;
@@ -861,7 +866,11 @@ impl Interpreter {
             }
         }
 
-        Err(ScriptError::panic("No match found"))
+        if is_opt {
+            Ok(ScriptValue::None)
+        } else {
+            Err(ScriptError::panic("No match found"))
+        }
     }
 
     fn eval_match_pattern(
@@ -1033,5 +1042,15 @@ fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
         } else {
             panic!("Missing positional argument");
         }
+    }
+}
+
+pub(crate) fn try_save(res: Result<ScriptValue>) -> Result<ScriptValue> {
+    match res {
+        Ok(v) => Ok(v),
+        Err(err) => match err.kind {
+            ScriptErrorKind::NoValue => Ok(ScriptValue::None),
+            _ => Err(err),
+        },
     }
 }

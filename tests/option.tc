@@ -1,0 +1,213 @@
+
+fun test_opt_return_type_annotation() {
+    fun find_foo(list: [str]): str? {
+        return list.find("foo")
+    }
+
+    fun test(): str {
+        if t in find_foo(["foo"]) {
+            return "ok"
+        } else {
+            return ""
+        }
+    }
+
+    assert test() == "ok"
+}
+
+fun test_opt_arg_type_annotation() {
+    fun foo(a: str?): bool {
+        if t in a {
+            return true
+        } else {
+            return false
+        }
+    }
+
+    assert foo(["foo"].find("foo")) == true
+    assert foo(["bar"].find("foo")) == false
+}
+
+fun test_conditional_return() {
+    fun foo(condition: bool): str? {
+        if condition {
+            return "ok"
+        }
+    }
+
+    if s in foo(true) {
+        assert s == "ok"
+    }
+
+    if s in foo(false) {
+        assert false
+    } else {
+        assert true
+    }
+}
+
+fun test_explicit_return_nothing() {
+    fun foo(condition: bool): str? {
+        if !condition { return }
+
+        return "ok"
+    }
+
+    if s in foo(true) {
+        assert s == "ok"
+    }
+
+    if s in foo(false) {
+        assert false
+    } else {
+        assert true
+    }
+}
+
+fun test_tuple_destructuring() {
+    fun foo(condition: bool): (str, int)? {
+        if condition {
+            return ("ok", 42)
+        }
+    }
+
+    if (s, n) in foo(true) {
+        assert "$s and $n" == "ok and 42"
+    }
+
+    if (s, n) in foo(false) {
+        assert false
+    }
+}
+
+fun test_nested_opt() {
+    # The language doesn't allow something like str??, it simply collapses to str?
+
+    fun foo(a: bool): str? {
+        if a {
+            return "foobar"
+        }
+    }
+
+    fun bar(a: bool, b: bool): str? {
+        if a {
+            return foo(b)
+        }
+    }
+
+    if x in bar(true, true) {
+        assert x == "foobar"
+    } else {
+        assert false
+    }
+
+    if x in bar(true, false) {
+        assert false
+    } else {
+        assert true
+    }
+}
+
+fun test_nested_opt_trick_with_tuple() {
+    # If someone really wants to have an opt that contains an opt, use the "tuple trick"
+
+    fun foo(a: bool): str? {
+        if a {
+            return "foobar"
+        }
+    }
+
+    fun bar(a: bool, b: bool): (str?)? {
+        if a {
+            return (foo(b))
+        }
+    }
+
+    if (x) in bar(true, false) {
+        if y in x {
+            assert false
+        } else {
+            assert true
+        }
+    }
+}
+
+fun test_opt_list_of_opt() {
+    fun any(opts: [str?]?): bool {
+        if opts in opts {
+            for it in opts {
+                if _ in it {
+                    return true
+                }
+            }
+        }
+
+        return false
+    }
+
+    items = ["foo", "bar"]
+
+    if any([items.find("a"), items.find("foo")]) {
+        assert true
+    } else {
+        assert false
+    }
+}
+
+fun test_question_operator() {
+    available_fruits = [
+        "apple"
+        "orange"
+        "banana"
+    ]
+
+    fun try_buy(fruit: str, amount: int): str? {
+        f = available_fruits.find(fruit)?
+        return "$amount ${f}s"
+    }
+
+    if r in try_buy("banana", 42) {
+        assert r == "42 bananas"
+    } else {
+        assert false
+    }
+
+    if r in try_buy("pineapple", 36) {
+        assert false
+    } else {
+        assert true
+    }
+}
+
+fun test_question_operator_nested_calls() {
+    enum Fruit {
+        Apple
+        Orange
+        Banana
+    }
+
+    fun find_fruit(code: str): Fruit? {
+        match? code {
+            "a" { Fruit::Apple }
+            "o" { Fruit::Orange }
+            "b" { Fruit::Banana }
+        }
+    }
+
+    fun try_buy(code: str, amount: int): str? {
+        f = find_fruit(code)?
+        return "$amount ${f}s"
+    }
+
+    if r in try_buy("b", 42) {
+        assert r == "42 Bananas"
+    } else {
+        assert false
+    }
+
+    if r in try_buy("x", 36) {
+        assert false
+    } else {
+        assert true
+    }
+}

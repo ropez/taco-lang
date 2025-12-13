@@ -32,7 +32,7 @@ fun day1_secret_entrance() {
             match turn.dir {
                 "L" { { last - turn.count } % 100 }
                 "R" { { last + turn.count } % 100 }
-                _ {0}
+                _ { last }
             }
         }
         initial: 50

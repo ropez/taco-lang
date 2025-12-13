@@ -1,5 +1,6 @@
 use std::{
     cmp::{self},
+    result,
     sync::Arc,
     vec::IntoIter,
 };
@@ -7,11 +8,14 @@ use std::{
 use multipeek::{IteratorExt, MultiPeek};
 
 use crate::{
-    error::{Error, Result},
+    error::Error,
     ident::Ident,
     interpopation::{self, StringTokenKind},
     lexer::{self, Loc, Src, Token, TokenKind},
 };
+
+// XXX FIXME Use ParseError like validator/interpreter
+type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Statement {
@@ -96,7 +100,11 @@ pub enum Expression {
 
     Function(Arc<Function>),
 
-    Match(Box<Src<Expression>>, Vec<MatchArm>),
+    Match {
+        expr: Box<Src<Expression>>,
+        arms: Vec<MatchArm>,
+        is_opt: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -535,12 +543,17 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(expr, 0)?
             }
             TokenKind::Match => {
+                let is_opt = self.next_if_kind(&TokenKind::Question).is_some();
                 let expr = self.parse_expression(0)?;
                 self.expect_kind(TokenKind::LeftBrace)?;
                 let arms = self.parse_match_arms()?;
                 let e = self.expect_kind(TokenKind::RightBrace)?;
                 let expr = Src::new(
-                    Expression::Match(expr.into(), arms),
+                    Expression::Match {
+                        expr: expr.into(),
+                        arms,
+                        is_opt,
+                    },
                     wrap_locations(token.loc, e.loc),
                 );
                 self.parse_continuation(expr, 0)?

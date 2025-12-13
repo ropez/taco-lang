@@ -1,9 +1,9 @@
-use std::{fmt, ops, sync::Arc};
+use std::{fmt, ops, result, sync::Arc};
 
-use crate::{
-    error::{Error, Result},
-    ident::Ident,
-};
+use crate::{error::Error, ident::Ident};
+
+// XXX FIXME Use ParseError like validator/interpreter
+type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Loc {

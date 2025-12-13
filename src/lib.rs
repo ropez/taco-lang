@@ -5,8 +5,8 @@ use std::{
 };
 
 use crate::{
-    error::Result,
-    ident::{Ident, global},
+    error::Error,
+    ident::Ident,
     interpreter::{Interpreter, ScriptValue, Tuple},
     parser::Parser,
     stdlib::{NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::ListZip},
@@ -23,7 +23,7 @@ pub mod parser;
 mod stdlib;
 pub mod validate;
 
-pub fn check_output(src: &str) -> Result<String> {
+pub fn check_output(src: &str) -> Result<String, Error> {
     let (mut reader, writer) = pipe().expect("create pipe");
 
     check_call(src, writer)?;
@@ -33,7 +33,7 @@ pub fn check_output(src: &str) -> Result<String> {
     Ok(out)
 }
 
-pub fn check_call<O>(src: &str, out: O) -> Result<()>
+pub fn check_call<O>(src: &str, out: O) -> Result<(), Error>
 where
     O: Write + Send + Sync + 'static,
 {
@@ -76,7 +76,7 @@ impl TestStats {
     }
 }
 
-pub fn run_tests(src: &str) -> Result<TestStats> {
+pub fn run_tests(src: &str) -> Result<TestStats, Error> {
     let (mut reader, writer) = pipe().expect("create pipe");
 
     let (validator, interpreter) = setup(writer);

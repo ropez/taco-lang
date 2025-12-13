@@ -66,12 +66,14 @@ pub enum TypeErrorKind {
         expected: ScriptType,
         actual: ScriptType,
     },
+    TryNotAllowed,
     TypeNotInferred,
     MissingReturnStatement,
     EmptyList,
     TypeAssertionFailed(String),
     PatternAlreadyExhausted(MatchPattern),
     PatternNotExhausted(ScriptType),
+    MatchHasNoArms,
 }
 
 // Promote ArgumentError to "Error" below
@@ -171,6 +173,7 @@ impl TypeError {
             TypeErrorKind::InvalidMapTo(actual) => {
                 format!("Expected a list of tuples, found '{actual}'")
             }
+            TypeErrorKind::TryNotAllowed => "Question operator noe allowed here".into(),
             TypeErrorKind::TypeNotInferred => "Type can not be inferred".into(),
             TypeErrorKind::TypeAssertionFailed(msg) => {
                 format!("Assertion failed during static analysis.\n\t{msg}")
@@ -186,6 +189,7 @@ impl TypeError {
             TypeErrorKind::PatternNotExhausted(actual) => {
                 format!("Type not fully exhausted by patterns. Found {actual}")
             }
+            TypeErrorKind::MatchHasNoArms => "Match expression has no arms".into(),
         };
 
         Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
@@ -194,12 +198,13 @@ impl TypeError {
 
 #[derive(Clone)]
 pub struct ScriptError {
-    kind: ScriptErrorKind,
+    pub kind: ScriptErrorKind,
     loc: Option<Loc>,
 }
 
 #[derive(Clone)]
 pub enum ScriptErrorKind {
+    NoValue,
     Panic(String),
     AssertionFailed(String),
 }
@@ -209,11 +214,12 @@ impl ScriptError {
         Self { kind, loc: None }
     }
 
+    pub fn no_value() -> Self {
+        Self::new(ScriptErrorKind::NoValue)
+    }
+
     pub fn panic(error: impl ToString) -> Self {
-        Self {
-            kind: ScriptErrorKind::Panic(error.to_string()),
-            loc: None,
-        }
+        Self::new(ScriptErrorKind::Panic(error.to_string()))
     }
 
     pub fn at(self, loc: Loc) -> Self {
@@ -226,6 +232,7 @@ impl ScriptError {
 
     pub(crate) fn into_source_error(self, source: &str) -> Error {
         let msg = match self.kind {
+            ScriptErrorKind::NoValue => "No value".into(),
             ScriptErrorKind::Panic(error) => format!("Script panicked: {error}"),
             ScriptErrorKind::AssertionFailed(msg) => format!("Assertion failed: {msg}"),
         };
@@ -266,8 +273,6 @@ impl fmt::Display for Error {
 }
 
 impl error::Error for Error {}
-
-pub type Result<T> = result::Result<T, Error>;
 
 fn format_error_details(source: &str, loc: Loc) -> result::Result<Vec<String>, fmt::Error> {
     let mut ret = Vec::new();

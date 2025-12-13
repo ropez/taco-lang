@@ -362,12 +362,12 @@ pub(crate) struct ListScan;
 impl ListMethod for ListScan {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
         Ok(TupleType::new(vec![
-            TupleItemType::named("initial", ScriptType::Infer(2)),
+            TupleItemType::named("initial", ScriptType::Infer(1)),
             TupleItemType::named(
                 "mapper",
                 ScriptType::Function {
                     params: TupleType::new(vec![
-                        TupleItemType::unnamed(ScriptType::Infer(2)),
+                        TupleItemType::unnamed(ScriptType::Infer(1)),
                         TupleItemType::unnamed(inner.clone()),
                     ]),
                     ret: ScriptType::Infer(1).into(),

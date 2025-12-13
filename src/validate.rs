@@ -924,6 +924,9 @@ impl Validator {
             Expression::Division(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Modulo(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Try(inner) => {
+                if scope.ret.as_ref().is_some_and(|r| !r.is_optional()) {
+                    return Err(TypeError::new(TypeErrorKind::TryNotAllowed).at(expr.loc));
+                }
                 let inner_typ = self.validate_expr(inner, scope)?;
                 match inner_typ {
                     ScriptType::Opt(inner) => Ok(*inner),
@@ -943,7 +946,11 @@ impl Validator {
                     Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
                 }
             }
-            Expression::Match(match_expr, arms) => {
+            Expression::Match {
+                expr: match_expr,
+                arms,
+                is_opt,
+            } => {
                 let expr_type = self.eval_expr(match_expr, scope)?;
 
                 let types = arms
@@ -973,7 +980,7 @@ impl Validator {
                     }
                 }
 
-                if !is_exhausted {
+                if !is_exhausted && !is_opt {
                     return Err(TypeError::new(TypeErrorKind::PatternNotExhausted(
                         ScriptType::clone(&expr_type),
                     ))
@@ -982,9 +989,14 @@ impl Validator {
 
                 let arms_type = self.most_specific_type(&types)?;
 
-                Ok(arms_type
-                    .map(|t| t.into_inner())
-                    .unwrap_or_else(ScriptType::identity))
+                match arms_type.map(|t| t.into_inner()) {
+                    Some(t) => Ok(if *is_opt {
+                        ScriptType::Opt(t.into())
+                    } else {
+                        t
+                    }),
+                    None => Err(TypeError::new(TypeErrorKind::EmptyList).at(expr.loc)),
+                }
             }
         }
     }
