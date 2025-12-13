@@ -8,14 +8,14 @@ use std::{
 use multipeek::{IteratorExt, MultiPeek};
 
 use crate::{
-    error::Error,
+    error::{ParseError, ParseErrorKind},
     ident::Ident,
     interpopation::{self, StringTokenKind},
     lexer::{self, Loc, Src, Token, TokenKind},
 };
 
 // XXX FIXME Use ParseError like validator/interpreter
-type Result<T> = result::Result<T, Error>;
+type Result<T> = result::Result<T, ParseError>;
 
 #[derive(Debug)]
 pub enum Statement {
@@ -299,7 +299,7 @@ impl<'a> Parser<'a> {
         let expr = self.parse_expression(0)?;
 
         if let Some(token) = self.iter.next() {
-            return Err(self.fail("Unexpected token", token.loc));
+            return Err(ParseError::unexpected_token().at(token.loc));
         }
 
         Ok(expr)
@@ -558,7 +558,7 @@ impl<'a> Parser<'a> {
                 );
                 self.parse_continuation(expr, 0)?
             }
-            _ => return Err(self.fail_at("unexpected token", &token)),
+            _ => return Err(ParseError::unexpected_token().at(token.loc)),
         };
 
         Ok(expr)
@@ -571,7 +571,7 @@ impl<'a> Parser<'a> {
         bp: u32,
     ) -> Result<Src<Expression>> {
         if ident.as_str() == "_" {
-            return Err(self.fail("Expected identifier", loc));
+            return Err(ParseError::expected("identifier").at(loc));
         }
         if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
             let (name, l) = self.expect_ident()?;
@@ -1023,7 +1023,7 @@ impl<'a> Parser<'a> {
                 }
                 _ => {
                     let token = self.expect_token()?;
-                    return Err(self.fail_at("Unexpected token", &token));
+                    return Err(ParseError::unexpected_token().at(token.loc));
                 }
             }
         }
@@ -1051,7 +1051,7 @@ impl<'a> Parser<'a> {
                 Some(token) => match token.as_ref() {
                     TokenKind::NewLine => break,
                     TokenKind::Comment(_) => {}
-                    _ => return Err(self.fail_at("Expected end of line. Unexpected token", &token)),
+                    _ => return Err(ParseError::unexpected_token().at(token.loc)),
                 },
             }
         }
@@ -1061,9 +1061,7 @@ impl<'a> Parser<'a> {
 
     fn expect_token(&mut self) -> Result<Token> {
         self.discard_whitespace();
-        self.iter
-            .next()
-            .ok_or_else(|| self.fail_at_end("Unexpected end of input"))
+        self.iter.next().ok_or_else(|| self.fail_at_end())
     }
 
     fn expect_kind(&mut self, kind: TokenKind) -> Result<Token> {
@@ -1071,7 +1069,7 @@ impl<'a> Parser<'a> {
         if *token == kind {
             Ok(token)
         } else {
-            Err(self.fail_at(&format!("Expected to find {kind:?} here"), &token))
+            Err(ParseError::expected_kind(kind).at(token.loc))
         }
     }
 
@@ -1079,7 +1077,7 @@ impl<'a> Parser<'a> {
         let token = self.expect_token()?;
         match token.as_ref() {
             TokenKind::Identifier(name) => Ok((name.clone(), token.loc)),
-            _ => Err(self.fail_at("Expected identifier", &token)),
+            _ => Err(ParseError::expected("identifier").at(token.loc)),
         }
     }
 
@@ -1112,9 +1110,7 @@ impl<'a> Parser<'a> {
     }
 
     fn peek_kind_or_error(&mut self) -> Result<TokenKind> {
-        self.peek_kind()
-            .cloned()
-            .ok_or_else(|| self.fail_at_end("Unexpected end of input"))
+        self.peek_kind().cloned().ok_or_else(|| self.fail_at_end())
     }
 
     // Skip newlines, and peek at the next "real" token
@@ -1163,23 +1159,9 @@ impl<'a> Parser<'a> {
         None
     }
 
-    fn fail_at(&self, msg: &str, token: &Token) -> Error {
-        self.fail(msg, token.loc)
-    }
-
-    fn fail_at_end(&self, msg: &str) -> Error {
+    fn fail_at_end(&self) -> ParseError {
         let len = self.src.len();
-        self.fail(msg, Loc::new(len - 1, len))
-    }
-
-    fn fail(&self, msg: &str, loc: Loc) -> Error {
-        // use std::backtrace::Backtrace;
-        // println!("{}", Backtrace::force_capture());
-        Error::new(msg.into(), self.src, loc)
-    }
-
-    fn wrap_err(&self, err: Error, offset: usize) -> Error {
-        Error::new(err.message, self.src, err.loc.shift_right(offset))
+        ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(Loc::new(len - 1, len))
     }
 
     fn parse_string(&self, src: &str, loc: Loc) -> Result<Src<Expression>> {
@@ -1200,10 +1182,10 @@ impl<'a> Parser<'a> {
                 ),
                 StringTokenKind::Expr => {
                     let tokens = lexer::tokenize(part.src)
-                        .map_err(|err| self.wrap_err(err, start_offset + part.offset))?;
+                        .map_err(|err| err.shift_right(start_offset + part.offset))?;
                     Parser::new(part.src, tokens)
                         .parse_single_expression()
-                        .map_err(|err| self.wrap_err(err, start_offset + part.offset))?
+                        .map_err(|err| err.shift_right(start_offset + part.offset))?
                 }
             };
 

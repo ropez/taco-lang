@@ -6,10 +6,67 @@ use std::{
 
 use crate::{
     ident::Ident,
-    lexer::Loc,
+    lexer::{Loc, TokenKind},
     parser::MatchPattern,
     validate::{ScriptType, TupleType},
 };
+
+#[derive(Clone)]
+pub struct ParseError {
+    pub kind: ParseErrorKind,
+    pub(crate) loc: Option<Loc>,
+}
+
+#[derive(Clone)]
+pub enum ParseErrorKind {
+    UnexpectedToken,
+    UnexpectedEndOfInput,
+    Expected(String),
+    ExpectedKind(TokenKind),
+    InvalidNumber,
+}
+
+impl ParseError {
+    pub fn new(kind: ParseErrorKind) -> Self {
+        Self { kind, loc: None }
+    }
+
+    pub fn unexpected_token() -> Self {
+        Self::new(ParseErrorKind::UnexpectedToken)
+    }
+
+    pub fn expected(what: impl Into<String>) -> Self {
+        Self::new(ParseErrorKind::Expected(what.into()))
+    }
+
+    pub fn expected_kind(kind: TokenKind) -> Self {
+        Self::new(ParseErrorKind::ExpectedKind(kind))
+    }
+
+    pub fn at(self, loc: impl Into<Option<Loc>>) -> Self {
+        Self {
+            loc: self.loc.or(loc.into()),
+            ..self
+        }
+    }
+
+    pub fn shift_right(self, offset: usize) -> Self {
+        let loc = self.loc.unwrap_or(Loc::start()).shift_right(offset);
+        self.at(loc)
+    }
+
+    pub(crate) fn into_source_error(self, source: &str) -> Error {
+        let msg = match self.kind {
+            ParseErrorKind::UnexpectedToken => String::from("Unexpected token"),
+            ParseErrorKind::UnexpectedEndOfInput => String::from("Unexpected end of input"),
+            ParseErrorKind::Expected(what) => format!("Expected {what}"),
+            ParseErrorKind::ExpectedKind(kind) => format!("Expected to find {kind:?} here"),
+            ParseErrorKind::InvalidNumber => String::from("Invalid numeric literal"),
+        };
+
+        Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
+    }
+}
 
 #[derive(Clone)]
 pub struct TypeError {

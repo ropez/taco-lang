@@ -42,8 +42,10 @@ where
 {
     let (validator, interpreter) = setup(out);
 
-    let tokens = lexer::tokenize(src)?;
-    let ast = Parser::new(src, tokens).parse()?;
+    let tokens = lexer::tokenize(src).map_err(|err| err.into_source_error(src))?;
+    let ast = Parser::new(src, tokens)
+        .parse()
+        .map_err(|err| err.into_source_error(src))?;
 
     validator
         .validate(&ast)
@@ -84,8 +86,10 @@ pub fn run_tests(src: &str) -> Result<TestStats, Error> {
 
     let (validator, interpreter) = setup(writer);
 
-    let tokens = lexer::tokenize(src)?;
-    let ast = Parser::new(src, tokens).parse()?;
+    let tokens = lexer::tokenize(src).map_err(|err| err.into_source_error(src))?;
+    let ast = Parser::new(src, tokens)
+        .parse()
+        .map_err(|err| err.into_source_error(src))?;
 
     validator
         .validate(&ast)

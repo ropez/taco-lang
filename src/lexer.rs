@@ -1,9 +1,11 @@
 use std::{fmt, ops, result, sync::Arc};
 
-use crate::{error::Error, ident::Ident};
+use crate::{
+    error::{Error, ParseError, ParseErrorKind},
+    ident::Ident,
+};
 
-// XXX FIXME Use ParseError like validator/interpreter
-type Result<T> = result::Result<T, Error>;
+type Result<T> = result::Result<T, ParseError>;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Loc {
@@ -237,7 +239,7 @@ impl<'a> Tokenizer<'a> {
                     }
                 }
                 _ => {
-                    return Err(self.fail("Unexpected token"));
+                    return Err(ParseError::unexpected_token().at(self.loc));
                 }
             },
         };
@@ -302,10 +304,6 @@ impl<'a> Tokenizer<'a> {
         Token { inner: kind, loc }
     }
 
-    fn fail(&self, msg: &str) -> Error {
-        Error::new(msg.into(), self.src, self.loc)
-    }
-
     fn find_str(&mut self) -> Result<Arc<str>> {
         // FIXME Inefficient
         // FIXME Interpolated strings can contain nested strings
@@ -313,7 +311,7 @@ impl<'a> Tokenizer<'a> {
         loop {
             match self.read_char() {
                 None => {
-                    return Err(self.fail("Unexpected end of input"));
+                    return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
                 }
                 Some('"') => break,
                 Some(c) => s.push(c),
@@ -330,7 +328,8 @@ impl<'a> Tokenizer<'a> {
     fn find_number(&mut self) -> Result<i64> {
         let s = self.take_until(|ch| !ch.is_numeric());
 
-        s.parse().map_err(|_| self.fail("Invalid number"))
+        s.parse()
+            .map_err(|_| ParseError::new(ParseErrorKind::InvalidNumber).at(self.loc))
     }
 
     fn take_until<P>(&mut self, pattern: P) -> &str
