@@ -10,6 +10,7 @@ use crate::{
 };
 
 pub fn build(builder: &mut Builder) {
+    builder.add_function("int::parse", ParseIntFunc);
     builder.add_function("Range::parse", ParseRangeFunc);
 }
 
@@ -45,6 +46,25 @@ impl NativeFunction for ParseFunc {
             def: Arc::clone(&self.def),
             value: Arc::new(Tuple::new(values)),
         })
+    }
+}
+
+struct ParseIntFunc;
+impl NativeFunction for ParseIntFunc {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+        let input = arguments.single()?.as_string()?;
+        let val = input
+            .parse()
+            .map_err(|err| ScriptError::panic(format!("{err}, input: '{input}'")))?;
+        Ok(ScriptValue::Int(val))
+    }
+
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::Str)
+    }
+
+    fn return_type(&self) -> ScriptType {
+        ScriptType::Int
     }
 }
 

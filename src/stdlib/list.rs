@@ -13,16 +13,21 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "len", ListLen);
     builder.add_method(global::LIST, "push", ListPush);
     builder.add_method(global::LIST, "at", ListAt);
+    builder.add_method(global::LIST, "skip", ListSkip);
+    builder.add_method(global::LIST, "take", ListTake);
     builder.add_method(global::LIST, "find", ListFind);
+    builder.add_method(global::LIST, "find_index", ListFindIndex);
     builder.add_method(global::LIST, "count", ListCount);
     builder.add_method(global::LIST, "unzip", ListUnzip);
     builder.add_method(global::LIST, "sum", ListSum);
+    builder.add_method(global::LIST, "max", ListMax);
     builder.add_method(global::LIST, "sort", ListSort);
     builder.add_method(global::LIST, "map", ListMap);
     builder.add_method(global::LIST, "map_to", ListMapTo);
     builder.add_method(global::LIST, "scan", ListScan);
     builder.add_method(global::LIST, "filter", ListFilter);
     builder.add_method(global::LIST, "flatten", ListFlatten);
+    builder.add_method(global::LIST, "enumerate", ListEnumerate);
 
     builder.add_method(global::RANGE, "map", ListMap);
     builder.add_method(global::RANGE, "filter", ListFilter);
@@ -145,6 +150,50 @@ impl ListMethod for ListAt {
     }
 }
 
+pub(crate) struct ListSkip;
+impl ListMethod for ListSkip {
+    fn list_arguments_type(&self, _inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(ScriptType::Int))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::list_of(inner.clone()))
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        list: Arc<List>,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let n = arguments.single()?.as_int()?;
+        let items = list.items().iter().skip(n as usize).cloned().collect();
+        Ok(ScriptValue::from(List::new(items)))
+    }
+}
+
+pub(crate) struct ListTake;
+impl ListMethod for ListTake {
+    fn list_arguments_type(&self, _inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(ScriptType::Int))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::list_of(inner.clone()))
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        list: Arc<List>,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let n = arguments.single()?.as_int()?;
+        let items = list.items().iter().take(n as usize).cloned().collect();
+        Ok(ScriptValue::from(List::new(items)))
+    }
+}
+
 pub(crate) struct ListFind;
 impl ListMethod for ListFind {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
@@ -164,6 +213,31 @@ impl ListMethod for ListFind {
         let val = arguments.single()?;
         let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, val));
         Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
+    }
+}
+
+pub(crate) struct ListFindIndex;
+impl ListMethod for ListFindIndex {
+    fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(inner.clone()))
+    }
+
+    fn list_return_type(&self, _inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Opt(ScriptType::Int.into()))
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        list: Arc<List>,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let val = arguments.single()?;
+        let opt_idx = list.items().iter().position(|v| ScriptValue::eq(v, val));
+        Ok(match opt_idx {
+            Some(idx) => ScriptValue::Int(idx as i64),
+            None => ScriptValue::None,
+        })
     }
 }
 
@@ -322,8 +396,44 @@ impl ListMethod for ListSum {
 
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         match inner {
-            ScriptType::Int => Ok(ScriptType::Int),
-            _ => Err(TypeError::new(TypeErrorKind::InvalidExpression)), // XXX Better type
+            ScriptType::Int => Ok(ScriptType::opt_of(ScriptType::Int)),
+            _ => Err(TypeError::expected_type(
+                ScriptType::list_of(ScriptType::Int),
+                ScriptType::list_of(inner.clone()),
+            )),
+        }
+    }
+}
+
+pub(crate) struct ListMax;
+impl ListMethod for ListMax {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: Arc<List>,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        if subject.items().iter().any(|v| v.is_nan()) {
+            Ok(ScriptValue::NaN)
+        } else {
+            let numbers = subject
+                .items()
+                .iter()
+                .map(|val| val.as_int())
+                .collect::<Result<Vec<_>, ScriptError>>()?;
+            Ok(ScriptValue::Int(
+                numbers.into_iter().max().unwrap_or_default(),
+            ))
+        }
+    }
+
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        match inner {
+            ScriptType::Int => Ok(ScriptType::opt_of(ScriptType::Int)),
+            _ => Err(TypeError::expected_type(
+                ScriptType::list_of(ScriptType::Int),
+                ScriptType::list_of(inner.clone()),
+            )),
         }
     }
 }
@@ -383,6 +493,8 @@ impl ListMethod for ListMap {
     }
 }
 
+// 'scan' is similar to 'map', but the callback receives the previous mapped value together
+// with the current item, and we must provide an initial value for the first iteration.
 pub(crate) struct ListScan;
 impl ListMethod for ListScan {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
@@ -522,6 +634,39 @@ impl ListMethod for ListMapTo {
             mapped.push(value);
         }
         Ok(ScriptValue::List(Arc::new(List::new(mapped))))
+    }
+}
+
+struct ListEnumerate;
+impl ListMethod for ListEnumerate {
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        let tuple = TupleType::new(vec![
+            TupleItemType::unnamed(ScriptType::Int),
+            TupleItemType::unnamed(inner.clone()),
+        ]);
+        Ok(ScriptType::list_of(ScriptType::Tuple(tuple)))
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: Arc<List>,
+        _: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let items: Vec<_> = subject
+            .items()
+            .iter()
+            .enumerate()
+            .map(|(i, v)| {
+                let tuple = Tuple::new(vec![
+                    TupleItem::unnamed(ScriptValue::Int(i as i64)),
+                    TupleItem::unnamed(v.clone()),
+                ]);
+                ScriptValue::Tuple(Arc::new(tuple))
+            })
+            .collect();
+
+        Ok(ScriptValue::from(List::new(items)))
     }
 }
 

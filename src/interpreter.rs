@@ -132,6 +132,7 @@ impl PartialEq for ScriptValue {
             (Self::String(l), Self::String(r)) => l == r,
             (Self::Boolean(l), Self::Boolean(r)) => l == r,
             (Self::Int(l), Self::Int(r)) => l == r,
+            (Self::Range(l1, l2), Self::Range(r1, r2)) => (l1, l2) == (r1, r2),
             (Self::Tuple(l), Self::Tuple(r)) => l == r,
             (
                 Self::Enum {
@@ -722,6 +723,13 @@ impl Interpreter {
                     return Err(ScriptError::no_value());
                 }
                 val
+            }
+            Expression::Coalesce(lhs, rhs) => {
+                let val = self.eval_expr(lhs, scope)?;
+                match val {
+                    ScriptValue::None => self.eval_expr(rhs, scope)?,
+                    val => val,
+                }
             }
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;

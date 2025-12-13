@@ -44,3 +44,7 @@ fun test_split_into_named_tuple() {
     (first, second) = "superstar".split_at(5)
     assert "A $first cool $second" == "A super cool star"
 }
+
+fun test_chars() {
+    assert "foo bar".chars() == ["f", "o", "o", " ", "b", "a", "r"]
+}

@@ -87,6 +87,7 @@ pub enum TokenKind {
     LeftSquare,
     RightSquare,
     Question,
+    Coalesce,
     Alpha,
     LogicNot,
     LogicAnd,
@@ -201,7 +202,13 @@ impl<'a> Tokenizer<'a> {
                 '}' => Some(self.produce(TokenKind::RightBrace)),
                 '[' => Some(self.produce(TokenKind::LeftSquare)),
                 ']' => Some(self.produce(TokenKind::RightSquare)),
-                '?' => Some(self.produce(TokenKind::Question)),
+                '?' => {
+                    if self.take_if_eq('?') {
+                        Some(self.produce(TokenKind::Coalesce))
+                    } else {
+                        Some(self.produce(TokenKind::Question))
+                    }
+                }
                 '<' => {
                     if self.take_if_eq('=') {
                         Some(self.produce(TokenKind::LessOrEqual))

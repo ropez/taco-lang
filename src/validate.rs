@@ -54,6 +54,10 @@ impl ScriptType {
         Self::List(inner.into())
     }
 
+    pub fn opt_of(inner: ScriptType) -> ScriptType {
+        Self::Opt(inner.into())
+    }
+
     fn accepts(&self, other: &ScriptType) -> bool {
         match (self, other) {
             (ScriptType::Ext(_), _) => false,
@@ -938,6 +942,23 @@ impl Validator {
                     _ => {
                         Err(TypeError::new(TypeErrorKind::InvalidOptional(inner_typ)).at(inner.loc))
                     }
+                }
+            }
+            Expression::Coalesce(lhs, rhs) => {
+                let lhs_typ = self.validate_expr(lhs, scope)?;
+                let rhs_typ = self.validate_expr(rhs, scope)?;
+                match lhs_typ {
+                    ScriptType::Opt(inner) => {
+                        if !inner.accepts(&rhs_typ) {
+                            return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
+                                expected: inner.as_ref().clone(),
+                                actual: rhs_typ,
+                            })
+                            .at(rhs.loc));
+                        }
+                        Ok(rhs_typ)
+                    }
+                    _ => Err(TypeError::new(TypeErrorKind::InvalidOptional(lhs_typ)).at(lhs.loc)),
                 }
             }
             Expression::Call { subject, arguments } => {

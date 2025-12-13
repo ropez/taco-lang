@@ -141,7 +141,7 @@ impl TypeError {
     }
 
     pub fn expected_type(expected: ScriptType, actual: ScriptType) -> Self {
-        Self::new(TypeErrorKind::InvalidArgumentType { expected, actual, })
+        Self::new(TypeErrorKind::InvalidArgumentType { expected, actual })
     }
 
     pub fn expected_number(actual: ScriptType) -> Self {

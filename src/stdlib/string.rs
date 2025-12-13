@@ -14,6 +14,7 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::STRING, "len", StringLength);
     builder.add_method(global::STRING, "lines", StringLines);
     builder.add_method(global::STRING, "trim", StringTrim);
+    builder.add_method(global::STRING, "chars", StringChars);
     builder.add_method(global::STRING, "split", StringSplit);
     builder.add_method(global::STRING, "split_at", StringSplitAt);
 }
@@ -72,6 +73,28 @@ impl NativeMethod for StringTrim {
 
     fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::Str)
+    }
+}
+
+pub(crate) struct StringChars;
+impl NativeMethod for StringChars {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let subject = subject.as_string()?;
+        let lines = subject
+            .chars()
+            .map(String::from)
+            .map(ScriptValue::string)
+            .collect();
+        Ok(ScriptValue::List(Arc::new(List::new(lines))))
+    }
+
+    fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::list_of(ScriptType::Str))
     }
 }
 

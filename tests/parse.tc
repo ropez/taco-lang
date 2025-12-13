@@ -1,3 +1,11 @@
+fun test_parse_int() {
+    assert int::parse("234") == 234
+}
+
+fun test_parse_range() {
+    assert Range::parse("234-345") == 234..345
+}
+
 # TODO Equality for Rec
 # Must recursively check that all values support equality, during validation
 # This will be similar to automatically deriging PartialEq in Rust
