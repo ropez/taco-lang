@@ -137,7 +137,7 @@ impl ListMethod for ListAt {
     }
 
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::Opt(Box::new(inner.clone())))
+        Ok(ScriptType::opt_of(inner.clone()))
     }
 
     fn list_call(
@@ -441,9 +441,12 @@ impl ListMethod for ListSum {
                 .iter()
                 .map(|val| val.as_int())
                 .collect::<Result<Vec<_>, ScriptError>>()?;
-            Ok(ScriptValue::Int(
-                numbers.into_iter().reduce(|n, a| n + a).unwrap_or_default(),
-            ))
+
+            let value = match numbers.into_iter().reduce(|n, a| n + a) {
+                Some(sum) => ScriptValue::Int(sum),
+                None => ScriptValue::None,
+            };
+            Ok(value)
         }
     }
 
@@ -455,6 +458,10 @@ impl ListMethod for ListSum {
                 ScriptType::list_of(inner.clone()),
             )),
         }
+    }
+
+    fn empty_list_return_type(&self) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::opt_of(ScriptType::Int))
     }
 }
 
@@ -474,9 +481,12 @@ impl ListMethod for ListMax {
                 .iter()
                 .map(|val| val.as_int())
                 .collect::<Result<Vec<_>, ScriptError>>()?;
-            Ok(ScriptValue::Int(
-                numbers.into_iter().max().unwrap_or_default(),
-            ))
+
+            let value = match numbers.into_iter().max() {
+                Some(max) => ScriptValue::Int(max),
+                None => ScriptValue::None,
+            };
+            Ok(value)
         }
     }
 
@@ -488,6 +498,10 @@ impl ListMethod for ListMax {
                 ScriptType::list_of(inner.clone()),
             )),
         }
+    }
+
+    fn empty_list_return_type(&self) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::opt_of(ScriptType::Int))
     }
 }
 
