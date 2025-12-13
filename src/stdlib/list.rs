@@ -3,9 +3,9 @@ use std::sync::Arc;
 use crate::{
     Builder,
     error::{ScriptError, TypeError, TypeErrorKind},
+    ext::{NativeFunction, NativeMethod},
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
-    stdlib::{NativeFunction, NativeMethod},
     validate::{ScriptType, TupleItemType, TupleType},
 };
 
@@ -26,6 +26,8 @@ pub(crate) fn build(builder: &mut Builder) {
 
     builder.add_method(global::RANGE, "map", ListMap);
     builder.add_method(global::RANGE, "filter", ListFilter);
+
+    builder.add_function("List::zip", ListZip);
 }
 
 #[derive(Debug, Clone)]

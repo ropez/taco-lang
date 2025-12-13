@@ -1,9 +1,9 @@
 use crate::{
     Builder,
     error::{ScriptError, TypeError},
+    ext::NativeMethod,
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple},
-    stdlib::NativeMethod,
     validate::ScriptType,
 };
 

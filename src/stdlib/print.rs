@@ -6,8 +6,8 @@ use std::{
 use crate::{
     Builder,
     error::ScriptError,
+    ext::NativeFunction,
     interpreter::{Interpreter, ScriptValue, Tuple},
-    stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
 };
 

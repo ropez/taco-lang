@@ -6,22 +6,24 @@ use std::{
 
 use crate::{
     error::Error,
+    ext::{NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::{Interpreter, ScriptValue, Tuple},
     parser::Parser,
-    stdlib::{NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, list::ListZip},
     validate::Validator,
 };
 
 pub mod error;
-mod fmt;
+pub mod ext;
 pub mod ident;
-mod interpopation;
 pub mod interpreter;
 pub mod lexer;
 pub mod parser;
-mod stdlib;
 pub mod validate;
+
+mod fmt;
+mod interpopation;
+mod stdlib;
 
 #[cfg(test)]
 mod tests;
@@ -146,24 +148,7 @@ where
 
     let mut builder = Builder::default();
 
-    stdlib::string::build(&mut builder);
-    stdlib::math::build(&mut builder);
-    stdlib::list::build(&mut builder);
-    stdlib::opt::build(&mut builder);
-    stdlib::with::build(&mut builder);
-    stdlib::state::build(&mut builder);
-    stdlib::print::build(&mut builder, out);
-    stdlib::parse::build(&mut builder);
-    stdlib::type_of::build(&mut builder);
-
-    #[cfg(feature = "json")]
-    stdlib::json::build(&mut builder);
-
-    #[cfg(feature = "fs")]
-    stdlib::fs::build(&mut builder);
-
-    // XXX Namespace for functions (List::zip)
-    builder.add_function("List::zip", ListZip);
+    stdlib::build(&mut builder, out);
 
     let validator = builder.build_validator();
     let interpreter = builder.build_interpreter();

@@ -3,9 +3,9 @@ use std::fmt::{self, Write};
 use crate::{
     Builder,
     error::ScriptError,
+    ext::NativeFunction,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
     parser::{ParamExpression, TypeExpression},
-    stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
 };
 

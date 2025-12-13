@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Display, result, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind},
+    ext::{Methods, NativeFunctionRef, NativeMethodRef},
     fmt::fmt_tuple,
     ident::{Ident, global},
     lexer::{Loc, Src},
@@ -9,7 +10,6 @@ use crate::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, MatchArm, MatchPattern,
         ParamExpression, Statement, TypeExpression,
     },
-    stdlib::{Methods, NativeFunctionRef, NativeMethodRef},
 };
 
 type Result<T> = result::Result<T, TypeError>;

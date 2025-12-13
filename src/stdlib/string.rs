@@ -3,9 +3,10 @@ use std::sync::Arc;
 use crate::{
     Builder,
     error::{ScriptError, TypeError},
+    ext::NativeMethod,
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
-    stdlib::{NativeMethod, list::List},
+    stdlib::list::List,
     validate::{ScriptType, TupleItemType, TupleType},
 };
 

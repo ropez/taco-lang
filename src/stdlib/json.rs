@@ -4,10 +4,10 @@ use tinyjson::JsonValue;
 
 use crate::{
     Builder,
-    error::{ScriptError, ScriptErrorKind},
+    error::ScriptError,
+    ext::NativeFunction,
     interpreter::{Interpreter, ScriptValue, Tuple},
     parser::{Expression, Record},
-    stdlib::NativeFunction,
     validate::{ScriptType, TupleType},
 };
 

@@ -7,6 +7,7 @@ use std::{
 
 use crate::{
     error::{ScriptError, ScriptErrorKind},
+    ext::{ExternalValue, NativeFunctionRef, NativeMethodRef},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::{Ident, global},
     lexer::Src,
@@ -14,7 +15,7 @@ use crate::{
         Assignee, CallExpression, Enumeration, Expression, Function, MatchArm, MatchPattern,
         ParamExpression, Record, Statement, TypeExpression,
     },
-    stdlib::{ExternalValue, NativeFunctionRef, NativeMethodRef, list::List, parse::ParseFunc},
+    stdlib::{list::List, parse::ParseFunc},
     validate::ExternalType,
 };
 
