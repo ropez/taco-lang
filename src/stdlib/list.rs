@@ -31,8 +31,10 @@ pub(crate) fn build(builder: &mut Builder) {
 
     builder.add_method(global::RANGE, "map", ListMap);
     builder.add_method(global::RANGE, "filter", ListFilter);
+    builder.add_method(global::RANGE, "to_list", ToList);
 
     builder.add_function("List::zip", ListZip);
+    builder.add_function("List::cartesian", ListCartesian);
 }
 
 #[derive(Debug, Clone)]
@@ -372,6 +374,57 @@ impl NativeFunction for ListZip {
     }
 }
 
+pub(crate) struct ListCartesian;
+impl NativeFunction for ListCartesian {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+        let lhs = arguments
+            .at(0)
+            .ok_or_else(|| ScriptError::panic("Expected two arguments"))?
+            .as_iterable();
+        let rhs = arguments
+            .at(1)
+            .ok_or_else(|| ScriptError::panic("Expected two arguments"))?
+            .as_iterable();
+
+        let mut tuples = Vec::new();
+        for l in &lhs {
+            for r in &rhs {
+                let items = [l.clone(), r.clone()]
+                    .into_iter()
+                    .map(TupleItem::unnamed)
+                    .collect();
+                tuples.push(Tuple::new(items));
+            }
+        }
+
+        let values = tuples
+            .into_iter()
+            .map(Arc::new)
+            .map(ScriptValue::Tuple)
+            .collect();
+
+        Ok(ScriptValue::List(Arc::new(List::new(values))))
+    }
+
+    // XXX Supporting exactly two arguments only
+
+    fn arguments_type(&self) -> TupleType {
+        let args = vec![
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(1))),
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(2))),
+        ];
+        TupleType::new(args)
+    }
+
+    fn return_type(&self) -> ScriptType {
+        let args = vec![
+            TupleItemType::unnamed(ScriptType::Infer(1)),
+            TupleItemType::unnamed(ScriptType::Infer(2)),
+        ];
+        ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
+    }
+}
+
 pub(crate) struct ListSum;
 impl ListMethod for ListSum {
     fn list_call(
@@ -461,6 +514,22 @@ impl ListMethod for ListSort {
 
     fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::List(Box::new(inner.clone())))
+    }
+}
+
+pub(crate) struct ToList;
+impl ListMethod for ToList {
+    fn list_return_type(&self, inner: &ScriptType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::list_of(inner.clone()))
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: Arc<List>,
+        _arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        Ok(ScriptValue::List(subject))
     }
 }
 

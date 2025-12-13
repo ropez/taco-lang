@@ -275,11 +275,11 @@ pub struct Parser<'a> {
 }
 
 mod constants {
+    pub(crate) const BP_LOGIC_OR: u32 = 1;
+    pub(crate) const BP_LOGIC_AND: u32 = 2;
     pub(crate) const BP_EQUAL: u32 = 3;
     pub(crate) const BP_CMP: u32 = 4;
     pub(crate) const BP_SPREAD: u32 = 6;
-    pub(crate) const BP_LOGIC_OR: u32 = 7;
-    pub(crate) const BP_LOGIC_AND: u32 = 8;
     pub(crate) const BP_PLUS: u32 = 10;
     pub(crate) const BP_MINUS: u32 = 10;
     pub(crate) const BP_DIV: u32 = 20;
