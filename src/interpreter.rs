@@ -68,6 +68,10 @@ impl ScriptValue {
         Self::Tuple(Arc::new(Tuple::identity()))
     }
 
+    pub fn string(s: impl Into<Arc<str>>) -> Self {
+        Self::String(s.into())
+    }
+
     pub fn is_nan(&self) -> bool {
         matches!(self, Self::NaN)
     }
@@ -559,7 +563,7 @@ impl Interpreter {
                     let val = self.eval_expr(expr, scope)?;
                     write!(builder, "{val}").unwrap();
                 }
-                ScriptValue::String(builder.into())
+                ScriptValue::string(builder)
             }
             Expression::Int(n) => ScriptValue::Int(*n),
             Expression::True => ScriptValue::Boolean(true),

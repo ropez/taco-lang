@@ -18,7 +18,7 @@ struct TypeOfFunc;
 impl NativeFunction for TypeOfFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single()?;
-        Ok(ScriptValue::String(arg.to_type().into()))
+        Ok(ScriptValue::string(arg.to_type()))
     }
 
     fn arguments_type(&self) -> TupleType {

@@ -1,0 +1,7 @@
+
+fun test_run_process() {
+    out = exec("uname -s").trim()
+
+    # XXX Not portable
+    assert out == "Linux"
+}

@@ -48,7 +48,7 @@ impl NativeMethod for StringLines {
         let lines = subject
             .lines()
             .filter(|l| !l.is_empty())
-            .map(|l| ScriptValue::String(Arc::from(l)))
+            .map(ScriptValue::string)
             .collect();
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
@@ -67,7 +67,7 @@ impl NativeMethod for StringTrim {
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let s = subject.as_string()?;
-        Ok(ScriptValue::String(s.trim().into()))
+        Ok(ScriptValue::string(s.trim()))
     }
 
     fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
@@ -89,7 +89,7 @@ impl NativeMethod for StringSplit {
         let lines = subject
             .split(arg.as_ref())
             .filter(|l| !l.is_empty())
-            .map(|l| ScriptValue::String(Arc::from(l)))
+            .map(ScriptValue::string)
             .collect();
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
@@ -120,8 +120,7 @@ impl NativeMethod for StringSplitAt {
 
         let items = [l, r]
             .into_iter()
-            .map(Arc::from)
-            .map(ScriptValue::String)
+            .map(ScriptValue::string)
             .map(TupleItem::unnamed)
             .collect();
         Ok(ScriptValue::Tuple(Tuple::new(items).into()))

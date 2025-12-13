@@ -18,6 +18,9 @@ pub(crate) mod with;
 #[cfg(feature = "fs")]
 pub(crate) mod fs;
 
+#[cfg(feature = "process")]
+pub(crate) mod process;
+
 #[cfg(feature = "json")]
 pub(crate) mod json;
 
@@ -31,13 +34,16 @@ where
     opt::build(builder);
     with::build(builder);
     state::build(builder);
-    print::build(builder, out);
+    print::build(builder, Arc::clone(&out));
     parse::build(builder);
     type_of::build(builder);
 
-    #[cfg(feature = "json")]
-    json::build(builder);
-
     #[cfg(feature = "fs")]
     fs::build(builder);
+
+    #[cfg(feature = "process")]
+    process::build(builder, Arc::clone(&out));
+
+    #[cfg(feature = "json")]
+    json::build(builder);
 }

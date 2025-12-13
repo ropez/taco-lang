@@ -27,7 +27,7 @@ impl NativeFunction for ReadFunc {
         let name = arguments.single()?.as_string()?;
 
         match fs::read_to_string(name.as_ref()) {
-            Ok(content) => Ok(ScriptValue::String(content.into())),
+            Ok(content) => Ok(ScriptValue::string(content)),
             Err(err) => Err(ScriptError::panic(err)),
         }
     }

@@ -35,7 +35,7 @@ impl NativeFunction for ParseFunc {
                     TypeExpression::Int => {
                         ScriptValue::Int(tokens.next().unwrap().parse::<i64>().unwrap())
                     }
-                    TypeExpression::Str => ScriptValue::String(tokens.next().unwrap().into()),
+                    TypeExpression::Str => ScriptValue::string(tokens.next().unwrap()),
                     o => todo!("Don't know how to parse {o:?}"),
                 },
             ));
