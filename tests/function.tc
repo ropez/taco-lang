@@ -1,0 +1,263 @@
+
+fun test_function_calling_function() {
+    fun indent(arg: str): str {
+        return "- $arg"
+    }
+
+    fun bye(arg: str): str {
+        msg = "Good bye"
+        return "$msg, ${indent(arg)}"
+    }
+
+    assert bye("Have a nice day") == "Good bye, - Have a nice day"
+}
+
+fun test_discard_arg_with_underscore() {
+    fun args(first: str, _: str): str {
+        return "$first"
+    }
+
+    assert args("foo", "bar") == "foo"
+}
+
+fun test_discard_unnamed_arg() {
+    fun args(first: str, [str]): str {
+        return "$first"
+    }
+
+    assert args("foo", [""]) == "foo"
+}
+
+fun test_optional_arguments() {
+    fun foo(a: str, b: int?, c: int?): str {
+        if v in c {
+            return "$a $v"
+        } else {
+            return ""
+        }
+    }
+
+    assert foo("ok", c: 42) == "ok 42"
+}
+
+fun test_implied_return() {
+    fun square(n: int): int {
+        n * n
+    }
+    assert square(2) == 4
+    assert typeof(square(2)) == "int"
+    assert typeof(square) == "fun(n: int): int"
+}
+
+fun test_implied_return_with_implied_type() {
+    fun square(n: int) { n * n }
+    assert square(2) == 4
+    assert typeof(square(2)) == "int"
+    # assert typeof(square) == "fun(n: int): int" -- XXX fails in runtime
+}
+
+fun test_explicit_return_inside_if() {
+    enum Color { Green, Blue }
+
+    fun select(col: Color): str {
+        if col == Color::Green {
+            return "The color is green"
+        } else {
+            return "Not green, probably blue"
+        }
+    }
+
+    assert select(Color::Green) == "The color is green"
+    assert select(Color::Blue) == "Not green, probably blue"
+}
+
+fun test_implicit_return_with_explicit_function_type() {
+    enum Color { Green, Blue }
+
+    fun select(col: Color): str {
+        match col {
+            Color::Green { "The color is green" }
+            _ { "Not green, probably blue" }
+        }
+    }
+
+    assert select(Color::Green) == "The color is green"
+    assert select(Color::Blue) == "Not green, probably blue"
+}
+
+fun test_explicit_return_inside_list_iteration() {
+    enum Color { Green, Blue }
+
+    fun search(colors: [Color]): str {
+        for col in colors {
+            if col == Color::Green {
+                return "Found green"
+            }
+        }
+        return "Not found"
+    }
+
+    assert search([Color::Blue, Color::Green]) == "Found green"
+    assert search([Color::Blue]) == "Not found"
+}
+
+fun test_explicit_return_inside_range_iteration() {
+        enum Color { Green, Blue }
+
+        fun search(r: int): str {
+            for i in 0..100 {
+                if i == r {
+                    return "Found $r"
+                }
+            }
+            return "Not found"
+        }
+
+        assert search(42) == "Found 42"
+        assert search(999) == "Not found"
+}
+
+fun test_return_from_conditional_at_end() {
+    fun foo(cond: bool): str {
+        assert true
+        if cond {
+            return "foo"
+        } else {
+            return "bar"
+        }
+    }
+
+    assert foo(true) == "foo"
+    assert foo(false) == "bar"
+}
+
+fun test_return_from_nested_match() {
+    fun foo(a: bool, b: bool): str {
+        match a {
+            true {
+                match b {
+                    true { "ab" }
+                    false { "a_" }
+                }
+            }
+            false {
+                match b {
+                    true { "_b" }
+                    false { "__" }
+                }
+            }
+        }
+    }
+
+    assert foo(true, true) == "ab"
+    assert foo(false, true) == "_b"
+    assert foo(true, false) == "a_"
+    assert foo(false, false) == "__"
+}
+
+fun test_return_implicit_tuple() {
+    fun foo(): (str, [int]) {
+        ("banana", [1, 2, 3])
+    }
+
+    (fruit, count) = foo()
+    assert fruit == "banana"
+    assert count == [1, 2, 3]
+}
+
+fun test_return_implicit_tuple_with_arg() {
+        fun foo(arg: str): (str, [int]) {
+            (arg, [42])
+        }
+
+        (fruit, count) = foo("banana")
+        assert fruit == "banana"
+        assert count == [42]
+}
+
+fun test_arguments_access() {
+    fun foo(fruit: str, count: int) {
+        "${arguments.fruit} ${arguments.count}"
+    }
+
+    assert foo("banana", 42) == "banana 42"
+}
+
+fun test_manually_destruct_arguments() {
+    fun foo(str, int, int): str {
+        (fruit, count, _) = arguments
+        return "$fruit $count"
+    }
+
+    assert foo("banana", 42, 100) == "banana 42"
+}
+
+fun test_manually_destruct_named_arguments() {
+        fun foo(fruit: str, count: int): str {
+            (count, fruit) = arguments
+            return "$fruit $count"
+        }
+
+        assert foo("banana", 42) == "banana 42"
+}
+
+fun test_apply_params() {
+    fun foo(a: int, b: int, c: int, d: int): str {
+        return "$a$b$c$d"
+    }
+
+    assert foo(1, 2, 3, 4) == "1234"
+    assert foo(1, 2, 3, d: 4) == "1234"
+    assert foo(1, 2, d: 4, c: 3) == "1234"
+    assert foo(1, d: 4, c: 3, b: 2) == "1234"
+    assert foo(c: 3, d: 4, a: 1, b: 2) == "1234"
+    assert foo(b: 2, c: 3, d: 4, 1) == "1234"
+    assert foo(b: 2, 1, c: 3, d: 4) == "1234"
+    assert foo(d: 4, 1, c: 3, 2) == "1234"
+    assert foo(1, d: 4, 2, 3) == "1234"
+    assert foo(1, c: 3, 2, 4) == "1234"
+}
+
+fun test_apply_arguments_from_tuple() {
+    fun foo(fruit: str, amount: int): str {
+        return "$amount $fruit"
+    }
+
+    # Normal call
+    assert foo("banana", 42) == "42 banana"
+
+    # Using tuple
+    tup = ("banana", 42)
+    assert foo(=tup) == "42 banana"
+    assert foo(= ("banana", 42)) == "42 banana"
+
+    # Using Rec
+    rec Args(fruit: str, amount: int)
+    args = Args(fruit: "banana", amount: 42)
+    assert foo(=args) == "42 banana"
+    assert foo(= Args("banana", 42)) == "42 banana"
+}
+
+fun test_forward_arguments() {
+    fun foo(fruit: str, amount: int) {
+        "$amount $fruit"
+    }
+
+    fun bar(fruit: str, amount: int) {
+        foo(=arguments)
+    }
+
+    assert bar("banana", 42) == "42 banana"
+}
+
+fun test_forward_implied_arguments() {
+    fun foo(fruit: str, amount: int) {
+        "$amount $fruit"
+    }
+
+    fun bar(fruit: str, amount: int) {
+        foo(=)
+    }
+
+    assert bar("banana", 42) == "42 banana"
+}
