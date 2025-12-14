@@ -1,4 +1,4 @@
-use std::{any::Any, collections::HashMap, fmt, ops, sync::Arc};
+use std::{any::Any, fmt, ops, sync::Arc};
 
 use crate::{
     error::{ScriptError, TypeError},
@@ -10,29 +10,45 @@ use crate::{
 pub trait ExternalType {
     fn name(&self) -> Ident;
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef>;
+    fn as_any(&self) -> &dyn Any;
 
-    fn inner(&self) -> Option<&ScriptType> {
+    fn as_readable(&self) -> Option<ScriptType> {
         None
     }
-
-    // XXX Try to get rid of this
-    fn with_inner(&self, inner: ScriptType) -> Arc<dyn ExternalType + Send + Sync>;
+    fn as_writable(&self) -> Option<ScriptType> {
+        None
+    }
 }
 
 impl fmt::Debug for dyn ExternalType + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[exernal]")
+        write!(f, "{{{}}}", self.name())
     }
 }
 
 pub trait ExternalValue {
     fn as_any(&self) -> &dyn Any;
+
+    fn as_readable(&self) -> Option<&dyn Readable> {
+        None
+    }
+    fn as_writable(&self) -> Option<&dyn Writable> {
+        None
+    }
 }
 
 impl fmt::Debug for dyn ExternalValue + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         todo!()
     }
+}
+
+pub trait Readable {
+    fn next(&self) -> Result<Option<ScriptValue>, ScriptError>;
+}
+
+pub trait Writable {
+    fn write(&self, value: ScriptValue) -> Result<(), ScriptError>;
 }
 
 pub trait NativeFunction {
@@ -46,7 +62,8 @@ pub trait NativeFunction {
         TupleType::identity()
     }
 
-    fn return_type(&self) -> ScriptType {
+    fn return_type(&self, arguments: &TupleType) -> ScriptType {
+        let _ = arguments;
         ScriptType::identity()
     }
 }
@@ -64,8 +81,13 @@ pub trait NativeMethod {
         Ok(TupleType::identity())
     }
 
-    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(
+        &self,
+        subject: &ScriptType,
+        arguments: &TupleType,
+    ) -> Result<ScriptType, TypeError> {
         let _ = subject;
+        let _ = arguments;
         Ok(ScriptType::identity())
     }
 }

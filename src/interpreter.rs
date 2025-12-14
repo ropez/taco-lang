@@ -212,6 +212,7 @@ impl Display for ScriptValue {
                 Ok(())
             }
             ScriptValue::NaN => write!(f, "NaN"),
+            ScriptValue::Ext(t, e) => write!(f, "{{{}}}", t.name()),
             _ => todo!("Display impl for {self:?}"),
         }
     }
@@ -405,6 +406,7 @@ impl Interpreter {
                     iterable,
                     body,
                 } => {
+                    let loc = iterable.loc;
                     let iterable = self.eval_expr(iterable, &scope)?;
                     match iterable {
                         ScriptValue::List(ref list) => {
@@ -427,6 +429,21 @@ impl Interpreter {
                                 {
                                     return Ok(Completion::ExplicitReturn(val));
                                 }
+                            }
+                        }
+                        ScriptValue::Ext(_, val) => {
+                            if let Some(iter) = val.as_readable() {
+                                while let Some(v) = iter.next()? {
+                                    let mut scope = scope.clone();
+                                    scope.set_local(ident.clone(), v);
+                                    if let Completion::ExplicitReturn(val) =
+                                        self.execute_block(body, scope)?
+                                    {
+                                        return Ok(Completion::ExplicitReturn(val));
+                                    }
+                                }
+                            } else {
+                                return Err(ScriptError::panic("Expected iterable").at(loc));
                             }
                         }
                         _ => panic!("Expected iterable, found: {iterable}"),
@@ -474,6 +491,20 @@ impl Interpreter {
                     if let Some(block) = branch {
                         let mut scope = scope.clone();
                         match self.execute_block(block, scope)? {
+                            Completion::ExplicitReturn(val) => {
+                                return Ok(Completion::ExplicitReturn(val));
+                            }
+                            Completion::ImpliedReturn(val) if ast.len() == 1 => {
+                                return Ok(Completion::ImpliedReturn(val));
+                            }
+                            _ => (),
+                        }
+                    }
+                }
+                Statement::While { cond, body } => {
+                    while self.eval_expr(cond, &scope)?.as_boolean()? {
+                        let scope = scope.clone();
+                        match self.execute_block(body, scope)? {
                             Completion::ExplicitReturn(val) => {
                                 return Ok(Completion::ExplicitReturn(val));
                             }

@@ -4,7 +4,7 @@ use crate::{
     ext::NativeMethod,
     ident::global,
     interpreter::{Interpreter, ScriptValue, Tuple},
-    validate::ScriptType,
+    validate::{ScriptType, TupleType},
 };
 
 pub(crate) fn build(builder: &mut Builder) {
@@ -25,7 +25,7 @@ impl NativeMethod for AbsMethod {
         }
     }
 
-    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         match subject {
             ScriptType::Int => Ok(ScriptType::Int),
             _ => Err(TypeError::expected_number(subject.clone())),

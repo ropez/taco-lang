@@ -63,7 +63,7 @@ impl NativeFunction for ParseIntFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> ScriptType {
         ScriptType::Int
     }
 }
@@ -88,7 +88,7 @@ impl NativeFunction for ParseRangeFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> ScriptType {
         ScriptType::Range
     }
 }

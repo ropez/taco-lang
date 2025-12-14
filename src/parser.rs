@@ -43,6 +43,11 @@ pub enum Statement {
         else_body: Option<Vec<Statement>>,
     },
 
+    While {
+        cond: Src<Expression>,
+        body: Vec<Statement>,
+    },
+
     IfIn {
         assignee: Src<Assignee>,
         value: Src<Expression>,
@@ -429,6 +434,15 @@ impl<'a> Parser<'a> {
                             else_body,
                         });
                     }
+                }
+                TokenKind::While => {
+                    self.expect_kind(TokenKind::While)?;
+                    let cond = self.parse_expression(0)?;
+                    let body = self.parse_block(false)?;
+
+                    self.expect_end_of_line()?;
+
+                    ast.push(Statement::While { cond, body });
                 }
                 TokenKind::For => {
                     self.expect_kind(TokenKind::For)?;

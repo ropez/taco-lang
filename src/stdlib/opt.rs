@@ -12,7 +12,7 @@ pub(crate) fn build(builder: &mut Builder) {
 
 pub(crate) struct IsNoneFunc;
 impl NativeFunction for IsNoneFunc {
-    fn return_type(&self) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> ScriptType {
         ScriptType::Bool
     }
 

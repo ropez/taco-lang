@@ -21,7 +21,7 @@ impl NativeFunction for JsonFunc {
         TupleType::from_single(ScriptType::Infer(0))
     }
 
-    fn return_type(&self) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> ScriptType {
         ScriptType::Str
     }
 

@@ -57,7 +57,7 @@ impl NativeMethod for WithMethod {
         Ok(TupleType::new(items))
     }
 
-    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         Ok(subject.clone())
     }
 }

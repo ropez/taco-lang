@@ -32,7 +32,7 @@ impl NativeMethod for StringLength {
         Ok(ScriptValue::Int(len))
     }
 
-    fn return_type(&self, _subject: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::Int)
     }
 }
@@ -54,7 +54,7 @@ impl NativeMethod for StringLines {
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 
-    fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::list_of(ScriptType::Str))
     }
 }
@@ -71,7 +71,7 @@ impl NativeMethod for StringTrim {
         Ok(ScriptValue::string(s.trim()))
     }
 
-    fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::Str)
     }
 }
@@ -93,7 +93,7 @@ impl NativeMethod for StringChars {
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 
-    fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::list_of(ScriptType::Str))
     }
 }
@@ -121,7 +121,7 @@ impl NativeMethod for StringSplit {
         Ok(TupleType::from_single(ScriptType::Str))
     }
 
-    fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::list_of(ScriptType::Str))
     }
 }
@@ -153,7 +153,7 @@ impl NativeMethod for StringSplitAt {
         Ok(TupleType::from_single(ScriptType::Int))
     }
 
-    fn return_type(&self, _: &ScriptType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         let items = vec![
             TupleItemType::unnamed(ScriptType::Str),
             TupleItemType::unnamed(ScriptType::Str),

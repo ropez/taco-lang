@@ -43,12 +43,8 @@ impl ExternalType for StateType {
         }
     }
 
-    fn inner(&self) -> Option<&ScriptType> {
-        Some(&self.inner)
-    }
-
-    fn with_inner(&self, inner: ScriptType) -> Arc<dyn ExternalType + Send + Sync> {
-        Arc::new(Self::new(inner))
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 }
 
@@ -100,14 +96,19 @@ impl NativeFunction for MakeState {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self) -> ScriptType {
-        ScriptType::Ext(self.get_type())
+    fn return_type(&self, arguments: &TupleType) -> ScriptType {
+        let t = arguments
+            .single(ScriptType::Infer(1))
+            .cloned()
+            .unwrap_or(ScriptType::identity());
+        let typ = StateType::new(t.clone());
+        ScriptType::Ext(Arc::new(typ))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let value = arguments.single()?;
         Ok(ScriptValue::Ext(
-            self.get_type(),
+            self.get_type(), // Dummy type, not used here, only for get_methods
             Arc::new(StateValue::new(value.clone())),
         ))
     }
@@ -115,16 +116,9 @@ impl NativeFunction for MakeState {
 
 pub(crate) struct StateGet;
 impl NativeMethod for StateGet {
-    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
-        if let ScriptType::Ext(ext) = subject {
-            // XXX downcast to some opague struct instead?
-            Ok(ext.inner().unwrap().clone())
-        } else {
-            Err(TypeError::new(TypeErrorKind::InvalidArgument {
-                expected: "State".into(),
-                actual: subject.clone(),
-            }))
-        }
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        let state = subject.as_state()?;
+        Ok(state.inner.clone())
     }
 
     fn call(
@@ -140,25 +134,13 @@ impl NativeMethod for StateGet {
 pub(crate) struct StateSet;
 impl NativeMethod for StateSet {
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
-        if let ScriptType::Ext(ext) = subject {
-            Ok(TupleType::from_single(ext.inner().unwrap().clone()))
-        } else {
-            Err(TypeError::new(TypeErrorKind::InvalidArgument {
-                expected: "State".into(),
-                actual: subject.clone(),
-            }))
-        }
+        let state = subject.as_state()?;
+        Ok(TupleType::from_single(state.inner.clone()))
     }
 
-    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
-        if let ScriptType::Ext(ext) = subject {
-            Ok(ext.inner().unwrap().clone())
-        } else {
-            Err(TypeError::new(TypeErrorKind::InvalidArgument {
-                expected: "State".into(),
-                actual: subject.clone(),
-            }))
-        }
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        let state = subject.as_state()?;
+        Ok(state.inner.clone())
     }
 
     fn call(
@@ -177,28 +159,16 @@ impl NativeMethod for StateSet {
 pub(crate) struct StateUpdate;
 impl NativeMethod for StateUpdate {
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
-        if let ScriptType::Ext(ext) = subject {
-            Ok(TupleType::from_single(ScriptType::Function {
-                params: TupleType::from_single(ext.inner().unwrap().clone()),
-                ret: Box::new(ext.inner().unwrap().clone()),
-            }))
-        } else {
-            Err(TypeError::new(TypeErrorKind::InvalidArgument {
-                expected: "State".into(),
-                actual: subject.clone(),
-            }))
-        }
+        let state = subject.as_state()?;
+        Ok(TupleType::from_single(ScriptType::Function {
+            params: TupleType::from_single(state.inner.clone()),
+            ret: Box::new(state.inner.clone()),
+        }))
     }
 
-    fn return_type(&self, subject: &ScriptType) -> Result<ScriptType, TypeError> {
-        if let ScriptType::Ext(ext) = subject {
-            Ok(ext.inner().unwrap().clone())
-        } else {
-            Err(TypeError::new(TypeErrorKind::InvalidArgument {
-                expected: "State".into(),
-                actual: subject.clone(),
-            }))
-        }
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        let state = subject.as_state()?;
+        Ok(state.inner.clone())
     }
 
     fn call(
@@ -211,6 +181,12 @@ impl NativeMethod for StateUpdate {
         let state = subject.as_state()?;
         state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()))?;
         Ok(state.get())
+    }
+}
+
+impl ScriptType {
+    fn as_state(&self) -> Result<&StateType, TypeError> {
+        self.downcast_ext("State")
     }
 }
 

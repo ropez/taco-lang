@@ -68,13 +68,13 @@ impl ParseError {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TypeError {
     pub kind: TypeErrorKind,
     pub(crate) loc: Option<Loc>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum TypeErrorKind {
     InvalidExpression,
     UndefinedReference(Ident),
@@ -178,7 +178,7 @@ impl TypeError {
                 variant_name,
             } => format!("Variant not found: {variant_name} in {type_name}"),
             TypeErrorKind::UndefinedAttribute { subject, attr_name } => {
-                format!("Attribute not found: {attr_name} in {subject}")
+                format!("Attribute not found: '{attr_name}' in {subject}")
             }
             TypeErrorKind::InvalidArgument { expected, actual } => {
                 format!("Expected '{expected}', found '{actual}'")

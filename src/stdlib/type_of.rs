@@ -25,7 +25,7 @@ impl NativeFunction for TypeOfFunc {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self) -> crate::validate::ScriptType {
+    fn return_type(&self, _: &TupleType) -> crate::validate::ScriptType {
         ScriptType::Str
     }
 }

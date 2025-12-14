@@ -19,7 +19,7 @@ impl NativeFunction for ReadFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> ScriptType {
         ScriptType::Str
     }
 

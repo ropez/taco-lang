@@ -99,8 +99,13 @@ impl ScriptType {
                 },
                 rhs,
             ) => {
-                if let Ok((rp, rr)) = rhs.as_callable() {
-                    rp.accepts(lp) && lr.accepts(&rr)
+                if let Ok(rp) = rhs.as_callable_params() {
+                    if rp.accepts(lp) {
+                        let rr = rhs.as_callable_ret(lp).unwrap(); // XXX panics
+                        lr.accepts(&rr)
+                    } else {
+                        false
+                    }
                 } else {
                     false
                 }
@@ -176,27 +181,37 @@ impl ScriptType {
         }
     }
 
-    pub fn as_callable(&self) -> result::Result<(TupleType, ScriptType), TypeError> {
+    pub fn as_callable_params(&self) -> Result<TupleType> {
         // XXX Too much cloning
         match &self {
-            ScriptType::Function { params, ret } => Ok((params.clone(), ScriptType::clone(ret))),
+            ScriptType::Function { params, .. } => Ok(params.clone()),
             ScriptType::EnumVariant(def, name) => {
                 if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
                     let params = var.params.as_ref().unwrap();
-                    Ok((params.clone(), ScriptType::Enum(Arc::clone(def))))
+                    Ok(params.clone())
                 } else {
                     unreachable!()
                 }
             }
             ScriptType::NativeFunction(func) => {
                 let params = func.arguments_type();
-                let ret = func.return_type();
-                Ok((params.clone(), ret))
+                Ok(params.clone())
             }
             ScriptType::NativeMethodBound(method, subject_typ) => {
                 let params = method.arguments_type(subject_typ)?;
-                let ret = method.return_type(subject_typ)?;
-                Ok((params.clone(), ret))
+                Ok(params.clone())
+            }
+            _ => Err(TypeError::new(TypeErrorKind::InvalidCallable(self.clone()))),
+        }
+    }
+
+    pub fn as_callable_ret(&self, arguments: &TupleType) -> Result<ScriptType> {
+        match &self {
+            ScriptType::Function { ret, .. } => Ok(ScriptType::clone(ret)),
+            ScriptType::EnumVariant(def, _) => Ok(ScriptType::Enum(Arc::clone(def))),
+            ScriptType::NativeFunction(func) => Ok(func.return_type(arguments)),
+            ScriptType::NativeMethodBound(method, subject_typ) => {
+                Ok(method.return_type(subject_typ, arguments)?)
             }
             _ => Err(TypeError::new(TypeErrorKind::InvalidCallable(self.clone()))),
         }
@@ -209,6 +224,25 @@ impl ScriptType {
             true
         } else {
             false
+        }
+    }
+
+    pub fn downcast_ext<T>(&self, expexted: impl Into<String>) -> Result<&T>
+    where
+        T: ExternalType + 'static,
+    {
+        if let ScriptType::Ext(value) = self {
+            value.as_any().downcast_ref::<T>().ok_or_else(|| {
+                TypeError::new(TypeErrorKind::InvalidArgument {
+                    expected: expexted.into(),
+                    actual: self.clone(),
+                })
+            })
+        } else {
+            Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                expected: expexted.into(),
+                actual: self.clone(),
+            }))
         }
     }
 }
@@ -236,6 +270,7 @@ impl Display for ScriptType {
             Self::Rec { name, params } => write!(f, "{name}{params}"),
             Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
             Self::Infer(n) => write!(f, "<{n}>"),
+            Self::Ext(e) => write!(f, "{{{}}}", e.name()),
             _ => write!(f, "{:?}", self),
         }
     }
@@ -289,6 +324,20 @@ impl TupleType {
 
     pub const fn identity() -> Self {
         Self(Vec::new())
+    }
+
+    pub fn single(&self, expected: ScriptType) -> Result<&ScriptType> {
+        self.0
+            .iter()
+            .find(|i| i.name.is_none())
+            .map(|item| &item.value)
+            .ok_or_else(|| {
+                TypeError::new(TypeErrorKind::MissingArgument {
+                    name: None,
+                    expected: Self::from_single(expected),
+                    actual: self.clone(),
+                })
+            })
     }
 
     pub fn from_single(item: ScriptType) -> Self {
@@ -542,6 +591,18 @@ impl Validator {
                             inner_scope.set_local(ident.clone(), ScriptType::Int);
                             self.validate_block(body, inner_scope)?;
                         }
+                        ScriptType::Ext(ref ext) => {
+                            if let Some(inner) = ext.as_readable() {
+                                let mut inner_scope = scope.clone();
+                                inner_scope.set_local(ident.clone(), inner);
+                                self.validate_block(body, inner_scope)?;
+                            } else {
+                                return Err(TypeError::new(TypeErrorKind::InvalidIterable(
+                                    iterable_typ,
+                                ))
+                                .at(iterable.loc));
+                            }
+                        }
                         _ => {
                             return Err(TypeError::new(TypeErrorKind::InvalidIterable(
                                 iterable_typ,
@@ -549,6 +610,18 @@ impl Validator {
                             .at(iterable.loc));
                         }
                     }
+                }
+                Statement::While { cond, body } => {
+                    let typ = self.validate_expr(cond, &scope)?;
+                    if !ScriptType::Bool.accepts(&typ) {
+                        return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
+                            expected: ScriptType::Bool,
+                            actual: typ.clone(),
+                        })
+                        .at(cond.loc));
+                    }
+
+                    self.validate_block(body, scope.clone())?;
                 }
                 Statement::Condition {
                     cond,
@@ -912,13 +985,15 @@ impl Validator {
             }
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
-                let (params, ret) = subject.as_callable().map_err(|err| err.at(expr.loc))?;
+                let params = subject.as_callable_params()?;
                 let found_types = self.validate_arguments(&params, arguments, scope)?;
-                let (inferred, complete) = apply_inferred_types(&ret, &found_types);
+                let (arguments, complete) = apply_inferred_types_tuple(&params, &found_types)?;
+                let ret = subject.as_callable_ret(&arguments)?;
+
                 if complete {
-                    Ok(inferred)
+                    Ok(ret)
                 } else {
-                    Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(expr.loc))
+                    Err(TypeError::new(TypeErrorKind::TypeNotInferred))
                 }
             }
             Expression::Match {
@@ -974,6 +1049,7 @@ impl Validator {
                 }
             }
         }
+        .map_err(|err| err.at(expr.loc))
     }
 
     fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> Result<(TupleType, ScriptType)> {
@@ -1273,7 +1349,7 @@ impl Validator {
         actual: &Src<ScriptType>,
         found_types: &mut HashMap<u16, ScriptType>,
     ) -> Result<()> {
-        let (expected, _) = apply_inferred_types(formal, found_types);
+        let (expected, _) = apply_inferred_types(formal, found_types)?;
         if !expected.accepts(actual) {
             return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                 expected: formal.clone(),
@@ -1530,7 +1606,8 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
             found.extend(infer_types(formal, ret));
         }
         (ScriptType::Function { ret: formal, .. }, ScriptType::NativeFunction(fun)) => {
-            found.extend(infer_types(formal, &fun.return_type()));
+            let arguments = TupleType::identity(); // How to get actual args here?
+            found.extend(infer_types(formal, &fun.return_type(&arguments)));
         }
         (ScriptType::Function { ret: formal, .. }, ScriptType::EnumVariant(def, _)) => {
             found.extend(infer_types(formal, &ScriptType::Enum(Arc::clone(def))));
@@ -1549,8 +1626,8 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
 fn apply_inferred_types(
     t: &ScriptType,
     found_types: &HashMap<u16, ScriptType>,
-) -> (ScriptType, bool) {
-    match t {
+) -> Result<(ScriptType, bool)> {
+    let ret = match t {
         ScriptType::Infer(n) => {
             if let Some(ret) = found_types.get(n) {
                 (ret.clone(), true)
@@ -1558,25 +1635,17 @@ fn apply_inferred_types(
                 (t.clone(), false)
             }
         }
-        ScriptType::Ext(ext) => {
-            if let Some(inner) = ext.clone().inner() {
-                let (inferred, complete) = apply_inferred_types(inner, found_types);
-                (ScriptType::Ext(ext.with_inner(inferred)), complete)
-            } else {
-                (ScriptType::Ext(ext.clone()), true)
-            }
-        }
         ScriptType::Tuple(tuple) => {
-            let (tuple, complete) = apply_inferred_types_tuple(tuple, found_types);
+            let (tuple, complete) = apply_inferred_types_tuple(tuple, found_types)?;
             (ScriptType::Tuple(tuple), complete)
         }
         ScriptType::List(inner) => {
-            let (inner, complete) = apply_inferred_types(inner, found_types);
+            let (inner, complete) = apply_inferred_types(inner, found_types)?;
             (ScriptType::list_of(inner), complete)
         }
         ScriptType::Function { params, ret } => {
-            let (params, params_complete) = apply_inferred_types_tuple(params, found_types);
-            let (ret, ret_complete) = apply_inferred_types(ret, found_types);
+            let (params, params_complete) = apply_inferred_types_tuple(params, found_types)?;
+            let (ret, ret_complete) = apply_inferred_types(ret, found_types)?;
             (
                 ScriptType::Function {
                     params,
@@ -1586,28 +1655,51 @@ fn apply_inferred_types(
             )
         }
         ScriptType::NativeFunction(f) => {
-            // XXX params
-            apply_inferred_types(&f.return_type(), found_types)
+            let (params, params_complete) =
+                apply_inferred_types_tuple(&f.arguments_type(), found_types)?;
+            let (ret, ret_complete) = apply_inferred_types(&f.return_type(&params), found_types)?;
+            (
+                ScriptType::Function {
+                    params,
+                    ret: ret.into(),
+                },
+                params_complete && ret_complete,
+            )
+        }
+        ScriptType::NativeMethodBound(met, subj) => {
+            let (params, params_complete) =
+                apply_inferred_types_tuple(&met.arguments_type(subj)?, found_types)?;
+            let (ret, ret_complete) =
+                apply_inferred_types(&met.return_type(subj, &params)?, found_types)?;
+            (
+                ScriptType::Function {
+                    params,
+                    ret: ret.into(),
+                },
+                params_complete && ret_complete,
+            )
         }
         other => (other.clone(), true),
-    }
+    };
+
+    Ok(ret)
 }
 
 fn apply_inferred_types_tuple(
     tuple: &TupleType,
     found_types: &HashMap<u16, ScriptType>,
-) -> (TupleType, bool) {
+) -> Result<(TupleType, bool)> {
     let items: Vec<_> = tuple
         .items()
         .iter()
         .map(|it| {
-            let (inferred, complete) = apply_inferred_types(&it.value, found_types);
-            (TupleItemType::new(it.name.clone(), inferred), complete)
+            let (inferred, complete) = apply_inferred_types(&it.value, found_types)?;
+            Ok((TupleItemType::new(it.name.clone(), inferred), complete))
         })
-        .collect();
+        .collect::<Result<Vec<_>>>()?;
 
     let all_complete = items.iter().all(|(_, complete)| *complete);
     let items = items.into_iter().map(|(t, _)| t).collect();
 
-    (TupleType::new(items), all_complete)
+    Ok((TupleType::new(items), all_complete))
 }
