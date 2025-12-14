@@ -1,4 +1,9 @@
-use std::{collections::HashMap, fmt::Display, result, sync::Arc};
+use std::{
+    collections::HashMap,
+    fmt::{self, Display},
+    result,
+    sync::Arc,
+};
 
 use crate::{
     error::{TypeError, TypeErrorKind},
@@ -41,7 +46,7 @@ pub enum ScriptType {
     // Function ( params: (Infer(1)), ret: List<Infer(1)> }
     Infer(u16),
 
-    Ext(ExternalType),
+    Ext(Arc<dyn ExternalType + Send + Sync>),
 }
 
 impl ScriptType {
@@ -345,67 +350,27 @@ pub struct ArgumentExpressionType {
     pub value: Src<ScriptType>,
 }
 
-impl ArgumentExpressionType {
-    fn into_tuple_item_type(self) -> TupleItemType {
-        if let Some(name) = self.name {
-            TupleItemType::named(name, self.value.cloned())
-        } else {
-            TupleItemType::unnamed(self.value.cloned())
-        }
-    }
-}
-
-impl Src<Vec<ArgumentExpressionType>> {
-    fn into_tuple_type(self) -> TupleType {
-        let args = self
-            .into_inner()
-            .into_iter()
-            .map(|a| a.into_tuple_item_type())
-            .collect();
-
-        TupleType(args)
-    }
-}
-
 impl Display for Src<Vec<ArgumentExpressionType>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_tuple(f, self.iter().map(|a| (a.name.clone(), &*a.value)))
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct ExternalType {
-    pub(crate) name: Ident,
-    methods: Arc<Methods>,
-    inner: Option<Box<ScriptType>>,
+pub trait ExternalType {
+    fn name(&self) -> Ident;
+    fn get_method(&self, name: &Ident) -> Option<NativeMethodRef>;
+
+    fn inner(&self) -> Option<&ScriptType> {
+        None
+    }
+
+    // XXX Try to get rid of this
+    fn with_inner(&self, inner: ScriptType) -> Arc<dyn ExternalType + Send + Sync>;
 }
 
-impl ExternalType {
-    pub(crate) fn new(name: impl Into<Ident>, methods: Arc<Methods>) -> Self {
-        Self {
-            name: name.into(),
-            methods,
-            inner: None,
-        }
-    }
-
-    pub fn get_method(&self, name: &Ident) -> Option<&NativeMethodRef> {
-        self.methods.get(name)
-    }
-
-    // XXX 1,2,3
-    pub fn with_inner(self, t: ScriptType) -> Self {
-        Self {
-            inner: Some(t.into()),
-            ..self
-        }
-    }
-
-    pub fn inner(&self) -> Option<&ScriptType> {
-        match &self.inner {
-            Some(t) => Some(t.as_ref()),
-            None => None,
-        }
+impl fmt::Debug for dyn ExternalType + Send + Sync {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[exernal]")
     }
 }
 
@@ -507,11 +472,7 @@ impl Validator {
         Self { methods, ..self }
     }
 
-    fn get_method<'a>(
-        &'a self,
-        subject: &'a ScriptType,
-        name: &Ident,
-    ) -> Option<&'a NativeMethodRef> {
+    fn get_method(&self, subject: &ScriptType, name: &Ident) -> Option<NativeMethodRef> {
         let ns = match subject {
             ScriptType::Int => global::INT.into(),
             ScriptType::Str => global::STRING.into(),
@@ -523,7 +484,7 @@ impl Validator {
             ScriptType::Ext(ext) => return ext.get_method(name),
             _ => todo!("NS for {subject}"),
         };
-        self.methods.get(&(ns, name.clone()))
+        self.methods.get(&(ns, name.clone())).cloned()
     }
 
     pub fn validate(&self, ast: &[Statement]) -> Result<()> {
@@ -726,7 +687,7 @@ impl Validator {
                             })
                             .at(part.loc));
                         }
-                        ScriptType::Ext(t) => todo!("Error for printing Ext({})", t.name),
+                        ScriptType::Ext(t) => todo!("Error for printing Ext({})", t.name()),
                         _ => (),
                     }
                 }
@@ -1623,7 +1584,7 @@ fn apply_inferred_types(
         ScriptType::Ext(ext) => {
             if let Some(inner) = ext.clone().inner() {
                 let (inferred, complete) = apply_inferred_types(inner, found_types);
-                (ScriptType::Ext(ext.clone().with_inner(inferred)), complete)
+                (ScriptType::Ext(ext.with_inner(inferred)), complete)
             } else {
                 (ScriptType::Ext(ext.clone()), true)
             }

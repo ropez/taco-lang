@@ -1,6 +1,8 @@
 
 fun test_run_process() {
-    out = exec("uname -s").trim()
+    process = exec("uname -s")
+
+    out = process.output().trim()
 
     # XXX Not portable
     assert out == "Linux"

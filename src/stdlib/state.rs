@@ -6,13 +6,47 @@ use std::{
 use crate::{
     Builder,
     error::{ScriptError, TypeError, TypeErrorKind},
-    ext::{ExternalValue, Methods, NativeFunction, NativeMethod},
+    ext::{ExternalValue, Methods, NativeFunction, NativeMethod, NativeMethodRef},
+    ident::Ident,
     interpreter::{External, Interpreter, ScriptValue, Tuple},
     validate::{ExternalType, ScriptType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("State", MakeState::new());
+    builder.add_function("State", MakeState);
+}
+
+struct StateType {
+    inner: ScriptType,
+}
+
+impl StateType {
+    fn new(inner: ScriptType) -> Self {
+        Self { inner }
+    }
+}
+
+impl ExternalType for StateType {
+    fn name(&self) -> Ident {
+        "State".into()
+    }
+
+    fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
+        match name.as_str() {
+            "get" => Some(NativeMethodRef::from(StateGet)),
+            "set" => Some(NativeMethodRef::from(StateSet)),
+            "update" => Some(NativeMethodRef::from(StateUpdate)),
+            _ => None,
+        }
+    }
+
+    fn inner(&self) -> Option<&ScriptType> {
+        Some(&self.inner)
+    }
+
+    fn with_inner(&self, inner: ScriptType) -> Arc<dyn ExternalType + Send + Sync> {
+        Arc::new(Self::new(inner))
+    }
 }
 
 struct StateValue {
@@ -50,20 +84,7 @@ impl ExternalValue for StateValue {
     }
 }
 
-struct MakeState {
-    methods: Arc<Methods>,
-}
-
-impl MakeState {
-    fn new() -> Self {
-        let mut methods = Methods::default();
-        methods.add("get", StateGet);
-        methods.add("set", StateSet);
-        methods.add("update", StateUpdate);
-        let methods = Arc::new(methods);
-        Self { methods }
-    }
-}
+struct MakeState;
 
 impl NativeFunction for MakeState {
     fn arguments_type(&self) -> TupleType {
@@ -71,16 +92,14 @@ impl NativeFunction for MakeState {
     }
 
     fn return_type(&self) -> ScriptType {
-        ScriptType::Ext(
-            ExternalType::new("State", self.methods.clone()).with_inner(ScriptType::Infer(1)),
-        )
+        ScriptType::Ext(Arc::new(StateType::new(ScriptType::Infer(1))))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single()?;
         let value = StateValue::new(arg.clone());
-        let typ = ExternalType::new("State", self.methods.clone());
-        let ext = External::new(Arc::new(typ), Arc::new(value));
+        let typ = Arc::new(StateType::new(ScriptType::Infer(1))); // XXX Shouldn't need this
+        let ext = External::new(typ, Arc::new(value));
         Ok(ScriptValue::Ext(ext))
     }
 }

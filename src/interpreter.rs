@@ -284,12 +284,15 @@ pub enum Completion {
 
 #[derive(Debug, Clone)]
 pub struct External {
-    pub(crate) typ: Arc<ExternalType>,
+    pub(crate) typ: Arc<dyn ExternalType + Send + Sync>,
     pub(crate) value: Arc<dyn ExternalValue + Send + Sync>,
 }
 
 impl External {
-    pub fn new(typ: Arc<ExternalType>, value: Arc<dyn ExternalValue + Send + Sync>) -> Self {
+    pub fn new(
+        typ: Arc<dyn ExternalType + Send + Sync>,
+        value: Arc<dyn ExternalValue + Send + Sync>,
+    ) -> Self {
         Self { typ, value }
     }
 
@@ -355,11 +358,7 @@ impl Interpreter {
         Self { methods, ..self }
     }
 
-    fn get_method<'a>(
-        &'a self,
-        subject: &'a ScriptValue,
-        name: &Ident,
-    ) -> Option<&'a NativeMethodRef> {
+    fn get_method(&self, subject: &ScriptValue, name: &Ident) -> Option<NativeMethodRef> {
         let ns = match subject {
             ScriptValue::Int(_) => global::INT.into(),
             ScriptValue::String(_) => global::STRING.into(),
@@ -370,7 +369,7 @@ impl Interpreter {
             ScriptValue::Ext(ext) => return ext.typ.get_method(name),
             _ => todo!("NS for {subject}"),
         };
-        self.methods.get(&(ns, name.clone()))
+        self.methods.get(&(ns, name.clone())).cloned()
     }
 
     pub fn execute(&self, ast: &[Statement]) -> Result<HashMap<Ident, ScriptValue>> {
@@ -727,7 +726,7 @@ impl Interpreter {
             Expression::AssertSome(inner) => {
                 let val = self.eval_expr(inner, scope)?;
                 if let ScriptValue::None = val {
-                    return Err(ScriptError::panic("No value in assertion").at(expr.loc))
+                    return Err(ScriptError::panic("No value in assertion").at(expr.loc));
                 }
                 val
             }
