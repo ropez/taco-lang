@@ -7,6 +7,24 @@ use crate::{
     validate::{ScriptType, TupleType},
 };
 
+pub trait ExternalType {
+    fn name(&self) -> Ident;
+    fn get_method(&self, name: &Ident) -> Option<NativeMethodRef>;
+
+    fn inner(&self) -> Option<&ScriptType> {
+        None
+    }
+
+    // XXX Try to get rid of this
+    fn with_inner(&self, inner: ScriptType) -> Arc<dyn ExternalType + Send + Sync>;
+}
+
+impl fmt::Debug for dyn ExternalType + Send + Sync {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[exernal]")
+    }
+}
+
 pub trait ExternalValue {
     fn as_any(&self) -> &dyn Any;
 }
@@ -125,21 +143,5 @@ impl fmt::Debug for NativeMethodRef {
 impl PartialEq for NativeMethodRef {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
-    }
-}
-
-#[derive(Debug, Clone, Default)]
-pub(crate) struct Methods(HashMap<Ident, NativeMethodRef>);
-
-impl Methods {
-    pub(crate) fn add<T>(&mut self, name: impl Into<Ident>, method: T)
-    where
-        T: NativeMethod + Send + Sync + 'static,
-    {
-        self.0.insert(name.into(), NativeMethodRef::from(method));
-    }
-
-    pub(crate) fn get(&self, name: &Ident) -> Option<&NativeMethodRef> {
-        self.0.get(name)
     }
 }

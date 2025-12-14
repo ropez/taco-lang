@@ -1,13 +1,8 @@
-use std::{
-    collections::HashMap,
-    fmt::{self, Display},
-    result,
-    sync::Arc,
-};
+use std::{collections::HashMap, fmt::Display, result, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind},
-    ext::{Methods, NativeFunctionRef, NativeMethodRef},
+    ext::{ExternalType, NativeFunctionRef, NativeMethodRef},
     fmt::fmt_tuple,
     ident::{Ident, global},
     lexer::{Loc, Src},
@@ -353,24 +348,6 @@ pub struct ArgumentExpressionType {
 impl Display for Src<Vec<ArgumentExpressionType>> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_tuple(f, self.iter().map(|a| (a.name.clone(), &*a.value)))
-    }
-}
-
-pub trait ExternalType {
-    fn name(&self) -> Ident;
-    fn get_method(&self, name: &Ident) -> Option<NativeMethodRef>;
-
-    fn inner(&self) -> Option<&ScriptType> {
-        None
-    }
-
-    // XXX Try to get rid of this
-    fn with_inner(&self, inner: ScriptType) -> Arc<dyn ExternalType + Send + Sync>;
-}
-
-impl fmt::Debug for dyn ExternalType + Send + Sync {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "[exernal]")
     }
 }
 

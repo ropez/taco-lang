@@ -6,14 +6,17 @@ use std::{
 use crate::{
     Builder,
     error::{ScriptError, TypeError, TypeErrorKind},
-    ext::{ExternalValue, Methods, NativeFunction, NativeMethod, NativeMethodRef},
+    ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
-    interpreter::{External, Interpreter, ScriptValue, Tuple},
-    validate::{ExternalType, ScriptType, TupleType},
+    interpreter::{Interpreter, ScriptValue, Tuple},
+    validate::{ScriptType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("State", MakeState);
+    builder.add_function(
+        "State",
+        MakeState(Arc::new(StateType::new(ScriptType::Infer(1)))),
+    );
 }
 
 struct StateType {
@@ -84,7 +87,13 @@ impl ExternalValue for StateValue {
     }
 }
 
-struct MakeState;
+struct MakeState(Arc<dyn ExternalType + Sync + Send>);
+
+impl MakeState {
+    fn get_type(&self) -> Arc<dyn ExternalType + Sync + Send> {
+        Arc::clone(&self.0)
+    }
+}
 
 impl NativeFunction for MakeState {
     fn arguments_type(&self) -> TupleType {
@@ -92,15 +101,15 @@ impl NativeFunction for MakeState {
     }
 
     fn return_type(&self) -> ScriptType {
-        ScriptType::Ext(Arc::new(StateType::new(ScriptType::Infer(1))))
+        ScriptType::Ext(self.get_type())
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?;
-        let value = StateValue::new(arg.clone());
-        let typ = Arc::new(StateType::new(ScriptType::Infer(1))); // XXX Shouldn't need this
-        let ext = External::new(typ, Arc::new(value));
-        Ok(ScriptValue::Ext(ext))
+        let value = arguments.single()?;
+        Ok(ScriptValue::Ext(
+            self.get_type(),
+            Arc::new(StateValue::new(value.clone())),
+        ))
     }
 }
 
@@ -207,14 +216,6 @@ impl NativeMethod for StateUpdate {
 
 impl ScriptValue {
     fn as_state(&self) -> Result<&StateValue, ScriptError> {
-        if let ScriptValue::Ext(ext) = self {
-            if let Some(state) = ext.downcast_ref::<StateValue>() {
-                Ok(state)
-            } else {
-                Err(ScriptError::panic("Invalid state data"))
-            }
-        } else {
-            Err(ScriptError::panic("Not a state"))
-        }
+        self.downcast_ext()
     }
 }

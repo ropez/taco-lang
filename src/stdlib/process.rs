@@ -8,10 +8,10 @@ use std::{
 use crate::{
     Builder,
     error::{ScriptError, TypeError},
-    ext::{ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
+    ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
-    interpreter::{External, Interpreter, ScriptValue, Tuple},
-    validate::{ExternalType, ScriptType, TupleType},
+    interpreter::{Interpreter, ScriptValue, Tuple},
+    validate::{ScriptType, TupleType},
 };
 
 pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)
@@ -20,7 +20,7 @@ where
 {
     let _ = out;
 
-    builder.add_function("exec", ExecFunc);
+    builder.add_function("exec", ExecFunc(Arc::new(ProcessType)));
 }
 
 struct ProcessType;
@@ -59,7 +59,14 @@ impl ExternalValue for Process {
     }
 }
 
-struct ExecFunc;
+struct ExecFunc(Arc<dyn ExternalType + Sync + Send>);
+
+impl ExecFunc {
+    fn get_type(&self) -> Arc<dyn ExternalType + Sync + Send> {
+        Arc::clone(&self.0)
+    }
+}
+
 impl NativeFunction for ExecFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single()?.as_string()?;
@@ -76,8 +83,10 @@ impl NativeFunction for ExecFunc {
             .spawn()
             .map_err(ScriptError::panic)?;
 
-        let ext = External::new(Arc::new(ProcessType), Arc::new(Process::new(child)));
-        Ok(ScriptValue::Ext(ext))
+        Ok(ScriptValue::Ext(
+            self.get_type(),
+            Arc::new(Process::new(child)),
+        ))
     }
 
     fn arguments_type(&self) -> TupleType {
@@ -85,7 +94,7 @@ impl NativeFunction for ExecFunc {
     }
 
     fn return_type(&self) -> ScriptType {
-        ScriptType::Ext(Arc::new(ProcessType))
+        ScriptType::Ext(self.get_type())
     }
 }
 
@@ -116,14 +125,6 @@ impl NativeMethod for OutputMethod {
 
 impl ScriptValue {
     fn as_process(&self) -> Result<&Process, ScriptError> {
-        if let ScriptValue::Ext(ext) = self {
-            if let Some(state) = ext.downcast_ref::<Process>() {
-                Ok(state)
-            } else {
-                Err(ScriptError::panic("Invalid state data"))
-            }
-        } else {
-            Err(ScriptError::panic("Not a state"))
-        }
+        self.downcast_ext()
     }
 }

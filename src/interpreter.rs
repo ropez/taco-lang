@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::{ScriptError, ScriptErrorKind},
-    ext::{ExternalValue, NativeFunctionRef, NativeMethodRef},
+    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::{Ident, global},
     lexer::Src,
@@ -16,7 +16,6 @@ use crate::{
         ParamExpression, Record, Statement, TypeExpression,
     },
     stdlib::{list::List, parse::ParseFunc},
-    validate::ExternalType,
 };
 
 #[derive(Debug, Clone)]
@@ -60,7 +59,10 @@ pub enum ScriptValue {
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
 
-    Ext(External),
+    Ext(
+        Arc<dyn ExternalType + Send + Sync>,
+        Arc<dyn ExternalValue + Send + Sync>,
+    ),
 }
 
 impl ScriptValue {
@@ -123,6 +125,20 @@ impl ScriptValue {
 
     pub fn to_single_argument(&self) -> Tuple {
         Tuple(vec![TupleItem::unnamed(self.clone())])
+    }
+
+    pub fn downcast_ext<T>(&self) -> Result<&T>
+    where
+        T: ExternalValue + 'static,
+    {
+        if let ScriptValue::Ext(_, value) = self {
+            value
+                .as_any()
+                .downcast_ref::<T>()
+                .ok_or_else(|| ScriptError::panic("invalid downcast"))
+        } else {
+            Err(ScriptError::panic("tried to downcast non-ext value"))
+        }
     }
 }
 
@@ -282,25 +298,6 @@ pub enum Completion {
     ImpliedReturn(ScriptValue),
 }
 
-#[derive(Debug, Clone)]
-pub struct External {
-    pub(crate) typ: Arc<dyn ExternalType + Send + Sync>,
-    pub(crate) value: Arc<dyn ExternalValue + Send + Sync>,
-}
-
-impl External {
-    pub fn new(
-        typ: Arc<dyn ExternalType + Send + Sync>,
-        value: Arc<dyn ExternalValue + Send + Sync>,
-    ) -> Self {
-        Self { typ, value }
-    }
-
-    pub fn downcast_ref<T: 'static>(&self) -> Option<&T> {
-        self.value.as_any().downcast_ref::<T>()
-    }
-}
-
 type Result<T> = result::Result<T, ScriptError>;
 
 #[derive(Default, Clone)]
@@ -366,7 +363,7 @@ impl Interpreter {
             ScriptValue::List(_) => global::LIST.into(),
             ScriptValue::Tuple(_) => global::TUPLE.into(),
             ScriptValue::Rec { .. } => global::REC.into(),
-            ScriptValue::Ext(ext) => return ext.typ.get_method(name),
+            ScriptValue::Ext(typ, _) => return typ.get_method(name),
             _ => todo!("NS for {subject}"),
         };
         self.methods.get(&(ns, name.clone())).cloned()
