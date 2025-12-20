@@ -1,4 +1,9 @@
-use std::{any::Any, fmt, ops, sync::Arc};
+use std::{
+    any::Any,
+    fmt, ops,
+    sync::Arc,
+    task::{Context, Poll},
+};
 
 use crate::{
     error::{ScriptError, TypeError},
@@ -29,26 +34,37 @@ impl fmt::Debug for dyn ExternalType + Send + Sync {
 pub trait ExternalValue {
     fn as_any(&self) -> &dyn Any;
 
-    fn as_readable(&self) -> Option<&dyn Readable> {
+    fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
         None
     }
-    fn as_writable(&self) -> Option<&dyn Writable> {
+    fn as_writable(&self) -> Option<&(dyn Writable + Send + Sync)> {
         None
     }
 }
 
 impl fmt::Debug for dyn ExternalValue + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        todo!()
+        let t = self.type_id();
+        write!(f, "[extern {t:?}]")
     }
 }
 
 pub trait Readable {
-    fn next(&self) -> Result<Option<ScriptValue>, ScriptError>;
+    fn read(
+        &self,
+        context: &mut Context,
+        interpreter: &Interpreter,
+    ) -> Poll<Result<Option<ScriptValue>, ScriptError>>;
 }
 
 pub trait Writable {
-    fn write(&self, value: ScriptValue) -> Result<(), ScriptError>;
+    fn write(
+        &self,
+        context: &mut Context,
+        interpreter: &Interpreter,
+        value: ScriptValue,
+    ) -> Poll<Result<(), ScriptError>>;
+    fn close(&self, context: &mut Context) -> Poll<Result<(), ScriptError>>;
 }
 
 pub trait NativeFunction {

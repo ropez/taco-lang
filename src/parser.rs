@@ -77,6 +77,7 @@ pub enum Expression {
     Arguments,
     List(Vec<Src<Expression>>),
     Tuple(Src<Vec<ArgumentExpression>>),
+    Pipe(Box<Src<Expression>>, Box<Src<Expression>>),
     LogicNot(Box<Src<Expression>>),
     LogicAnd(Box<Src<Expression>>, Box<Src<Expression>>),
     LogicOr(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -282,13 +283,14 @@ pub struct Parser<'a> {
 }
 
 mod constants {
-    pub(crate) const BP_LOGIC_OR: u32 = 1;
-    pub(crate) const BP_LOGIC_AND: u32 = 2;
-    pub(crate) const BP_EQUAL: u32 = 3;
-    pub(crate) const BP_CMP: u32 = 4;
-    pub(crate) const BP_SPREAD: u32 = 6;
-    pub(crate) const BP_PLUS: u32 = 10;
-    pub(crate) const BP_MINUS: u32 = 10;
+    pub(crate) const BP_PIPE: u32 = 1;
+    pub(crate) const BP_LOGIC_OR: u32 = 7;
+    pub(crate) const BP_LOGIC_AND: u32 = 8;
+    pub(crate) const BP_EQUAL: u32 = 9;
+    pub(crate) const BP_CMP: u32 = 10;
+    pub(crate) const BP_SPREAD: u32 = 12;
+    pub(crate) const BP_PLUS: u32 = 15;
+    pub(crate) const BP_MINUS: u32 = 15;
     pub(crate) const BP_DIV: u32 = 20;
     pub(crate) const BP_MULT: u32 = 20;
     pub(crate) const BP_CALL: u32 = 90;
@@ -614,6 +616,17 @@ impl<'a> Parser<'a> {
         let expr = match self.peek_continuation() {
             None => lhs,
             Some((new_line, kind)) => match (new_line, kind) {
+                (_, TokenKind::Pipe) => {
+                    if bp >= BP_PIPE {
+                        lhs
+                    } else {
+                        self.expect_token()?;
+                        let rhs = self.parse_expression(BP_PIPE)?;
+                        let loc = wrap_locations(lhs.loc, rhs.loc);
+                        let expr = Src::new(Expression::Pipe(lhs.into(), rhs.into()), loc);
+                        self.parse_continuation(expr, bp)?
+                    }
+                }
                 (_, TokenKind::LogicAnd) => {
                     self.parse_binary_expr(lhs, Expression::LogicAnd, BP_LOGIC_AND, bp)?
                 }

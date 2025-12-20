@@ -1,8 +1,15 @@
 use std::{
     any::Any,
-    io::{self, Read, Write},
-    process::{Child, Command, Stdio},
+    io::{self},
+    pin::Pin,
     sync::{Arc, Mutex},
+    task::{Context, Poll},
+};
+
+use smol::{
+    prelude::*,
+    process::{Child, Command, Stdio},
+    ready,
 };
 
 use crate::{
@@ -34,10 +41,10 @@ impl ExternalType for ProcessType {
 
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
         match name.as_str() {
-            "read" => Some(NativeMethodRef::from(ReadMethod)),
-            "write" => Some(NativeMethodRef::from(WriteMethod)),
+            // "read" => Some(NativeMethodRef::from(ReadMethod)),
+            // "write" => Some(NativeMethodRef::from(WriteMethod)),
             "output" => Some(NativeMethodRef::from(OutputMethod)),
-            "running" => Some(NativeMethodRef::from(RunningMethod)),
+            // "running" => Some(NativeMethodRef::from(RunningMethod)),
             _ => None,
         }
     }
@@ -74,43 +81,67 @@ impl ExternalValue for Process {
         self
     }
 
-    fn as_readable(&self) -> Option<&dyn Readable> {
+    fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
         Some(self)
     }
 
-    fn as_writable(&self) -> Option<&dyn Writable> {
+    fn as_writable(&self) -> Option<&(dyn Writable + Send + Sync)> {
         Some(self)
     }
 }
 
 impl Readable for Process {
-    fn next(&self) -> Result<Option<ScriptValue>, ScriptError> {
+    fn read(
+        &self,
+        ctx: &mut Context,
+        _: &Interpreter,
+    ) -> Poll<Result<Option<ScriptValue>, ScriptError>> {
         let mut child = self.child.lock().map_err(ScriptError::panic)?;
-        let out = child
+        let s = child
             .stdout
             .as_mut()
             .ok_or(ScriptError::panic("No stdout"))?;
+        let stdout = Pin::new(s);
+
         let mut buf = [0u8; 1000];
-        let n = out.read(&mut buf).map_err(ScriptError::panic)?;
+        let n = ready!(stdout.poll_read(ctx, &mut buf)).map_err(ScriptError::panic)?;
         if n != 0 {
             let s = str::from_utf8(&buf[..n]).map_err(ScriptError::panic)?;
-            Ok(Some(ScriptValue::string(s)))
+            Poll::Ready(Ok(Some(ScriptValue::string(s))))
         } else {
-            Ok(None)
+            Poll::Ready(Ok(None))
         }
     }
 }
 
 impl Writable for Process {
-    fn write(&self, value: ScriptValue) -> Result<(), ScriptError> {
+    fn write(
+        &self,
+        ctx: &mut Context,
+        _: &Interpreter,
+        value: ScriptValue,
+    ) -> Poll<Result<(), ScriptError>> {
         let arg = value.as_string()?;
         let mut child = self.child.lock().map_err(ScriptError::panic)?;
-        let out = child.stdin.as_mut().ok_or(ScriptError::panic("No stdin"))?;
 
-        out.write_all(arg.as_bytes()).map_err(ScriptError::panic)?;
-        out.flush().map_err(ScriptError::panic)?;
+        let code = child.try_status().map_err(ScriptError::panic)?;
+        if let Some(code) = code {
+            eprintln!("OOPS, process already exited with code {code}");
+        }
 
-        Ok(())
+        let out = Pin::new(child.stdin.as_mut().ok_or(ScriptError::panic("No stdin"))?);
+
+        let n = ready!(out.poll_write(ctx, arg.as_bytes())).map_err(ScriptError::panic)?;
+
+        Poll::Ready(Ok(()))
+    }
+
+    fn close(&self, _: &mut Context) -> Poll<Result<(), ScriptError>> {
+        let mut child = self.child.lock().map_err(ScriptError::panic)?;
+
+        child.stdin.take();
+
+        Poll::Ready(Ok(()))
     }
 }
 
@@ -162,49 +193,49 @@ impl NativeFunction for ExecFunc {
     }
 }
 
-struct ReadMethod;
-impl NativeMethod for ReadMethod {
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
-        let p = subject.as_process()?;
-        let mut child = p.child.lock().map_err(ScriptError::panic)?;
-        let out = child
-            .stdout
-            .as_mut()
-            .ok_or(ScriptError::panic("No stdout"))?;
-        let mut buf = [0u8; 1000];
-        let n = out.read(&mut buf).map_err(ScriptError::panic)?;
-        let s = str::from_utf8(&buf[..n]).map_err(ScriptError::panic)?;
-        Ok(ScriptValue::string(s))
-    }
+// struct ReadMethod;
+// impl NativeMethod for ReadMethod {
+//     fn call(
+//         &self,
+//         _: &Interpreter,
+//         subject: ScriptValue,
+//         _: &Tuple,
+//     ) -> Result<ScriptValue, ScriptError> {
+//         let p = subject.as_process()?;
+//         let mut child = p.child.lock().map_err(ScriptError::panic)?;
+//         let out = child
+//             .stdout
+//             .as_mut()
+//             .ok_or(ScriptError::panic("No stdout"))?;
+//         let mut buf = [0u8; 1000];
+//         let n = out.read(&mut buf).map_err(ScriptError::panic)?;
+//         let s = str::from_utf8(&buf[..n]).map_err(ScriptError::panic)?;
+//         Ok(ScriptValue::string(s))
+//     }
+//
+//     fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+//         Ok(ScriptType::Str)
+//     }
+// }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::Str)
-    }
-}
-
-struct WriteMethod;
-impl NativeMethod for WriteMethod {
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?;
-        let process = subject.as_process()?;
-        process.write(arg.clone())?;
-        Ok(ScriptValue::identity())
-    }
-
-    fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
-        Ok(TupleType::from_single(ScriptType::Str))
-    }
-}
+// struct WriteMethod;
+// impl NativeMethod for WriteMethod {
+//     fn call(
+//         &self,
+//         interpreter: &Interpreter,
+//         subject: ScriptValue,
+//         arguments: &Tuple,
+//     ) -> Result<ScriptValue, ScriptError> {
+//         let arg = arguments.single()?;
+//         let process = subject.as_process()?;
+//         process.write(interpreter, arg.clone())?;
+//         Ok(ScriptValue::identity())
+//     }
+//
+//     fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
+//         Ok(TupleType::from_single(ScriptType::Str))
+//     }
+// }
 
 struct OutputMethod;
 impl NativeMethod for OutputMethod {
@@ -214,17 +245,18 @@ impl NativeMethod for OutputMethod {
         subject: ScriptValue,
         _: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let p = subject.as_process()?;
-        let mut child = p.child.lock().map_err(ScriptError::panic)?;
-        let _exit_code = child.wait().map_err(ScriptError::panic)?;
-        let out = child
-            .stdout
-            .as_mut()
-            .ok_or(ScriptError::panic("No stdout"))?;
-        let mut buf = Vec::new();
-        let _ = out.read_to_end(&mut buf).map_err(ScriptError::panic)?;
-        let s = String::from_utf8(buf).map_err(ScriptError::panic)?;
-        Ok(ScriptValue::string(s))
+        todo!()
+        // let p = subject.as_process()?;
+        // let mut child = p.child.lock().map_err(ScriptError::panic)?;
+        // let _exit_code = child.wait().map_err(ScriptError::panic)?;
+        // let out = child
+        //     .stdout
+        //     .as_mut()
+        //     .ok_or(ScriptError::panic("No stdout"))?;
+        // let mut buf = Vec::new();
+        // let _ = out.read_to_end(&mut buf).map_err(ScriptError::panic)?;
+        // let s = String::from_utf8(buf).map_err(ScriptError::panic)?;
+        // Ok(ScriptValue::string(s))
     }
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
@@ -232,24 +264,24 @@ impl NativeMethod for OutputMethod {
     }
 }
 
-struct RunningMethod;
-impl NativeMethod for RunningMethod {
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
-        let p = subject.as_process()?;
-        let mut child = p.child.lock().map_err(ScriptError::panic)?;
-        let code = child.try_wait().map_err(ScriptError::panic)?;
-        Ok(ScriptValue::Boolean(code.is_none()))
-    }
-
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::Bool)
-    }
-}
+// struct RunningMethod;
+// impl NativeMethod for RunningMethod {
+//     fn call(
+//         &self,
+//         _: &Interpreter,
+//         subject: ScriptValue,
+//         _: &Tuple,
+//     ) -> Result<ScriptValue, ScriptError> {
+//         let p = subject.as_process()?;
+//         let mut child = p.child.lock().map_err(ScriptError::panic)?;
+//         let code = child.try_wait().map_err(ScriptError::panic)?;
+//         Ok(ScriptValue::Boolean(code.is_none()))
+//     }
+//
+//     fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+//         Ok(ScriptType::Bool)
+//     }
+// }
 
 impl ScriptValue {
     fn as_process(&self) -> Result<&Process, ScriptError> {

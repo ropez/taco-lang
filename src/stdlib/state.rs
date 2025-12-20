@@ -98,7 +98,7 @@ impl NativeFunction for MakeState {
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let t = arguments
-            .single(ScriptType::Infer(1))
+            .single()
             .cloned()
             .unwrap_or(ScriptType::identity());
         let typ = StateType::new(t.clone());

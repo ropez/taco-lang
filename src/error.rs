@@ -98,6 +98,10 @@ pub enum TypeErrorKind {
         expected: ScriptType,
         actual: ScriptType,
     },
+    IncompatiblePipe {
+        lhs: ScriptType,
+        rhs: ScriptType,
+    },
     MissingArgument {
         name: Option<Ident>,
         expected: TupleType,
@@ -138,6 +142,13 @@ pub enum TypeErrorKind {
 impl TypeError {
     pub fn new(kind: TypeErrorKind) -> Self {
         Self { kind, loc: None }
+    }
+
+    pub fn invalid_argument(expected: impl Into<String>, actual: ScriptType) -> Self {
+        Self::new(TypeErrorKind::InvalidArgument {
+            expected: expected.into(),
+            actual,
+        })
     }
 
     pub fn expected_type(expected: ScriptType, actual: ScriptType) -> Self {
@@ -181,10 +192,13 @@ impl TypeError {
                 format!("Attribute not found: '{attr_name}' in {subject}")
             }
             TypeErrorKind::InvalidArgument { expected, actual } => {
-                format!("Expected '{expected}', found '{actual}'")
+                format!("Expected {expected}, found '{actual}'")
             }
             TypeErrorKind::InvalidArgumentType { expected, actual } => {
                 format!("Expected '{expected}', found '{actual}'")
+            }
+            TypeErrorKind::IncompatiblePipe { lhs, rhs } => {
+                format!("Incompatible pipe '{lhs}' to '{rhs}'")
             }
             TypeErrorKind::MissingArgument {
                 name,
@@ -258,13 +272,13 @@ impl TypeError {
     }
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct ScriptError {
     pub kind: ScriptErrorKind,
     loc: Option<Loc>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub enum ScriptErrorKind {
     NoValue,
     Panic(String),

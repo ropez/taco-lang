@@ -103,7 +103,7 @@ impl ListMethod for ListPush {
     }
 
     fn empty_list_return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
-        let arg = arguments.single(ScriptType::Infer(1))?;
+        let arg = arguments.single()?;
         Ok(ScriptType::list_of(arg.clone()))
     }
 }
@@ -595,10 +595,7 @@ impl ListMethod for ListMap {
         inner: &ScriptType,
         arguments: &TupleType,
     ) -> Result<ScriptType, TypeError> {
-        let arg = arguments.single(ScriptType::Function {
-            params: TupleType::from_single(inner.clone()),
-            ret: ScriptType::Infer(1).into(),
-        })?;
+        let arg = arguments.single()?;
         let ret = arg.as_callable_ret(arguments)?;
         Ok(ScriptType::list_of(ret))
     }
@@ -760,10 +757,7 @@ impl ListMethod for ListMapTo {
         let Some(tuple_typ) = inner.as_tuple() else {
             return Err(TypeError::new(TypeErrorKind::InvalidMapTo(inner.clone())));
         };
-        let arg = arguments.single(ScriptType::Function {
-            params: tuple_typ.clone(),
-            ret: ScriptType::Infer(1).into(),
-        })?;
+        let arg = arguments.single()?;
         let ret = arg.as_callable_ret(arguments)?;
         Ok(ScriptType::list_of(ret))
     }

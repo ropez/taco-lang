@@ -34,6 +34,9 @@ pub enum ScriptType {
         name: Ident,
         params: TupleType, // XXX Remove this and look up definition like Enum
     },
+
+    Pipe(Option<Box<ScriptType>>, Option<Box<ScriptType>>),
+
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
 
@@ -62,6 +65,7 @@ impl ScriptType {
         match (self, other) {
             (ScriptType::Ext(_), _) => false,
             (ScriptType::Infer(_), _) => true,
+            (_, ScriptType::Infer(_)) => true, // XXX This is questionable
             (ScriptType::Int, ScriptType::Int) => true,
             (ScriptType::Str, ScriptType::Str) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
@@ -178,6 +182,22 @@ impl ScriptType {
             ScriptType::Tuple(tuple) => Some(tuple),
             ScriptType::Rec { params, .. } => Some(params),
             _ => None,
+        }
+    }
+
+    pub fn as_readable(&self) -> Option<ScriptType> {
+        match self {
+            Self::Ext(ext) => ext.as_readable(),
+            Self::Pipe(_, rhs) => rhs.as_ref().map(|b| b.as_ref().clone()),
+            _ => todo!("Called as_readable on {self}, expected an extension type"),
+        }
+    }
+
+    pub fn as_writable(&self) -> Option<ScriptType> {
+        match self {
+            Self::Ext(ext) => ext.as_writable(),
+            Self::Pipe(lhs, _) => lhs.as_ref().map(|b| b.as_ref().clone()),
+            _ => todo!("Called as_writable on {self}, expected an extension type"),
         }
     }
 
@@ -326,7 +346,7 @@ impl TupleType {
         Self(Vec::new())
     }
 
-    pub fn single(&self, expected: ScriptType) -> Result<&ScriptType> {
+    pub fn single(&self) -> Result<&ScriptType> {
         self.0
             .iter()
             .find(|i| i.name.is_none())
@@ -334,7 +354,7 @@ impl TupleType {
             .ok_or_else(|| {
                 TypeError::new(TypeErrorKind::MissingArgument {
                     name: None,
-                    expected: Self::from_single(expected),
+                    expected: TupleType::identity(), // XXX
                     actual: self.clone(),
                 })
             })
@@ -891,6 +911,27 @@ impl Validator {
 
                 Ok(ScriptType::Bool)
             }
+            Expression::Pipe(lhs, rhs) => {
+                let l = self.validate_expr(lhs, scope)?;
+                let r = self.validate_expr(rhs, scope)?;
+
+                let src = l
+                    .as_readable()
+                    .ok_or_else(|| TypeError::invalid_argument("readable", l.clone()))
+                    .map_err(|err| err.at(lhs.loc))?;
+                let dst = r
+                    .as_writable()
+                    .ok_or_else(|| TypeError::invalid_argument("writable", r.clone()))
+                    .map_err(|err| err.at(rhs.loc))?;
+                if !dst.accepts(&src) {
+                    return Err(TypeError::expected_type(dst, src).at(expr.loc)); // XXX Needs pipe error
+                }
+
+                Ok(ScriptType::Pipe(
+                    l.as_writable().map(Box::new),
+                    r.as_readable().map(Box::new),
+                ))
+            }
             Expression::LogicAnd(lhs, rhs) | Expression::LogicOr(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
@@ -986,13 +1027,41 @@ impl Validator {
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
                 let params = subject.as_callable_params()?;
+
+                // XXX Change this to return arguments as a resolved TupleType, and remove all the
+                // "infer by index" stuff
                 let found_types = self.validate_arguments(&params, arguments, scope)?;
-                let (arguments, complete) = apply_inferred_types_tuple(&params, &found_types)?;
-                let ret = subject.as_callable_ret(&arguments)?;
+
+                // XXX We're kind-of doing duplicate work here now:
+                // - First apply_inferred_types_tuple infers types using the Infer(n) mechanism
+                // - Then we require the ext function to do it "manually"
+                //
+                // Options:
+                // - Keep this redundancy, but pass 'found_types' to ext, making it a little bit easier
+                // - Go all-in with the extensions, and having them validate args also
+                //
+                // If we want generic script functions, having Infer<n> is good.
+                // Can't just remove 'apply_inferred_types_tuple', because it's used to infer one
+                // argument based on a previous `scan(T, fun(T))`. It's not very flexible, and we
+                // don't support variadic etc. Could just pass Validator to ext, and let it do
+                // whatever it wants.
+
+                let (arguments_inferred, complete) =
+                    apply_inferred_types_tuple(&params, &found_types)?;
+                let ret = subject.as_callable_ret(&arguments_inferred)?;
+
+                // XXX Fixes "bad" extensions returning Infer from return_type
+                // let (ret, _) = apply_inferred_types(&ret, &found_types)?;
 
                 if complete {
                     Ok(ret)
                 } else {
+                    if let CallExpression::Inline(args) = arguments.as_ref() {
+                        let as_tuple = self.eval_tuple(args, scope)?;
+                        eprintln!(
+                            "Looked for {params} using {as_tuple}, and found: {found_types:?}"
+                        );
+                    }
                     Err(TypeError::new(TypeErrorKind::TypeNotInferred))
                 }
             }
@@ -1602,7 +1671,14 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
         (ScriptType::List(formal), ScriptType::Range) => {
             found.extend(infer_types(formal, &ScriptType::Int));
         }
-        (ScriptType::Function { ret: formal, .. }, ScriptType::Function { ret, .. }) => {
+        (
+            ScriptType::Function {
+                params: f_params,
+                ret: formal,
+            },
+            ScriptType::Function { params, ret },
+        ) => {
+            found.extend(infer_tuple_types(f_params, params));
             found.extend(infer_types(formal, ret));
         }
         (ScriptType::Function { ret: formal, .. }, ScriptType::NativeFunction(fun)) => {
@@ -1613,13 +1689,19 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
             found.extend(infer_types(formal, &ScriptType::Enum(Arc::clone(def))));
         }
         (ScriptType::Tuple(formal), ScriptType::Tuple(actual)) => {
-            for (f, g) in formal.items().iter().zip(actual.items()) {
-                found.extend(infer_types(&f.value, &g.value));
-            }
+            found.extend(infer_tuple_types(formal, actual));
         }
         _ => (),
     }
 
+    found
+}
+
+fn infer_tuple_types(formal: &TupleType, actual: &TupleType) -> HashMap<u16, ScriptType> {
+    let mut found = HashMap::new();
+    for (f, g) in formal.items().iter().zip(actual.items()) {
+        found.extend(infer_types(&f.value, &g.value));
+    }
     found
 }
 

@@ -90,6 +90,7 @@ pub enum TokenKind {
     Coalesce,
     Alpha,
     Exclamation,
+    Pipe,
     LogicAnd,
     LogicOr,
     Equal,
@@ -194,7 +195,7 @@ impl<'a> Tokenizer<'a> {
                     if self.take_if_eq('|') {
                         Some(self.produce(TokenKind::LogicOr))
                     } else {
-                        return Err(ParseError::unexpected_token().at(self.loc));
+                        Some(self.produce(TokenKind::Pipe))
                     }
                 }
                 '(' => Some(self.produce(TokenKind::LeftParen)),

@@ -1,7 +1,9 @@
+use smol::{Timer, prelude::*};
 use std::{
     collections::HashMap,
     io::{Read, Write, pipe},
     sync::{Arc, Mutex},
+    time::Duration,
 };
 
 use crate::{
@@ -53,11 +55,15 @@ where
         .validate(&ast)
         .map_err(|err| err.into_source_error(src))?;
 
-    interpreter
-        .execute(&ast)
-        .map_err(|err| err.into_source_error(src))?;
+    smol::block_on(async {
+        interpreter
+            .execute(&ast)
+            .map_err(|err| err.into_source_error(src))?;
 
-    Ok(())
+        interpreter.tracker.wait_all().await;
+
+        Ok(())
+    })
 }
 
 #[derive(Clone, Debug, Default)]

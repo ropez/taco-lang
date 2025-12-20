@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::{ScriptError, ScriptErrorKind},
-    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef},
+    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef, Readable, Writable},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::{Ident, global},
     lexer::Src,
@@ -15,7 +15,11 @@ use crate::{
         Assignee, CallExpression, Enumeration, Expression, Function, MatchArm, MatchPattern,
         ParamExpression, Record, Statement, TypeExpression,
     },
-    stdlib::{list::List, parse::ParseFunc},
+    stdlib::{
+        list::List,
+        parse::ParseFunc,
+        pipe::{PipeImpl, PipeType, Tracker, exec_pipe},
+    },
 };
 
 #[derive(Debug, Clone)]
@@ -122,6 +126,31 @@ impl ScriptValue {
             _ => panic!("Expected iterable, found {self}"),
         }
     }
+
+    pub fn as_ext(&self) -> Result<Arc<dyn ExternalValue + Send + Sync>> {
+        match self {
+            Self::Ext(_, ext) => Ok(Arc::clone(ext)),
+            _ => Err(ScriptError::panic("Not readable")),
+        }
+    }
+
+    // pub fn as_readable(&self) -> Result<&dyn Readable> {
+    //     match self {
+    //         Self::Ext(_, ext) => ext
+    //             .as_readable()
+    //             .ok_or_else(|| ScriptError::panic("Not readable")),
+    //         _ => Err(ScriptError::panic("Not readable")),
+    //     }
+    // }
+    //
+    // pub fn as_writable(&self) -> Result<&dyn Writable> {
+    //     match self {
+    //         Self::Ext(_, ext) => ext
+    //             .as_writable()
+    //             .ok_or_else(|| ScriptError::panic("Not writable")),
+    //         _ => Err(ScriptError::panic("Not writable")),
+    //     }
+    // }
 
     pub fn to_single_argument(&self) -> Tuple {
         Tuple(vec![TupleItem::unnamed(self.clone())])
@@ -333,11 +362,13 @@ impl fmt::Debug for Scope {
     }
 }
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub struct Interpreter {
     globals: HashMap<Ident, ScriptValue>,
 
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
+
+    pub(crate) tracker: Tracker,
 }
 
 impl Interpreter {
@@ -431,21 +462,21 @@ impl Interpreter {
                                 }
                             }
                         }
-                        ScriptValue::Ext(_, val) => {
-                            if let Some(iter) = val.as_readable() {
-                                while let Some(v) = iter.next()? {
-                                    let mut scope = scope.clone();
-                                    scope.set_local(ident.clone(), v);
-                                    if let Completion::ExplicitReturn(val) =
-                                        self.execute_block(body, scope)?
-                                    {
-                                        return Ok(Completion::ExplicitReturn(val));
-                                    }
-                                }
-                            } else {
-                                return Err(ScriptError::panic("Expected iterable").at(loc));
-                            }
-                        }
+                        // ScriptValue::Ext(_, val) => {
+                        //     if let Some(iter) = val.as_readable() {
+                        //         while let Some(v) = iter.read(self)? {
+                        //             let mut scope = scope.clone();
+                        //             scope.set_local(ident.clone(), v);
+                        //             if let Completion::ExplicitReturn(val) =
+                        //                 self.execute_block(body, scope)?
+                        //             {
+                        //                 return Ok(Completion::ExplicitReturn(val));
+                        //             }
+                        //         }
+                        //     } else {
+                        //         return Err(ScriptError::panic("Expected iterable").at(loc));
+                        //     }
+                        // }
                         _ => panic!("Expected iterable, found: {iterable}"),
                     }
                 }
@@ -729,6 +760,17 @@ impl Interpreter {
             }
             Expression::Modulo(lhs, rhs) => {
                 self.eval_arithmetic(i64::checked_rem_euclid, lhs, rhs, scope)?
+            }
+            Expression::Pipe(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope).map_err(|err| err.at(lhs.loc))?;
+                let rhs = self.eval_expr(rhs, scope).map_err(|err| err.at(rhs.loc))?;
+
+                exec_pipe(self, lhs.as_ext()?, rhs.as_ext()?)?;
+
+                ScriptValue::Ext(
+                    Arc::new(PipeType),
+                    Arc::new(PipeImpl::new(lhs.as_ext()?, rhs.as_ext()?)),
+                )
             }
             Expression::LogicAnd(lhs, rhs) => self.eval_logic(|a, b| a && b, lhs, rhs, scope)?,
             Expression::LogicOr(lhs, rhs) => self.eval_logic(|a, b| a || b, lhs, rhs, scope)?,

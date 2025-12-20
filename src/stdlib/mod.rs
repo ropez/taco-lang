@@ -10,6 +10,7 @@ pub(crate) mod math;
 pub(crate) mod opt;
 pub(crate) mod panic;
 pub(crate) mod parse;
+pub(crate) mod pipe;
 pub(crate) mod print;
 pub(crate) mod state;
 pub(crate) mod string;
@@ -33,6 +34,7 @@ where
     math::build(builder);
     list::build(builder);
     opt::build(builder);
+    pipe::build(builder);
     panic::build(builder);
     with::build(builder);
     state::build(builder);
