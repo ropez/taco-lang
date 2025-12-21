@@ -187,11 +187,17 @@ impl PartialEq for NativeMethodRef {
 }
 
 pub(crate) trait ReadableExt {
-    fn blocking_read_next(&self, interpreter: &Interpreter) -> Result<Option<ScriptValue>, ScriptError>;
+    fn blocking_read_next(
+        &self,
+        interpreter: &Interpreter,
+    ) -> Result<Option<ScriptValue>, ScriptError>;
 }
 
 impl ReadableExt for &(dyn Readable + Send + Sync) {
-    fn blocking_read_next(&self, interpreter: &Interpreter) -> Result<Option<ScriptValue>, ScriptError> {
+    fn blocking_read_next(
+        &self,
+        interpreter: &Interpreter,
+    ) -> Result<Option<ScriptValue>, ScriptError> {
         let i = interpreter.clone();
         smol::block_on(async move {
             let r = poll_fn(|ctx| self.read(ctx, &i)).await?;

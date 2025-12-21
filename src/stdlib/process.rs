@@ -209,7 +209,10 @@ impl NativeMethod for OutputMethod {
                 .as_mut()
                 .ok_or(ScriptError::panic("No stdout"))?;
             let mut buf = Vec::new();
-            let _ = out.read_to_end(&mut buf).await.map_err(ScriptError::panic)?;
+            let _ = out
+                .read_to_end(&mut buf)
+                .await
+                .map_err(ScriptError::panic)?;
             let s = String::from_utf8(buf).map_err(ScriptError::panic)?;
             Ok(ScriptValue::string(s))
         })

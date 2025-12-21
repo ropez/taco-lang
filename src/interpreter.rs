@@ -752,7 +752,7 @@ impl Interpreter {
                 exec_pipe(self, lhs.as_ext()?, rhs.as_ext()?)?;
 
                 ScriptValue::Ext(
-                    Arc::new(PipeType),
+                    Arc::new(PipeType::new(None, None)), // XXX Type not really used in runtine
                     Arc::new(PipeImpl::new(lhs.as_ext()?, rhs.as_ext()?)),
                 )
             }

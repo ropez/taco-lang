@@ -23,7 +23,17 @@ pub fn build(builder: &mut Builder) {
     builder.add_function("apply", ActorFunc);
 }
 
-pub(crate) struct PipeType;
+pub(crate) struct PipeType {
+    lhs: Option<ScriptType>,
+    rhs: Option<ScriptType>,
+}
+
+impl PipeType {
+    pub(crate) fn new(lhs: Option<ScriptType>, rhs: Option<ScriptType>) -> Self {
+        Self { lhs, rhs }
+    }
+}
+
 impl ExternalType for PipeType {
     fn name(&self) -> Ident {
         "Pipe".into()
@@ -35,6 +45,14 @@ impl ExternalType for PipeType {
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+
+    fn as_readable(&self) -> Option<ScriptType> {
+        self.lhs.clone()
+    }
+
+    fn as_writable(&self) -> Option<ScriptType> {
+        self.rhs.clone()
     }
 }
 
@@ -116,7 +134,11 @@ impl NativeFunction for ActorFunc {
         let arg = arguments.single().unwrap();
         if let ScriptType::Function { params, ret } = arg {
             let lhs = params.single().cloned().unwrap();
-            ScriptType::Pipe(Some(Box::new(lhs.clone())), Some(ret.clone()))
+
+            // Not really a pipe, but the type works here
+            let pipe = PipeType::new(Some(lhs.clone()), Some(ret.as_ref().clone()));
+
+            ScriptType::Ext(Arc::new(pipe))
         } else {
             todo!("error")
         }

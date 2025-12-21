@@ -10,6 +10,7 @@ use crate::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, MatchArm, MatchPattern,
         ParamExpression, Statement, TypeExpression,
     },
+    stdlib::pipe::PipeType,
 };
 
 type Result<T> = result::Result<T, TypeError>;
@@ -34,8 +35,6 @@ pub enum ScriptType {
         name: Ident,
         params: TupleType, // XXX Remove this and look up definition like Enum
     },
-
-    Pipe(Option<Box<ScriptType>>, Option<Box<ScriptType>>),
 
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
@@ -186,18 +185,18 @@ impl ScriptType {
     }
 
     pub fn as_readable(&self) -> Option<ScriptType> {
-        match self {
-            Self::Ext(ext) => ext.as_readable(),
-            Self::Pipe(_, rhs) => rhs.as_ref().map(|b| b.as_ref().clone()),
-            _ => todo!("Called as_readable on {self}, expected an extension type"),
+        if let Self::Ext(ext) = self {
+            ext.as_readable()
+        } else {
+            todo!("Called as_readable on {self}, expected an extension type")
         }
     }
 
     pub fn as_writable(&self) -> Option<ScriptType> {
-        match self {
-            Self::Ext(ext) => ext.as_writable(),
-            Self::Pipe(lhs, _) => lhs.as_ref().map(|b| b.as_ref().clone()),
-            _ => todo!("Called as_writable on {self}, expected an extension type"),
+        if let Self::Ext(ext) = self {
+            ext.as_writable()
+        } else {
+            todo!("Called as_writable on {self}, expected an extension type")
         }
     }
 
@@ -942,10 +941,9 @@ impl Validator {
                     return Err(TypeError::expected_type(dst, src).at(expr.loc)); // XXX Needs pipe error
                 }
 
-                Ok(ScriptType::Pipe(
-                    l.as_writable().map(Box::new),
-                    r.as_readable().map(Box::new),
-                ))
+                let pipe = PipeType::new(l.as_writable(), r.as_readable());
+
+                Ok(ScriptType::Ext(Arc::new(pipe)))
             }
             Expression::LogicAnd(lhs, rhs) | Expression::LogicOr(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;
