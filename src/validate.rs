@@ -360,6 +360,21 @@ impl TupleType {
             })
     }
 
+    pub fn positional(&self, n: usize) -> Result<&ScriptType> {
+        self.0
+            .iter()
+            .filter(|i| i.name.is_none())
+            .map(|item| &item.value)
+            .nth(n)
+            .ok_or_else(|| {
+                TypeError::new(TypeErrorKind::MissingArgument {
+                    name: None,
+                    expected: TupleType::identity(), // XXX
+                    actual: self.clone(),
+                })
+            })
+    }
+
     pub fn from_single(item: ScriptType) -> Self {
         Self(vec![TupleItemType::unnamed(item)])
     }

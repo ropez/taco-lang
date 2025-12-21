@@ -7,3 +7,16 @@ fun test_run_process() {
     # XXX Not portable
     assert out == "Linux"
 }
+
+fun test_for_loop() {
+    process = exec("uname -s")
+
+    assert process.running()
+
+    for s in process {
+        assert s.trim() == "Linux"
+    }
+
+    assert process.output() == ""
+    assert !process.running()
+}

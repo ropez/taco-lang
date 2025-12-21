@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::{ScriptError, ScriptErrorKind},
-    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef, Readable, Writable},
+    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef, ReadableExt},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::{Ident, global},
     lexer::Src,
@@ -49,10 +49,7 @@ pub enum ScriptValue {
         value: Arc<Tuple>,
     },
 
-    ScriptFunction {
-        function: Arc<Function>,
-        captured_scope: Arc<Scope>, // XXX Fix warning with dedicated struct type
-    },
+    ScriptFunction(ScriptFunction),
 
     Record(Arc<Record>),
     EnumVariant {
@@ -133,24 +130,6 @@ impl ScriptValue {
             _ => Err(ScriptError::panic("Not readable")),
         }
     }
-
-    // pub fn as_readable(&self) -> Result<&dyn Readable> {
-    //     match self {
-    //         Self::Ext(_, ext) => ext
-    //             .as_readable()
-    //             .ok_or_else(|| ScriptError::panic("Not readable")),
-    //         _ => Err(ScriptError::panic("Not readable")),
-    //     }
-    // }
-    //
-    // pub fn as_writable(&self) -> Result<&dyn Writable> {
-    //     match self {
-    //         Self::Ext(_, ext) => ext
-    //             .as_writable()
-    //             .ok_or_else(|| ScriptError::panic("Not writable")),
-    //         _ => Err(ScriptError::panic("Not writable")),
-    //     }
-    // }
 
     pub fn to_single_argument(&self) -> Tuple {
         Tuple(vec![TupleItem::unnamed(self.clone())])
@@ -241,7 +220,7 @@ impl Display for ScriptValue {
                 Ok(())
             }
             ScriptValue::NaN => write!(f, "NaN"),
-            ScriptValue::Ext(t, e) => write!(f, "{{{}}}", t.name()),
+            ScriptValue::Ext(t, _) => write!(f, "{{{}}}", t.name()),
             _ => todo!("Display impl for {self:?}"),
         }
     }
@@ -321,8 +300,14 @@ impl Display for Tuple {
     }
 }
 
+#[derive(Debug, Clone)]
+pub struct ScriptFunction {
+    pub(crate) function: Arc<Function>,
+    captured_scope: Arc<Scope>, // XXX Fix warning with dedicated struct type
+}
+
 #[derive(Debug)]
-pub enum Completion {
+enum Completion {
     EndOfBlock(Scope),
     ExplicitReturn(ScriptValue),
     ImpliedReturn(ScriptValue),
@@ -420,10 +405,10 @@ impl Interpreter {
                     eval_assignment(assignee, &rhs, &mut scope);
                 }
                 Statement::Function { name, fun, .. } => {
-                    let fun = ScriptValue::ScriptFunction {
+                    let fun = ScriptValue::ScriptFunction(ScriptFunction {
                         function: Arc::clone(fun),
                         captured_scope: Arc::new(scope.clone()),
-                    };
+                    });
                     scope.set_local(name.clone(), fun);
                 }
                 Statement::Rec(rec) => {
@@ -462,21 +447,21 @@ impl Interpreter {
                                 }
                             }
                         }
-                        // ScriptValue::Ext(_, val) => {
-                        //     if let Some(iter) = val.as_readable() {
-                        //         while let Some(v) = iter.read(self)? {
-                        //             let mut scope = scope.clone();
-                        //             scope.set_local(ident.clone(), v);
-                        //             if let Completion::ExplicitReturn(val) =
-                        //                 self.execute_block(body, scope)?
-                        //             {
-                        //                 return Ok(Completion::ExplicitReturn(val));
-                        //             }
-                        //         }
-                        //     } else {
-                        //         return Err(ScriptError::panic("Expected iterable").at(loc));
-                        //     }
-                        // }
+                        ScriptValue::Ext(_, val) => {
+                            if let Some(readable) = val.as_readable() {
+                                while let Some(v) = readable.blocking_read_next(self)? {
+                                    let mut scope = scope.clone();
+                                    scope.set_local(ident.clone(), v);
+                                    if let Completion::ExplicitReturn(val) =
+                                        self.execute_block(body, scope)?
+                                    {
+                                        return Ok(Completion::ExplicitReturn(val));
+                                    }
+                                }
+                            } else {
+                                return Err(ScriptError::panic("Expected iterable").at(loc));
+                            }
+                        }
                         _ => panic!("Expected iterable, found: {iterable}"),
                     }
                 }
@@ -520,8 +505,7 @@ impl Interpreter {
 
                     let branch = if val { Some(body) } else { else_body.as_ref() };
                     if let Some(block) = branch {
-                        let mut scope = scope.clone();
-                        match self.execute_block(block, scope)? {
+                        match self.execute_block(block, scope.clone())? {
                             Completion::ExplicitReturn(val) => {
                                 return Ok(Completion::ExplicitReturn(val));
                             }
@@ -708,10 +692,10 @@ impl Interpreter {
                     panic!("No such attribute {key} for {subject}");
                 }
             }
-            Expression::Function(fun) => ScriptValue::ScriptFunction {
+            Expression::Function(fun) => ScriptValue::ScriptFunction(ScriptFunction {
                 function: Arc::clone(fun),
                 captured_scope: Arc::new(scope.clone()),
-            },
+            }),
             Expression::LogicNot(expr) => {
                 let val = self.eval_expr(expr, scope)?;
                 if let ScriptValue::Boolean(b) = val {
@@ -884,12 +868,9 @@ impl Interpreter {
         arguments: &Tuple,
     ) -> Result<ScriptValue> {
         let return_value = match callable {
-            ScriptValue::ScriptFunction {
-                function,
-                captured_scope,
-            } => {
-                let mut inner_scope = Scope::clone(&captured_scope);
-                let values = transform_args(&function.params, arguments);
+            ScriptValue::ScriptFunction(f) => {
+                let mut inner_scope = Scope::clone(&f.captured_scope);
+                let values = transform_args(&f.function.params, arguments);
                 for item in &values.0 {
                     if let Some(name) = &item.name {
                         inner_scope.set_local(name.clone(), item.value.clone());
@@ -897,7 +878,7 @@ impl Interpreter {
                 }
                 inner_scope.arguments = Arc::new(values);
 
-                match self.execute_block(&function.body, inner_scope)? {
+                match self.execute_block(&f.function.body, inner_scope)? {
                     Completion::EndOfBlock(_) => ScriptValue::None,
                     Completion::ExplicitReturn(v) => v,
                     Completion::ImpliedReturn(v) => v,
@@ -1041,7 +1022,7 @@ impl Interpreter {
                         }
                     }?;
 
-                    if let Some((idx, var)) = def.find_variant(name) {
+                    if let Some((idx, _var)) = def.find_variant(name) {
                         if Arc::ptr_eq(def, def) && *index == idx {
                             if let Some(assignee) = assignee {
                                 let mut locals = Scope::default();

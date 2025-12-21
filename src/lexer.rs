@@ -1,7 +1,7 @@
 use std::{fmt, ops, result, sync::Arc};
 
 use crate::{
-    error::{Error, ParseError, ParseErrorKind},
+    error::{ParseError, ParseErrorKind},
     ident::Ident,
 };
 

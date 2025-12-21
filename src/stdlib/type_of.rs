@@ -47,15 +47,15 @@ impl ScriptValue {
             ScriptValue::Enum { def, .. } => {
                 format!("{}", def.name)
             }
-            ScriptValue::ScriptFunction { function, .. } => {
-                if let Some(type_expr) = &function.type_expr {
+            ScriptValue::ScriptFunction(f) => {
+                if let Some(type_expr) = &f.function.type_expr {
                     format!(
                         "fun{}: {}",
-                        params_to_type(&function.params),
+                        params_to_type(&f.function.params),
                         type_expr_to_str(type_expr)
                     )
                 } else {
-                    format!("fun{}: ()", params_to_type(&function.params))
+                    format!("fun{}: ()", params_to_type(&f.function.params))
                 }
             }
             ScriptValue::EnumVariant { def, index } => {

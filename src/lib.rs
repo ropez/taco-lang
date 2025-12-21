@@ -1,9 +1,7 @@
-use smol::{Timer, prelude::*};
 use std::{
     collections::HashMap,
     io::{Read, Write, pipe},
     sync::{Arc, Mutex},
-    time::Duration,
 };
 
 use crate::{
@@ -55,15 +53,16 @@ where
         .validate(&ast)
         .map_err(|err| err.into_source_error(src))?;
 
-    smol::block_on(async {
-        interpreter
-            .execute(&ast)
-            .map_err(|err| err.into_source_error(src))?;
+    interpreter
+        .execute(&ast)
+        .map_err(|err| err.into_source_error(src))?;
 
-        interpreter.tracker.wait_all().await;
-
+    let errors = interpreter.tracker.wait_all();
+    if let Some(err) = errors.first() {
+        Err(err.clone().into_source_error(src))
+    } else {
         Ok(())
-    })
+    }
 }
 
 #[derive(Clone, Debug, Default)]
@@ -109,8 +108,8 @@ pub fn run_tests(src: &str) -> Result<TestStats, Error> {
 
     let mut stats = TestStats::default();
     for (ident, value) in exported {
-        if let ScriptValue::ScriptFunction { function, .. } = &value {
-            if function.params.is_empty() {
+        if let ScriptValue::ScriptFunction(f) = &value {
+            if f.function.params.is_empty() {
                 eprint!("  {ident}...");
 
                 let eval_result = interpreter.eval_callable(value, &Tuple::identity());

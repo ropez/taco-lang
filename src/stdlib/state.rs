@@ -5,7 +5,7 @@ use std::{
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError, TypeErrorKind},
+    error::{ScriptError, TypeError},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::{Interpreter, ScriptValue, Tuple},

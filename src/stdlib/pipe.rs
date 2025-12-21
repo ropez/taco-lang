@@ -53,24 +53,6 @@ impl PipeImpl {
     }
 }
 
-pub(crate) fn build_pipeline(val: &ScriptValue) -> Result<Option<Vec<&PipeImpl>>, ScriptError> {
-    if let Ok(pipe) = val.downcast_ext::<PipeImpl>() {
-        let mut pipeline = vec![pipe];
-
-        let mut p = pipe;
-
-        while let Some(upstream) = p.src.as_any().downcast_ref::<PipeImpl>() {
-            pipeline.push(upstream);
-            p = upstream;
-        }
-
-        pipeline.reverse();
-        Ok(Some(pipeline))
-    } else {
-        Ok(None)
-    }
-}
-
 pub(crate) fn exec_pipe(
     interpreter: &Interpreter,
     lhs: Arc<dyn ExternalValue + Send + Sync>,
@@ -78,6 +60,12 @@ pub(crate) fn exec_pipe(
 ) -> Result<(), ScriptError> {
     // XXX Cloning the interpreter feels wrong
     let i = interpreter.clone();
+
+    // XXX
+    // The 'spawn' function is only ment as convenience for "unit tests and small programs". It's
+    // single threaded by default, and can be overridden by SMOL_THREADS. smol recommends creting
+    // an Executor instead. Since 'spawn' is the only function in smol itself, by doing this we can
+    // get rin of smol, and only use it's dependencies directly ('async-io', 'futures-lite' etc).
     let task = smol::spawn(async move {
         let src = lhs
             .as_readable()
@@ -261,10 +249,16 @@ impl Tracker {
         tasks.push(task);
     }
 
-    pub(crate) async fn wait_all(&self) {
-        while let Some(mut task) = self.pop() {
-            poll_fn(|cx| task.poll(cx)).await;
-        }
+    pub(crate) fn wait_all(&self) -> Vec<ScriptError> {
+        let mut errors = Vec::new();
+        smol::block_on(async {
+            while let Some(mut task) = self.pop() {
+                if let Err(err) = poll_fn(|cx| task.poll(cx)).await {
+                    errors.push(err);
+                }
+            }
+        });
+        errors
     }
 
     fn pop(&self) -> Option<Task> {

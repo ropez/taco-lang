@@ -384,17 +384,9 @@ impl NativeFunction for ListZip {
     }
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
-        fn inner_type(t: ScriptType) -> ScriptType {
-            match t {
-                ScriptType::EmptyList => todo!(),
-                ScriptType::List(inner) => inner.as_ref().clone(),
-                ScriptType::Range => ScriptType::Int,
-                _ => todo!(),
-            }
-        }
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.items().get(0).cloned().unwrap().value)),
-            TupleItemType::unnamed(inner_type(arguments.items().get(1).cloned().unwrap().value)),
+            TupleItemType::unnamed(inner_type(arguments.positional(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.positional(1).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -443,17 +435,9 @@ impl NativeFunction for ListCartesian {
     }
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
-        fn inner_type(t: ScriptType) -> ScriptType {
-            match t {
-                ScriptType::EmptyList => todo!(),
-                ScriptType::List(inner) => inner.as_ref().clone(),
-                ScriptType::Range => ScriptType::Int,
-                _ => todo!(),
-            }
-        }
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.items().get(0).cloned().unwrap().value)),
-            TupleItemType::unnamed(inner_type(arguments.items().get(1).cloned().unwrap().value)),
+            TupleItemType::unnamed(inner_type(arguments.positional(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.positional(1).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -592,7 +576,7 @@ impl ListMethod for ListMap {
 
     fn list_return_type(
         &self,
-        inner: &ScriptType,
+        _inner: &ScriptType,
         arguments: &TupleType,
     ) -> Result<ScriptType, TypeError> {
         let arg = arguments.single()?;
@@ -638,7 +622,7 @@ impl ListMethod for ListScan {
 
     fn list_return_type(
         &self,
-        inner: &ScriptType,
+        _inner: &ScriptType,
         arguments: &TupleType,
     ) -> Result<ScriptType, TypeError> {
         let arg = arguments
@@ -751,12 +735,9 @@ impl ListMethod for ListMapTo {
 
     fn list_return_type(
         &self,
-        inner: &ScriptType,
+        _inner: &ScriptType,
         arguments: &TupleType,
     ) -> Result<ScriptType, TypeError> {
-        let Some(tuple_typ) = inner.as_tuple() else {
-            return Err(TypeError::new(TypeErrorKind::InvalidMapTo(inner.clone())));
-        };
         let arg = arguments.single()?;
         let ret = arg.as_callable_ret(arguments)?;
         Ok(ScriptType::list_of(ret))
@@ -858,5 +839,14 @@ where
                 subject.clone(),
             ))),
         }
+    }
+}
+
+fn inner_type(t: &ScriptType) -> ScriptType {
+    match t {
+        ScriptType::EmptyList => todo!(),
+        ScriptType::List(inner) => inner.as_ref().clone(),
+        ScriptType::Range => ScriptType::Int,
+        _ => todo!(),
     }
 }
