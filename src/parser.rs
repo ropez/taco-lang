@@ -10,7 +10,7 @@ use multipeek::{IteratorExt, MultiPeek};
 use crate::{
     error::{ParseError, ParseErrorKind},
     ident::Ident,
-    interpopation::{self, StringTokenKind},
+    interpolation::{self, StringTokenKind},
     lexer::{self, Loc, Src, Token, TokenKind},
 };
 
@@ -1230,7 +1230,7 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_string(&self, src: &str, loc: Loc) -> Result<Src<Expression>> {
-        let parts = interpopation::tokenise_string(src);
+        let parts = interpolation::tokenise_string(src);
 
         if parts.is_empty() {
             return Ok(Src::new(Expression::Str("".into()), loc));

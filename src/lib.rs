@@ -28,7 +28,7 @@ pub mod script_value;
 pub mod validate;
 
 mod fmt;
-mod interpopation;
+mod interpolation;
 mod output_adapter;
 mod stdlib;
 

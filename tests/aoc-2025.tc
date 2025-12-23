@@ -267,7 +267,7 @@ fun day5_cafeteria() {
     assert fresh == 3
 }
 
-fun day6_trash_compactor__zip() {
+fun day6_trash_compactor__zip4() {
     # Cephalopod math doesn't look that different from normal math. The math
     # worksheet (your puzzle input) consists of a list of problems; each
     # problem has a group of numbers that need to be either added (+) or
@@ -324,7 +324,7 @@ fun day6_trash_compactor__zip() {
     assert res == 4277556
 }
 
-fun day6_trash_compactor__list() {
+fun day6_trash_compactor__list_flip() {
     sample = """
         123 328  51 64
          45 64  387 23
