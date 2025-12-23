@@ -10,7 +10,7 @@ use crate::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, MatchArm, MatchPattern,
         ParamExpression, Statement, TypeExpression,
     },
-    stdlib::pipe::PipeType,
+    stdlib,
 };
 
 type Result<T> = result::Result<T, TypeError>;
@@ -776,7 +776,7 @@ impl Validator {
                             .at(part.loc)
                             .at_offset(*offset));
                         }
-                        ScriptType::Ext(t) => {
+                        ScriptType::Ext(_) => {
                             return Err(TypeError::new(TypeErrorKind::InvalidArgument {
                                 expected: "printable value".into(),
                                 actual: typ,
@@ -937,6 +937,7 @@ impl Validator {
 
                 Ok(ScriptType::Bool)
             }
+            #[cfg(feature = "pipe")]
             Expression::Pipe(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
@@ -953,9 +954,13 @@ impl Validator {
                     return Err(TypeError::expected_type(dst, src).at(expr.loc)); // XXX Needs pipe error
                 }
 
-                let pipe = PipeType::new(l.as_writable(), r.as_readable());
+                let pipe = stdlib::pipe::PipeType::new(l.as_writable(), r.as_readable());
 
                 Ok(ScriptType::Ext(Arc::new(pipe)))
+            }
+            #[cfg(not(feature = "pipe"))]
+            Expression::Pipe(_, _) => {
+                Err(TypeError::new(TypeErrorKind::InvalidExpression))?
             }
             Expression::LogicAnd(lhs, rhs) | Expression::LogicOr(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;

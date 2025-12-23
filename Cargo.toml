@@ -3,19 +3,25 @@ name = "taco"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+crate-type = ["cdylib", "rlib"]
+
 [features]
 default = ["fs", "http", "process", "json"]
 fs = []
 http = ["url", "httparse", "rustls", "webpki-roots"]
-process = []
+process = ["pipe"]
 json = ["dep:tinyjson"]
+pipe = ["dep:smol"]
 
 [dependencies]
 multipeek = "0.1.2"
-smol = { version = "2.0.2" }
+smol = { version = "2.0.2", optional = true }
 tinyjson = { version = "2.5.1", optional = true }
 rustls = { version = "0.23.35", features = ["std", "ring"], default-features = false, optional = true }
 webpki-roots = { version = "1.0.4", optional = true }
 url = { version = "2.5.7", optional = true }
 httparse = { version = "*", optional = true }
 
+[target.wasm32-unknown-unknown.dependencies]
+wasm-bindgen = "0.2"

@@ -10,12 +10,14 @@ pub(crate) mod math;
 pub(crate) mod opt;
 pub(crate) mod panic;
 pub(crate) mod parse;
-pub(crate) mod pipe;
 pub(crate) mod print;
 pub(crate) mod state;
 pub(crate) mod string;
 pub(crate) mod type_of;
 pub(crate) mod with;
+
+#[cfg(feature = "pipe")]
+pub(crate) mod pipe;
 
 #[cfg(feature = "fs")]
 pub(crate) mod fs;
@@ -37,13 +39,15 @@ where
     math::build(builder);
     list::build(builder);
     opt::build(builder);
-    pipe::build(builder);
     panic::build(builder);
     with::build(builder);
     state::build(builder);
     print::build(builder, Arc::clone(&out));
     parse::build(builder);
     type_of::build(builder);
+
+    #[cfg(feature = "pipe")]
+    pipe::build(builder);
 
     #[cfg(feature = "fs")]
     fs::build(builder);

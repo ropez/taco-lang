@@ -338,7 +338,7 @@ pub struct ScriptFunction {
 }
 
 impl ScriptFunction {
-    pub fn new(function: Arc<Function>, captured_scope: Arc<Scope>) -> Self {
+    pub(crate) fn new(function: Arc<Function>, captured_scope: Arc<Scope>) -> Self {
         Self {
             function,
             captured_scope,

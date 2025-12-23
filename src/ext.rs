@@ -5,8 +5,6 @@ use std::{
     task::{Context, Poll},
 };
 
-use smol::future::poll_fn;
-
 use crate::{
     error::{ScriptError, TypeError},
     ident::Ident,
@@ -194,6 +192,7 @@ pub(crate) trait ReadableExt {
     ) -> Result<Option<ScriptValue>, ScriptError>;
 }
 
+#[cfg(feature = "pipe")]
 impl ReadableExt for &(dyn Readable + Send + Sync) {
     fn blocking_read_next(
         &self,
@@ -201,7 +200,7 @@ impl ReadableExt for &(dyn Readable + Send + Sync) {
     ) -> Result<Option<ScriptValue>, ScriptError> {
         let i = interpreter.clone();
         smol::block_on(async move {
-            let r = poll_fn(|ctx| self.read(ctx, &i)).await?;
+            let r = smol::future::poll_fn(|ctx| self.read(ctx, &i)).await?;
             Ok(r)
         })
     }

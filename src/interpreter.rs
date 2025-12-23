@@ -18,9 +18,10 @@ use crate::{
     stdlib::{
         list::List,
         parse::ParseFunc,
-        pipe::{PipeImpl, PipeType, Tracker, exec_pipe},
     },
 };
+#[cfg(feature = "pipe")]
+use crate::stdlib::pipe::{PipeImpl, PipeType, Tracker, exec_pipe};
 
 #[derive(Debug)]
 enum Completion {
@@ -69,6 +70,7 @@ pub struct Interpreter {
 
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
 
+    #[cfg(feature = "pipe")]
     pub(crate) tracker: Tracker,
 }
 
@@ -163,6 +165,7 @@ impl Interpreter {
                                 }
                             }
                         }
+                        #[cfg(feature = "pipe")]
                         ScriptValue::Ext(_, val) => {
                             if let Some(readable) = val.as_readable() {
                                 while let Some(v) = readable.blocking_read_next(self)? {
@@ -461,6 +464,7 @@ impl Interpreter {
             Expression::Modulo(lhs, rhs) => {
                 self.eval_arithmetic(i64::checked_rem_euclid, lhs, rhs, scope)?
             }
+            #[cfg(feature = "pipe")]
             Expression::Pipe(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope).map_err(|err| err.at(lhs.loc))?;
                 let rhs = self.eval_expr(rhs, scope).map_err(|err| err.at(rhs.loc))?;
@@ -471,6 +475,10 @@ impl Interpreter {
                     Arc::new(PipeType::new(None, None)), // XXX Type not really used in runtine
                     Arc::new(PipeImpl::new(lhs.as_ext()?, rhs.as_ext()?)),
                 )
+            }
+            #[cfg(not(feature = "pipe"))]
+            Expression::Pipe(lhs, rhs) => {
+                panic!("pipes are not enabled");
             }
             Expression::LogicAnd(lhs, rhs) => self.eval_logic(|a, b| a && b, lhs, rhs, scope)?,
             Expression::LogicOr(lhs, rhs) => self.eval_logic(|a, b| a || b, lhs, rhs, scope)?,
