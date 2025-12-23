@@ -6,8 +6,9 @@ use crate::{
     Builder,
     error::ScriptError,
     ext::NativeFunction,
-    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    interpreter::Interpreter,
     parser::{Expression, Record, TypeExpression},
+    script_value::{ScriptValue, Tuple, TupleItem},
     validate::{ScriptType, TupleType},
 };
 
@@ -97,7 +98,7 @@ impl From<&ScriptValue> for JsonValue {
     fn from(value: &ScriptValue) -> Self {
         match value {
             ScriptValue::Int(n) => JsonValue::Number(*n as f64),
-            ScriptValue::String(s) => JsonValue::String(s.to_string()),
+            ScriptValue::String { content } => JsonValue::String(content.to_string()),
             ScriptValue::Tuple(value) => JsonValue::from(value.as_ref()),
             ScriptValue::Rec { def, value } => JsonValue::Object(transform_record(def, value)),
             ScriptValue::List(l) => {

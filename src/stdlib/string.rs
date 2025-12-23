@@ -5,7 +5,8 @@ use crate::{
     error::{ScriptError, TypeError},
     ext::NativeMethod,
     ident::global,
-    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    interpreter::Interpreter,
+    script_value::{ScriptValue, Tuple, TupleItem},
     stdlib::list::List,
     validate::{ScriptType, TupleItemType, TupleType},
 };

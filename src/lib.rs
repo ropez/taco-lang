@@ -8,8 +8,9 @@ use crate::{
     error::Error,
     ext::{NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef},
     ident::Ident,
-    interpreter::{Interpreter, ScriptValue, Tuple},
+    interpreter::Interpreter,
     parser::Parser,
+    script_value::{ScriptValue, Tuple},
     validate::Validator,
 };
 
@@ -19,6 +20,7 @@ pub mod ident;
 pub mod interpreter;
 pub mod lexer;
 pub mod parser;
+pub mod script_value;
 pub mod validate;
 
 mod fmt;

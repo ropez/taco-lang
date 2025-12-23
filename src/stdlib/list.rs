@@ -5,7 +5,8 @@ use crate::{
     error::{ScriptError, TypeError, TypeErrorKind},
     ext::{NativeFunction, NativeMethod},
     ident::{Ident, global},
-    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    interpreter::Interpreter,
+    script_value::{ScriptValue, Tuple, TupleItem},
     validate::{ScriptType, TupleItemType, TupleType},
 };
 

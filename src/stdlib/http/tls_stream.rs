@@ -5,12 +5,15 @@ use std::{
 };
 
 use rustls::{ClientConnection, Stream};
-use smol::{io::{AsyncRead, AsyncWrite}, net::TcpStream};
+use smol::{
+    io::{AsyncRead, AsyncWrite},
+    net::TcpStream,
+};
 
 /// A TLS stream that implements [AsyncRead] and [AsyncWrite].
 pub struct TlsStream {
     connection: ClientConnection,
-    stream: TcpStream
+    stream: TcpStream,
 }
 
 impl TlsStream {
@@ -23,8 +26,7 @@ impl TlsStream {
     }
 }
 
-impl AsyncRead for TlsStream
-{
+impl AsyncRead for TlsStream {
     fn poll_read(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -58,8 +60,7 @@ impl AsyncRead for TlsStream
     }
 }
 
-impl AsyncWrite for TlsStream
-{
+impl AsyncWrite for TlsStream {
     fn poll_write(
         mut self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
@@ -160,4 +161,3 @@ impl<'a, 'b, T: AsyncWrite + Unpin> Write for InnerStream<'a, 'b, T> {
         }
     }
 }
-

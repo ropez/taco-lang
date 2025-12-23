@@ -4,8 +4,9 @@ use crate::{
     Builder,
     error::ScriptError,
     ext::NativeFunction,
-    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    interpreter::Interpreter,
     parser::{ParamExpression, TypeExpression},
+    script_value::{ScriptValue, Tuple, TupleItem},
     validate::{ScriptType, TupleType},
 };
 
@@ -33,7 +34,7 @@ impl NativeFunction for TypeOfFunc {
 impl ScriptValue {
     fn to_type(&self) -> String {
         match self {
-            ScriptValue::String(_) => "str".into(),
+            ScriptValue::String { .. } => "str".into(),
             ScriptValue::Int(_) => "int".into(),
             ScriptValue::Boolean(_) => "bool".into(),
             ScriptValue::List(items) => {

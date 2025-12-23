@@ -12,7 +12,8 @@ use crate::{
     error::ScriptError,
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
-    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    interpreter::Interpreter,
+    script_value::{ScriptValue, Tuple, TupleItem},
     validate::{ScriptType, TupleType},
 };
 

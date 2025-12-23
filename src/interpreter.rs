@@ -1,20 +1,20 @@
 use std::{
     collections::HashMap,
-    fmt::{self, Display, Formatter, Write as _},
+    fmt::{self, Write as _},
     result,
     sync::Arc,
 };
 
 use crate::{
     error::{ScriptError, ScriptErrorKind},
-    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef, ReadableExt},
-    fmt::{fmt_inner_list, fmt_tuple},
+    ext::{NativeFunctionRef, NativeMethodRef, ReadableExt},
     ident::{Ident, global},
     lexer::Src,
     parser::{
-        Assignee, CallExpression, Enumeration, Expression, Function, MatchArm, MatchPattern,
-        ParamExpression, Record, Statement, TypeExpression,
+        Assignee, CallExpression, Enumeration, Expression, MatchArm, MatchPattern, ParamExpression,
+        Record, Statement, TypeExpression,
     },
+    script_value::{ScriptFunction, ScriptValue, Tuple, TupleItem},
     stdlib::{
         json::ParseJson,
         list::List,
@@ -22,291 +22,6 @@ use crate::{
         pipe::{PipeImpl, PipeType, Tracker, exec_pipe},
     },
 };
-
-#[derive(Debug, Clone)]
-pub enum ScriptValue {
-    Boolean(bool),
-    String(Arc<str>),
-    Int(i64),
-    Range(i64, i64),
-    List(Arc<List>),
-    Tuple(Arc<Tuple>),
-
-    NaN,
-
-    // The "opt" type is only checked in validation. During evaluation, it's equvalent to it's
-    // inner value, or the special 'None' value.
-    None,
-
-    // The *instance* of a record. Not the record itself (which is a callable)
-    Rec {
-        def: Arc<Record>,
-        value: Arc<Tuple>,
-    },
-
-    Enum {
-        def: Arc<Enumeration>,
-        index: usize,
-        value: Arc<Tuple>,
-    },
-
-    ScriptFunction(ScriptFunction),
-
-    Record(Arc<Record>),
-    EnumVariant {
-        def: Arc<Enumeration>,
-        index: usize,
-    },
-
-    NativeFunction(NativeFunctionRef),
-    NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
-
-    Ext(
-        Arc<dyn ExternalType + Send + Sync>,
-        Arc<dyn ExternalValue + Send + Sync>,
-    ),
-}
-
-impl ScriptValue {
-    pub fn identity() -> Self {
-        Self::Tuple(Arc::new(Tuple::identity()))
-    }
-
-    pub fn string(s: impl Into<Arc<str>>) -> Self {
-        Self::String(s.into())
-    }
-
-    pub fn is_nan(&self) -> bool {
-        matches!(self, Self::NaN)
-    }
-
-    pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
-    }
-
-    pub fn as_int(&self) -> Result<i64> {
-        match self {
-            Self::Int(num) => Ok(*num),
-            _ => Err(ScriptError::panic(format!(
-                "Expected integer, found {self}"
-            ))),
-        }
-    }
-
-    pub fn as_boolean(&self) -> Result<bool> {
-        match self {
-            Self::Boolean(b) => Ok(*b),
-            _ => Err(ScriptError::panic(format!(
-                "Expected boolean, found {self}"
-            ))),
-        }
-    }
-
-    pub fn as_string(&self) -> Result<Arc<str>> {
-        match self {
-            Self::String(s) => Ok(Arc::clone(s)),
-            _ => Err(ScriptError::panic(format!("Expected string, found {self}"))),
-        }
-    }
-
-    pub fn as_tuple(&self) -> Option<Arc<Tuple>> {
-        match self {
-            Self::Tuple(tuple) => Some(Arc::clone(tuple)),
-            Self::Rec { value, .. } => Some(Arc::clone(value)),
-            _ => None,
-        }
-    }
-
-    pub fn as_iterable(&self) -> Vec<ScriptValue> {
-        match self {
-            Self::List(list) => Vec::from(list.items()),
-            Self::Range(l, r) => (*l..=*r).map(ScriptValue::Int).collect(),
-            _ => panic!("Expected iterable, found {self}"),
-        }
-    }
-
-    pub fn as_ext(&self) -> Result<Arc<dyn ExternalValue + Send + Sync>> {
-        match self {
-            Self::Ext(_, ext) => Ok(Arc::clone(ext)),
-            _ => Err(ScriptError::panic("Not readable")),
-        }
-    }
-
-    pub fn to_single_argument(&self) -> Tuple {
-        Tuple(vec![TupleItem::unnamed(self.clone())])
-    }
-
-    pub fn downcast_ext<T>(&self) -> Result<&T>
-    where
-        T: ExternalValue + 'static,
-    {
-        if let ScriptValue::Ext(_, value) = self {
-            value
-                .as_any()
-                .downcast_ref::<T>()
-                .ok_or_else(|| ScriptError::panic("invalid downcast"))
-        } else {
-            Err(ScriptError::panic("tried to downcast non-ext value"))
-        }
-    }
-}
-
-impl PartialEq for ScriptValue {
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (Self::String(l), Self::String(r)) => l == r,
-            (Self::Boolean(l), Self::Boolean(r)) => l == r,
-            (Self::Int(l), Self::Int(r)) => l == r,
-            (Self::Range(l1, l2), Self::Range(r1, r2)) => (l1, l2) == (r1, r2),
-            (Self::Tuple(l), Self::Tuple(r)) => l == r,
-            (
-                Self::Enum {
-                    def: dl,
-                    index: il,
-                    value: lv,
-                },
-                Self::Enum {
-                    def: dr,
-                    index: ir,
-                    value: rv,
-                },
-            ) => Arc::ptr_eq(dl, dr) && *il == *ir && *lv == *rv,
-            (Self::List(l), Self::List(r)) => l.items() == r.items(),
-            (Self::Rec { def: ld, value: lv }, Self::Rec { def: rd, value: rv }) => {
-                Arc::ptr_eq(ld, rd) && *lv == *rv
-            }
-            (Self::None, Self::None) => true,
-            (Self::None, _) | (_, Self::None) => false,
-            _ => todo!("Equality for {self:?}"),
-        }
-    }
-}
-
-impl Display for ScriptValue {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            ScriptValue::None => write!(f, "<no value>"),
-            ScriptValue::String(s) => write!(f, "{s}"),
-            ScriptValue::Int(n) => write!(f, "{n}"),
-            ScriptValue::Boolean(b) => match b {
-                true => write!(f, "true"),
-                false => write!(f, "false"),
-            },
-            ScriptValue::Range(l, r) => write!(f, "{l}..{r}"),
-            ScriptValue::Tuple(t) => write!(f, "{t}"),
-            ScriptValue::List(list) => {
-                write!(f, "[")?;
-                fmt_inner_list(f, list.items())?;
-                write!(f, "]")?;
-                Ok(())
-            }
-            ScriptValue::Enum {
-                def,
-                index,
-                value: values,
-            } => {
-                let var = &def.variants[*index];
-                write!(f, "{}", var.name)?;
-                if !values.is_empty() {
-                    write!(f, "{values}")?
-                }
-                Ok(())
-            }
-            ScriptValue::Rec {
-                def: rec,
-                value: values,
-            } => {
-                write!(f, "{}", rec.name)?;
-                write!(f, "{values}")?;
-                Ok(())
-            }
-            ScriptValue::NaN => write!(f, "NaN"),
-            ScriptValue::Ext(t, _) => write!(f, "{{{}}}", t.name()),
-            _ => todo!("Display impl for {self:?}"),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct TupleItem {
-    pub name: Option<Ident>,
-    pub value: ScriptValue,
-}
-
-impl TupleItem {
-    pub fn new(name: Option<Ident>, value: impl Into<ScriptValue>) -> Self {
-        Self {
-            name,
-            value: value.into(),
-        }
-    }
-
-    pub fn named(name: Ident, value: impl Into<ScriptValue>) -> Self {
-        Self::new(Some(name), value)
-    }
-
-    pub fn unnamed(value: impl Into<ScriptValue>) -> Self {
-        Self::new(None, value)
-    }
-}
-
-#[derive(Debug, Clone, Default, PartialEq)]
-pub struct Tuple(Vec<TupleItem>);
-
-impl Tuple {
-    pub const fn identity() -> Self {
-        Self(Vec::new())
-    }
-
-    pub fn new(items: Vec<TupleItem>) -> Self {
-        Self(items)
-    }
-
-    pub fn items(&self) -> &[TupleItem] {
-        &self.0
-    }
-
-    pub fn mut_items(&mut self) -> &mut Vec<TupleItem> {
-        &mut self.0
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
-    pub fn first(&self) -> Option<&ScriptValue> {
-        self.0.first().map(|item| &item.value)
-    }
-
-    pub fn get_named_item(&self, key: impl Into<Ident>) -> Option<&TupleItem> {
-        let key = key.into();
-        self.0.iter().find(|i| i.name.as_ref() == Some(&key))
-    }
-
-    pub fn at(&self, index: usize) -> Option<&ScriptValue> {
-        self.0.get(index).map(|item| &item.value)
-    }
-
-    pub fn single(&self) -> Result<&ScriptValue> {
-        self.0
-            .iter()
-            .find(|i| i.name.is_none())
-            .map(|item| &item.value)
-            .ok_or_else(|| ScriptError::panic("Expected argument"))
-    }
-}
-
-impl Display for Tuple {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        fmt_tuple(f, self.0.iter().map(|a| (a.name.clone(), &a.value)))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ScriptFunction {
-    pub(crate) function: Arc<Function>,
-    captured_scope: Arc<Scope>, // XXX Fix warning with dedicated struct type
-}
 
 #[derive(Debug)]
 enum Completion {
@@ -344,7 +59,7 @@ impl Scope {
 }
 
 impl fmt::Debug for Scope {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Scope").finish()
     }
 }
@@ -377,7 +92,7 @@ impl Interpreter {
     fn get_method(&self, subject: &ScriptValue, name: &Ident) -> Option<NativeMethodRef> {
         let ns = match subject {
             ScriptValue::Int(_) => global::INT.into(),
-            ScriptValue::String(_) => global::STRING.into(),
+            ScriptValue::String { .. } => global::STRING.into(),
             ScriptValue::Range(_, _) => global::RANGE.into(),
             ScriptValue::List(_) => global::LIST.into(),
             ScriptValue::Tuple(_) => global::TUPLE.into(),
@@ -407,10 +122,10 @@ impl Interpreter {
                     eval_assignment(assignee, &rhs, &mut scope);
                 }
                 Statement::Function { name, fun, .. } => {
-                    let fun = ScriptValue::ScriptFunction(ScriptFunction {
-                        function: Arc::clone(fun),
-                        captured_scope: Arc::new(scope.clone()),
-                    });
+                    let fun = ScriptValue::ScriptFunction(ScriptFunction::new(
+                        Arc::clone(fun),
+                        Arc::new(scope.clone()),
+                    ));
                     scope.set_local(name.clone(), fun);
                 }
                 Statement::Rec(rec) => {
@@ -600,7 +315,7 @@ impl Interpreter {
 
     fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptValue> {
         let value = match expr.as_ref() {
-            Expression::Str(s) => ScriptValue::String(Arc::clone(s)),
+            Expression::Str(s) => ScriptValue::string(Arc::clone(s)),
             Expression::String(parts) => {
                 // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
                 let mut builder = String::new();
@@ -630,7 +345,7 @@ impl Interpreter {
                     })
                     .collect::<Result<Vec<_>>>()?;
 
-                ScriptValue::Tuple(Arc::new(Tuple(items)))
+                ScriptValue::Tuple(Arc::new(Tuple::new(items)))
             }
             Expression::Ref(ident) => {
                 if let Some(value) = scope.locals.get(ident) {
@@ -645,8 +360,8 @@ impl Interpreter {
                 if let Some(v) = scope.records.get(prefix) {
                     match name.as_str() {
                         "parse" => {
-                            // let func = ParseFunc::new(Arc::clone(v));
-                            let func = ParseJson::new(Arc::clone(v));
+                            let func = ParseFunc::new(Arc::clone(v));
+                            // let func = ParseJson::new(Arc::clone(v));
                             ScriptValue::NativeFunction(NativeFunctionRef::from(func))
                         }
                         _ => panic!("Unexpected expression {prefix}::{name}"),
@@ -695,10 +410,10 @@ impl Interpreter {
                     panic!("No such attribute {key} for {subject}");
                 }
             }
-            Expression::Function(fun) => ScriptValue::ScriptFunction(ScriptFunction {
-                function: Arc::clone(fun),
-                captured_scope: Arc::new(scope.clone()),
-            }),
+            Expression::Function(fun) => ScriptValue::ScriptFunction(ScriptFunction::new(
+                Arc::clone(fun),
+                Arc::new(scope.clone()),
+            )),
             Expression::LogicNot(expr) => {
                 let val = self.eval_expr(expr, scope)?;
                 if let ScriptValue::Boolean(b) = val {
@@ -872,9 +587,9 @@ impl Interpreter {
     ) -> Result<ScriptValue> {
         let return_value = match callable {
             ScriptValue::ScriptFunction(f) => {
-                let mut inner_scope = Scope::clone(&f.captured_scope);
+                let mut inner_scope = f.clone_captured_scope();
                 let values = transform_args(&f.function.params, arguments);
-                for item in &values.0 {
+                for item in values.items() {
                     if let Some(name) = &item.name {
                         inner_scope.set_local(name.clone(), item.value.clone());
                     }
@@ -929,7 +644,7 @@ impl Interpreter {
                     })
                     .collect::<Result<Vec<_>>>()?;
 
-                Arc::new(Tuple(items))
+                Arc::new(Tuple::new(items))
             }
             CallExpression::Destructure(expr) => {
                 let arg = self.eval_expr(expr, scope)?;
@@ -1066,11 +781,11 @@ impl Interpreter {
 fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
     let mut items = Vec::new();
 
-    let mut positional = args.0.iter().filter(|arg| arg.name.is_none());
+    let mut positional = args.positional();
     for par in params.iter() {
         if let Some(name) = par.name.clone() {
-            if let Some(arg) = args.0.iter().find(|a| a.name.as_ref() == Some(&name)) {
-                let val = transform_value(par, arg);
+            if let Some(arg) = args.get_named_item(name.clone()) {
+                let val = transform_value(par, &arg.value);
                 items.push(TupleItem::named(name, val));
             } else if let Some(arg) = positional.next() {
                 let val = transform_value(par, arg);
@@ -1090,8 +805,8 @@ fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
         }
     }
 
-    fn transform_value(par: &ParamExpression, arg: &TupleItem) -> ScriptValue {
-        match (&*par.type_expr, &arg.value) {
+    fn transform_value(par: &ParamExpression, value: &ScriptValue) -> ScriptValue {
+        match (&*par.type_expr, value) {
             (TypeExpression::Tuple(t), ScriptValue::Tuple(tup)) => {
                 let applied = transform_args(t, tup);
                 ScriptValue::Tuple(Arc::new(applied))
@@ -1100,11 +815,11 @@ fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
                 let applied = transform_args(t, values);
                 ScriptValue::Tuple(Arc::new(applied))
             }
-            _ => arg.value.clone(),
+            _ => value.clone(),
         }
     }
 
-    Tuple(items)
+    Tuple::new(items)
 }
 
 fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
@@ -1121,18 +836,18 @@ fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
 }
 
 fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
-    let mut positional = rhs.0.iter().filter(|arg| arg.name.is_none());
+    let mut positional = rhs.positional();
     for par in lhs.iter() {
         if let Some(name) = &par.name {
-            if let Some(arg) = rhs.0.iter().find(|a| a.name.as_ref() == Some(name)) {
+            if let Some(arg) = rhs.get_named_item(name.clone()) {
                 eval_assignment(par, &arg.value, scope);
             } else if let Some(arg) = positional.next() {
-                eval_assignment(par, &arg.value, scope);
+                eval_assignment(par, arg, scope);
             } else {
                 panic!("Missing argument {name}");
             }
         } else if let Some(arg) = positional.next() {
-            eval_assignment(par, &arg.value, scope);
+            eval_assignment(par, arg, scope);
         } else {
             panic!("Missing positional argument");
         }

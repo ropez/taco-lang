@@ -20,7 +20,8 @@ use crate::{
         Writable,
     },
     ident::Ident,
-    interpreter::{Interpreter, ScriptValue, Tuple},
+    interpreter::Interpreter,
+    script_value::{ScriptValue, Tuple},
     validate::{ScriptType, TupleType},
 };
 

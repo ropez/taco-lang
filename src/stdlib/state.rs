@@ -8,7 +8,8 @@ use crate::{
     error::{ScriptError, TypeError},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
-    interpreter::{Interpreter, ScriptValue, Tuple},
+    interpreter::Interpreter,
+    script_value::{ScriptValue, Tuple},
     validate::{ScriptType, TupleType},
 };
 

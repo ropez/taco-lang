@@ -4,8 +4,9 @@ use crate::{
     Builder,
     error::ScriptError,
     ext::NativeFunction,
-    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    interpreter::Interpreter,
     parser::{Record, TypeExpression},
+    script_value::{ScriptValue, Tuple, TupleItem},
     validate::{ScriptType, TupleType},
 };
 

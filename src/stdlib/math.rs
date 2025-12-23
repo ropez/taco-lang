@@ -3,7 +3,8 @@ use crate::{
     error::{ScriptError, TypeError},
     ext::NativeMethod,
     ident::global,
-    interpreter::{Interpreter, ScriptValue, Tuple},
+    interpreter::Interpreter,
+    script_value::{ScriptValue, Tuple},
     validate::{ScriptType, TupleType},
 };
 
