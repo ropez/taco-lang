@@ -16,6 +16,7 @@ use crate::{
         ParamExpression, Record, Statement, TypeExpression,
     },
     stdlib::{
+        json::ParseJson,
         list::List,
         parse::ParseFunc,
         pipe::{PipeImpl, PipeType, Tracker, exec_pipe},
@@ -277,8 +278,9 @@ impl Tuple {
         self.0.first().map(|item| &item.value)
     }
 
-    pub fn get_named_item(&self, key: &Ident) -> Option<&TupleItem> {
-        self.0.iter().find(|i| i.name.as_ref() == Some(key))
+    pub fn get_named_item(&self, key: impl Into<Ident>) -> Option<&TupleItem> {
+        let key = key.into();
+        self.0.iter().find(|i| i.name.as_ref() == Some(&key))
     }
 
     pub fn at(&self, index: usize) -> Option<&ScriptValue> {
@@ -643,7 +645,8 @@ impl Interpreter {
                 if let Some(v) = scope.records.get(prefix) {
                     match name.as_str() {
                         "parse" => {
-                            let func = ParseFunc::new(Arc::clone(v));
+                            // let func = ParseFunc::new(Arc::clone(v));
+                            let func = ParseJson::new(Arc::clone(v));
                             ScriptValue::NativeFunction(NativeFunctionRef::from(func))
                         }
                         _ => panic!("Unexpected expression {prefix}::{name}"),
@@ -681,7 +684,7 @@ impl Interpreter {
                 let subject = self.eval_expr(subject, scope)?;
 
                 if let Some(tuple) = subject.as_tuple()
-                    && let Some(it) = tuple.get_named_item(key)
+                    && let Some(it) = tuple.get_named_item(key.clone())
                 {
                     return Ok(it.value.clone());
                 }

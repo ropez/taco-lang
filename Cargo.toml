@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [features]
-default = ["fs", "process", "json"]
+default = ["fs", "http", "process", "json"]
 fs = []
+http = ["url", "httparse", "rustls", "rustls_async", "webpki-roots"]
 process = []
 json = ["dep:tinyjson"]
 
@@ -13,4 +14,9 @@ json = ["dep:tinyjson"]
 multipeek = "0.1.2"
 smol = { version = "2.0.2" }
 tinyjson = { version = "2.5.1", optional = true }
+rustls = { version = "0.23.35", optional = true }
+webpki-roots = { version = "1.0.4", optional = true }
+rustls_async = { version = "0.1.1", optional = true }
+url = { version = "2.5.7", optional = true }
+httparse = { version = "*", optional = true }
 

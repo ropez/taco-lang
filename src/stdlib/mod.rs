@@ -20,6 +20,9 @@ pub(crate) mod with;
 #[cfg(feature = "fs")]
 pub(crate) mod fs;
 
+#[cfg(feature = "http")]
+pub(crate) mod http;
+
 #[cfg(feature = "process")]
 pub(crate) mod process;
 
@@ -44,6 +47,9 @@ where
 
     #[cfg(feature = "fs")]
     fs::build(builder);
+
+    #[cfg(feature = "http")]
+    http::build(builder);
 
     #[cfg(feature = "process")]
     process::build(builder, Arc::clone(&out));

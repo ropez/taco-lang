@@ -331,6 +331,10 @@ impl TupleItemType {
     pub fn unnamed(value: ScriptType) -> Self {
         Self::new(None, value)
     }
+
+    pub fn optional(name: impl Into<Ident>, value: ScriptType) -> Self {
+        Self::new(Some(name.into()), ScriptType::Opt(value.into()))
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -769,9 +773,17 @@ impl Validator {
                                 expected: *t.clone(),
                                 actual: typ,
                             })
-                            .at(part.loc));
+                            .at(part.loc)
+                            .at_offset(*offset));
                         }
-                        ScriptType::Ext(t) => todo!("Error for printing Ext({})", t.name()),
+                        ScriptType::Ext(t) => {
+                            return Err(TypeError::new(TypeErrorKind::InvalidArgument {
+                                expected: "printable value".into(),
+                                actual: typ,
+                            })
+                            .at(part.loc)
+                            .at_offset(*offset));
+                        }
                         _ => (),
                     }
                 }

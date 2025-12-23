@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use tinyjson::JsonValue;
 
@@ -6,8 +6,8 @@ use crate::{
     Builder,
     error::ScriptError,
     ext::NativeFunction,
-    interpreter::{Interpreter, ScriptValue, Tuple},
-    parser::{Expression, Record},
+    interpreter::{Interpreter, ScriptValue, Tuple, TupleItem},
+    parser::{Expression, Record, TypeExpression},
     validate::{ScriptType, TupleType},
 };
 
@@ -31,6 +31,65 @@ impl NativeFunction for JsonFunc {
             Ok(json) => Ok(ScriptValue::string(json)),
             Err(err) => Err(ScriptError::panic(err)),
         }
+    }
+}
+
+pub(crate) struct ParseJson {
+    def: Arc<Record>,
+}
+
+impl ParseJson {
+    pub(crate) fn new(def: Arc<Record>) -> Self {
+        Self { def }
+    }
+}
+
+impl NativeFunction for ParseJson {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+        let input = arguments.single()?.as_string()?;
+        let json: JsonValue = input.parse().map_err(ScriptError::panic)?;
+        let obj: &HashMap<_, _> = json
+            .get()
+            .ok_or_else(|| ScriptError::panic("Expected a JSON object"))?;
+        let mut values = Vec::new();
+        for d in self.def.params.as_ref() {
+            let name = d
+                .name
+                .as_ref()
+                .ok_or_else(|| ScriptError::panic("Can't parse record with unnamed fields"))?;
+            let val = obj
+                .get(name.as_str())
+                .ok_or_else(|| ScriptError::panic(format!("Attribute '{name}' not found")))?;
+            values.push(TupleItem::new(
+                d.name.clone(),
+                match d.type_expr.as_ref() {
+                    TypeExpression::Int => {
+                        let n: &f64 = val.get().ok_or_else(|| {
+                            ScriptError::panic(format!("Expected number, found {val:?}"))
+                        })?;
+                        ScriptValue::Int(*n as i64)
+                    }
+                    TypeExpression::Bool => {
+                        let n: &bool = val.get().ok_or_else(|| {
+                            ScriptError::panic(format!("Expected number, found {val:?}"))
+                        })?;
+                        ScriptValue::Boolean(*n)
+                    }
+                    TypeExpression::Str => {
+                        let s: &String = val
+                            .get()
+                            .ok_or_else(|| ScriptError::panic("Expected string"))?;
+                        ScriptValue::string(s.clone())
+                    }
+                    o => todo!("Don't know how to parse {o:?}"),
+                },
+            ));
+        }
+
+        Ok(ScriptValue::Rec {
+            def: Arc::clone(&self.def),
+            value: Arc::new(Tuple::new(values)),
+        })
     }
 }
 

@@ -71,7 +71,7 @@ fn update_tuple(value: &mut Arc<Tuple>, arguments: &Tuple) {
 
     for item in values.iter_mut() {
         if let Some(name) = &item.name
-            && let Some(val) = arguments.get_named_item(name)
+            && let Some(val) = arguments.get_named_item(name.clone())
         {
             item.value = val.value.clone();
         }

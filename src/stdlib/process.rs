@@ -154,7 +154,7 @@ impl ExecFunc {
 impl NativeFunction for ExecFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single()?.as_string()?;
-        let opt = arguments.get_named_item(&Ident::from("pass_output"));
+        let opt = arguments.get_named_item("pass_output");
         let pass = opt
             .and_then(|o| o.value.as_boolean().ok())
             .unwrap_or_default();
