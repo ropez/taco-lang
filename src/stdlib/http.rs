@@ -32,6 +32,7 @@ impl ExternalType for ResponseType {
 
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
         match name.as_str() {
+            "status" => Some(NativeMethodRef::new(Arc::new(StatusMethod))),
             "body" => Some(NativeMethodRef::new(Arc::new(BodyMethod))),
             _ => None,
         }
@@ -146,8 +147,6 @@ impl NativeFunction for FetchFunc {
 
             let head = headers.join("\r\n");
 
-            // eprintln!("{}", head);
-
             stream.write(head.as_bytes()).await.unwrap();
             if let Some(body) = body {
                 stream.write(body.as_bytes()).await.unwrap();
@@ -155,8 +154,7 @@ impl NativeFunction for FetchFunc {
             stream.flush().await.unwrap();
 
             let mut buf = [0; 10000];
-            let n = stream.read(&mut buf).await.unwrap();
-            // eprintln!("Read {n} bytes");
+            stream.read(&mut buf).await.unwrap();
 
             let mut headers = [httparse::EMPTY_HEADER; 32];
             let mut res = Response::new(&mut headers);
@@ -203,6 +201,18 @@ fn parse_body(res: &Response<'_, '_>, buf: &[u8]) -> Result<Arc<str>, ScriptErro
     } else {
         let s = str::from_utf8(buf).map_err(ScriptError::panic)?;
         Ok(s.into())
+    }
+}
+
+struct StatusMethod;
+impl NativeMethod for StatusMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Int)
+    }
+
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> Result<ScriptValue, ScriptError> {
+        let val = s.downcast_ext::<ResponseValue>()?;
+        Ok(ScriptValue::Int(val.status_code as i64))
     }
 }
 
