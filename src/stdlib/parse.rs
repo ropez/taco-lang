@@ -6,7 +6,8 @@ use crate::{
     ext::NativeFunction,
     interpreter::Interpreter,
     parser::{Record, TypeExpression},
-    script_value::{ScriptValue, Tuple, TupleItem},
+    script_value::{ContentType, ScriptValue, Tuple, TupleItem},
+    stdlib,
     validate::{ScriptType, TupleType},
 };
 
@@ -27,27 +28,50 @@ impl ParseFunc {
 
 impl NativeFunction for ParseFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let input = arguments.single()?.as_string()?;
-        let mut values = Vec::new();
-        let mut tokens = input.split_ascii_whitespace();
-        for d in self.def.params.as_ref() {
-            values.push(TupleItem::new(
-                d.name.clone(),
-                match d.type_expr.as_ref() {
-                    TypeExpression::Int => {
-                        ScriptValue::Int(tokens.next().unwrap().parse::<i64>().unwrap())
-                    }
-                    TypeExpression::Str => ScriptValue::string(tokens.next().unwrap()),
-                    o => todo!("Don't know how to parse {o:?}"),
-                },
-            ));
-        }
+        let (input, content_type) = arguments.single()?.as_string_and_type()?;
+
+        let value = match content_type {
+            ContentType::Undefined => parse_default(&self.def, &input)?,
+
+            #[cfg(feature = "json")]
+            ContentType::Json => stdlib::json::parse_json(&self.def, &input)?,
+
+            #[allow(unreachable_patterns)]
+            _ => Err(ScriptError::panic("Parser not found"))?,
+        };
 
         Ok(ScriptValue::Rec {
             def: Arc::clone(&self.def),
-            value: Arc::new(Tuple::new(values)),
+            value: Arc::new(value),
         })
     }
+}
+
+fn parse_default(rec: &Record, input: &str) -> Result<Tuple, ScriptError> {
+    let mut values = Vec::new();
+    let mut tokens = input.split_ascii_whitespace();
+    for d in rec.params.as_ref() {
+        values.push(TupleItem::new(
+            d.name.clone(),
+            match d.type_expr.as_ref() {
+                TypeExpression::Int => ScriptValue::Int(
+                    tokens
+                        .next()
+                        .ok_or_else(|| ScriptError::panic("Expected token"))?
+                        .parse::<i64>()
+                        .map_err(ScriptError::panic)?,
+                ),
+                TypeExpression::Str => ScriptValue::string(
+                    tokens
+                        .next()
+                        .ok_or_else(|| ScriptError::panic("Expected token"))?,
+                ),
+                o => Err(ScriptError::panic(format!("Don't know how to parse {o:?}")))?,
+            },
+        ));
+    }
+
+    Ok(Tuple::new(values))
 }
 
 struct ParseIntFunc;

@@ -13,7 +13,7 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
-    script_value::{ScriptValue, Tuple},
+    script_value::{ContentType, ScriptValue, Tuple},
     stdlib::http::tls_stream::TlsStream,
     validate::{ScriptType, TupleItemType, TupleType},
 };
@@ -217,7 +217,10 @@ impl NativeMethod for BodyMethod {
         let val = subject.downcast_ext::<ResponseValue>()?;
 
         match &val.body {
-            Some(body) => Ok(ScriptValue::string(Arc::clone(body))),
+            Some(body) => Ok(ScriptValue::string_with_type(
+                Arc::clone(body),
+                ContentType::Json, // XXX Derive from headers
+            )),
             None => Ok(ScriptValue::empty_string()),
         }
     }

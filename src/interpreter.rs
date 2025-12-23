@@ -16,7 +16,6 @@ use crate::{
     },
     script_value::{ScriptFunction, ScriptValue, Tuple, TupleItem},
     stdlib::{
-        json::ParseJson,
         list::List,
         parse::ParseFunc,
         pipe::{PipeImpl, PipeType, Tracker, exec_pipe},
@@ -361,7 +360,6 @@ impl Interpreter {
                     match name.as_str() {
                         "parse" => {
                             let func = ParseFunc::new(Arc::clone(v));
-                            // let func = ParseJson::new(Arc::clone(v));
                             ScriptValue::NativeFunction(NativeFunctionRef::from(func))
                         }
                         _ => panic!("Unexpected expression {prefix}::{name}"),

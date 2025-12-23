@@ -331,20 +331,24 @@ impl<'a> Tokenizer<'a> {
     }
 
     fn find_str(&mut self) -> Result<Arc<str>> {
-        // FIXME Inefficient
         // FIXME Interpolated strings can contain nested strings
-        let mut s = String::new();
-        loop {
-            match self.read_char() {
-                None => {
-                    return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
-                }
-                Some('"') => break,
-                Some(c) => s.push(c),
-            }
+        if self.src[self.loc.start..].starts_with("\"\"\"") {
+            self.find_inner_str("\"\"\"")
+        } else {
+            self.find_inner_str("\"")
         }
+    }
 
-        Ok(s.into())
+    fn find_inner_str(&mut self, delimiter: &str) -> Result<Arc<str>> {
+        // FIXME Interpolated strings can contain nested strings
+        let l = delimiter.len();
+        let cur = &self.src[self.loc.start + l..];
+        if let Some(e) = cur.find(delimiter) {
+            self.loc.end = self.loc.start + l + e + l;
+            Ok(cur[..e].into())
+        } else {
+            Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
+        }
     }
 
     fn find_ident(&mut self) -> Ident {

@@ -17,6 +17,7 @@ pub enum ScriptValue {
     Boolean(bool),
     String {
         content: Arc<str>,
+        content_type: ContentType,
     },
     Int(i64),
     Range(i64, i64),
@@ -64,7 +65,17 @@ impl ScriptValue {
     }
 
     pub fn string(s: impl Into<Arc<str>>) -> Self {
-        Self::String { content: s.into() }
+        Self::String {
+            content: s.into(),
+            content_type: ContentType::Undefined,
+        }
+    }
+
+    pub fn string_with_type(s: impl Into<Arc<str>>, content_type: ContentType) -> Self {
+        Self::String {
+            content: s.into(),
+            content_type,
+        }
     }
 
     pub fn empty_string() -> Self {
@@ -99,7 +110,17 @@ impl ScriptValue {
 
     pub fn as_string(&self) -> Result<Arc<str>> {
         match self {
-            Self::String { content } => Ok(Arc::clone(content)),
+            Self::String { content, .. } => Ok(Arc::clone(content)),
+            _ => Err(ScriptError::panic(format!("Expected string, found {self}"))),
+        }
+    }
+
+    pub fn as_string_and_type(&self) -> Result<(Arc<str>, ContentType)> {
+        match self {
+            Self::String {
+                content,
+                content_type,
+            } => Ok((Arc::clone(content), *content_type)),
             _ => Err(ScriptError::panic(format!("Expected string, found {self}"))),
         }
     }
@@ -149,7 +170,7 @@ impl ScriptValue {
 impl PartialEq for ScriptValue {
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
-            (Self::String { content: l }, Self::String { content: r }) => l == r,
+            (Self::String { content: l, .. }, Self::String { content: r, .. }) => l == r,
             (Self::Boolean(l), Self::Boolean(r)) => l == r,
             (Self::Int(l), Self::Int(r)) => l == r,
             (Self::Range(l1, l2), Self::Range(r1, r2)) => (l1, l2) == (r1, r2),
@@ -181,7 +202,7 @@ impl fmt::Display for ScriptValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             ScriptValue::None => write!(f, "<no value>"),
-            ScriptValue::String { content } => write!(f, "{content}"),
+            ScriptValue::String { content, .. } => write!(f, "{content}"),
             ScriptValue::Int(n) => write!(f, "{n}"),
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
@@ -220,6 +241,12 @@ impl fmt::Display for ScriptValue {
             _ => todo!("Display impl for {self:?}"),
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ContentType {
+    Undefined,
+    Json,
 }
 
 #[derive(Debug, Clone, PartialEq)]

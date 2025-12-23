@@ -49,3 +49,24 @@ fun test_parse_str_and_int() {
 
     assert "$p" == "Point(a: L, b: 200)"
 }
+
+fun test_parse_json() {
+    input = """{ "a": 123, "b": 456 }""".as_json()
+
+    rec Point(a: int, b: int)
+    p = Point::parse(input)
+
+    assert "$p" == "Point(a: 123, b: 456)"
+}
+
+fun test_parse_json_with_attrs() {
+    input = """{ "foo": 123, "bar": 456 }""".as_json()
+
+    rec Point(
+        a: int @json(name: "foo")
+        b: int @json(name: "bar")
+    )
+    p = Point::parse(input)
+
+    assert "$p" == "Point(a: 123, b: 456)"
+}

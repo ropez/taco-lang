@@ -1,4 +1,9 @@
 
+fun test_verbatim_with_quotes() {
+    s = """Her name was "Lola"!"""
+    assert s.len() == 20
+}
+
 fun test_len() {
     assert "".len() == 0
     assert "  foo bar  ".len() == 11

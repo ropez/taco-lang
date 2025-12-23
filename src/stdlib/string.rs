@@ -6,7 +6,7 @@ use crate::{
     ext::NativeMethod,
     ident::global,
     interpreter::Interpreter,
-    script_value::{ScriptValue, Tuple, TupleItem},
+    script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::list::List,
     validate::{ScriptType, TupleItemType, TupleType},
 };
@@ -18,6 +18,7 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::STRING, "chars", StringChars);
     builder.add_method(global::STRING, "split", StringSplit);
     builder.add_method(global::STRING, "split_at", StringSplitAt);
+    builder.add_method(global::STRING, "as_json", StringAsType(ContentType::Json));
 }
 
 pub(crate) struct StringLength;
@@ -160,5 +161,22 @@ impl NativeMethod for StringSplitAt {
             TupleItemType::unnamed(ScriptType::Str),
         ];
         Ok(ScriptType::Tuple(TupleType::new(items)))
+    }
+}
+
+pub(crate) struct StringAsType(ContentType);
+impl NativeMethod for StringAsType {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Str)
+    }
+
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        _: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let s = subject.as_string()?;
+        Ok(ScriptValue::string_with_type(s, self.0))
     }
 }
