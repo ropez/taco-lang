@@ -1,6 +1,5 @@
-use httparse::{Header, Response};
-use rustls::pki_types::ServerName;
-use rustls_async::TlsConnector;
+use httparse::Response;
+use rustls::{ClientConnection, pki_types::ServerName};
 use smol::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
@@ -14,8 +13,11 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::{Interpreter, ScriptValue, Tuple},
+    stdlib::http::tls_stream::TlsStream,
     validate::{ScriptType, TupleItemType, TupleType},
 };
+
+mod tls_stream;
 
 pub fn build(builder: &mut Builder) {
     builder.add_function("Http::fetch", FetchFunc);
@@ -107,13 +109,14 @@ impl NativeFunction for FetchFunc {
         let server_name: ServerName = hostname.try_into().unwrap();
 
         smol::block_on(async move {
-            let connector = TlsConnector::new(config.clone(), server_name.to_owned()).unwrap();
+            let connection = ClientConnection::new(config.clone(), server_name.to_owned())
+                .map_err(ScriptError::panic)?;
 
             // Connect to server
             let stream = TcpStream::connect(sock_addr).await.unwrap();
 
             // Create TlsStream and complete handshake
-            let mut stream = connector.connect(stream);
+            let mut stream = TlsStream::new(connection, stream);
             stream.flush().await.unwrap();
 
             let mut headers = vec![
