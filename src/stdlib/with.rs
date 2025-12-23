@@ -42,7 +42,7 @@ impl NativeMethod for WithMethod {
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
         let formal = match subject {
             ScriptType::Tuple(typ) => typ,
-            ScriptType::Rec { params, .. } => params,
+            ScriptType::RecInstance(rec) => &rec.params,
             _ => {
                 panic!("Not a rec");
             }

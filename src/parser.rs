@@ -14,7 +14,6 @@ use crate::{
     lexer::{self, Loc, Src, Token, TokenKind},
 };
 
-// XXX FIXME Use ParseError like validator/interpreter
 type Result<T> = result::Result<T, ParseError>;
 
 #[derive(Debug)]

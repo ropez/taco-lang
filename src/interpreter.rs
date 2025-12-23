@@ -617,7 +617,7 @@ impl Interpreter {
             }
             ScriptValue::EnumVariant { def, index } => {
                 let variant = &def.variants[index];
-                // XXX Should be non-option
+                // XXX Shouldn't be an option at this point
                 let params = variant.params.as_ref().unwrap();
                 let values = transform_args(params, arguments);
                 ScriptValue::Enum {

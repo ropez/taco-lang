@@ -25,15 +25,15 @@ pub enum ScriptType {
     Opt(Box<ScriptType>),
     List(Box<ScriptType>),
     Tuple(TupleType),
-    Enum(Arc<EnumType>),
-    EnumVariant(Arc<EnumType>, Ident),
+    RecInstance(Arc<RecType>),
+    EnumInstance(Arc<EnumType>),
+    EnumVariant {
+        params: TupleType,
+        def: Arc<EnumType>,
+    },
     Function {
         params: TupleType,
         ret: Box<ScriptType>,
-    },
-    Rec {
-        name: Ident,
-        params: TupleType, // XXX Remove this and look up definition like Enum
     },
 
     NativeFunction(NativeFunctionRef),
@@ -73,28 +73,10 @@ impl ScriptType {
             (ScriptType::List(l), ScriptType::List(r)) => l.accepts(r),
             (ScriptType::List(l), ScriptType::Range) => l.accepts(&ScriptType::Int),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
-            (ScriptType::Tuple(l), ScriptType::Rec { params, .. }) => l.accepts(params),
-            (ScriptType::Enum(l), ScriptType::Enum(r)) => Arc::ptr_eq(l, r),
-            (ScriptType::Enum(_), ScriptType::EnumVariant(_, _)) => false,
-            (ScriptType::Rec { name: l, .. }, ScriptType::Rec { name: r, .. }) => l == r,
-            (
-                ScriptType::Function {
-                    params: lp,
-                    ret: lr,
-                },
-                ScriptType::EnumVariant(a, b),
-            ) => {
-                let variant = a.variants.iter().find(|v| v.name == *b);
-                if let Some(variant) = variant {
-                    if let Some(rp) = &variant.params {
-                        rp.accepts(lp) && lr.accepts(&ScriptType::Enum(Arc::clone(a)))
-                    } else {
-                        false
-                    }
-                } else {
-                    false
-                }
-            }
+            (ScriptType::Tuple(l), ScriptType::RecInstance(rec)) => l.accepts(&rec.params),
+            (ScriptType::EnumInstance(l), ScriptType::EnumInstance(r)) => Arc::ptr_eq(l, r),
+            (ScriptType::EnumInstance(_), ScriptType::EnumVariant { .. }) => false,
+            (ScriptType::RecInstance(l), ScriptType::RecInstance(r)) => Arc::ptr_eq(l, r),
             (
                 ScriptType::Function {
                     params: lp,
@@ -102,13 +84,10 @@ impl ScriptType {
                 },
                 rhs,
             ) => {
-                if let Ok(rp) = rhs.as_callable_params() {
-                    if rp.accepts(lp) {
-                        let rr = rhs.as_callable_ret(lp).unwrap(); // XXX panics
-                        lr.accepts(&rr)
-                    } else {
-                        false
-                    }
+                if let Ok(rp) = rhs.as_callable_params()
+                    && let Ok(rr) = rhs.as_callable_ret(lp)
+                {
+                    rp.accepts(lp) && lr.accepts(&rr)
                 } else {
                     false
                 }
@@ -154,7 +133,7 @@ impl ScriptType {
                     return true;
                 }
             }
-            Self::Enum(def) => {
+            Self::EnumInstance(def) => {
                 // This is obviously not a general solution, but it's sufficient as long as we're
                 // not supporting pattern-matching on inner values, and we're preventing duplicates
                 // and illegal patterns.
@@ -179,7 +158,7 @@ impl ScriptType {
     pub fn as_tuple(&self) -> Option<&TupleType> {
         match &self {
             ScriptType::Tuple(tuple) => Some(tuple),
-            ScriptType::Rec { params, .. } => Some(params),
+            ScriptType::RecInstance(rec) => Some(&rec.params),
             _ => None,
         }
     }
@@ -203,14 +182,8 @@ impl ScriptType {
     pub fn as_callable_params(&self) -> Result<TupleType> {
         // XXX Too much cloning
         match &self {
-            ScriptType::Function { params, .. } => Ok(params.clone()),
-            ScriptType::EnumVariant(def, name) => {
-                if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
-                    let params = var.params.as_ref().unwrap();
-                    Ok(params.clone())
-                } else {
-                    unreachable!()
-                }
+            ScriptType::Function { params, .. } | ScriptType::EnumVariant { params, .. } => {
+                Ok(params.clone())
             }
             ScriptType::NativeFunction(func) => {
                 let params = func.arguments_type();
@@ -227,7 +200,7 @@ impl ScriptType {
     pub fn as_callable_ret(&self, arguments: &TupleType) -> Result<ScriptType> {
         match &self {
             ScriptType::Function { ret, .. } => Ok(ScriptType::clone(ret)),
-            ScriptType::EnumVariant(def, _) => Ok(ScriptType::Enum(Arc::clone(def))),
+            ScriptType::EnumVariant { def, .. } => Ok(ScriptType::EnumInstance(Arc::clone(def))),
             ScriptType::NativeFunction(func) => Ok(func.return_type(arguments)),
             ScriptType::NativeMethodBound(method, subject_typ) => {
                 Ok(method.return_type(subject_typ, arguments)?)
@@ -272,21 +245,15 @@ impl Display for ScriptType {
             Self::Bool => write!(f, "bool"),
             Self::Int => write!(f, "int"),
             Self::Str => write!(f, "str"),
-            Self::Enum(typ) => write!(f, "{}", typ.name),
-            Self::EnumVariant(typ, var) => {
-                let variant = typ
-                    .variants
-                    .iter()
-                    .find(|v| v.name == *var)
-                    .expect("variant in enum");
-                let params = variant.params.as_ref().expect("variant with params");
-                write!(f, "fun{params}: {}", typ.name)
+            Self::EnumInstance(typ) => write!(f, "{}", typ.name),
+            Self::EnumVariant { def, params } => {
+                write!(f, "fun{params}: {}", def.name)
             }
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => write!(f, "[{inner}]"),
             Self::Opt(inner) => write!(f, "{inner}?"),
             Self::Tuple(arguments) => write!(f, "{arguments}"),
-            Self::Rec { name, params } => write!(f, "{name}{params}"),
+            Self::RecInstance(rec) => write!(f, "{}{}", rec.name, rec.params),
             Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
             Self::Infer(n) => write!(f, "<{n}>"),
             Self::Ext(e) => write!(f, "{{{}}}", e.name()),
@@ -297,8 +264,14 @@ impl Display for ScriptType {
 
 #[derive(Debug, Clone)]
 pub enum TypeDefinition {
-    RecDefinition { name: Ident, params: TupleType },
+    RecDefinition(Arc<RecType>),
     EnumDefinition(Arc<EnumType>),
+}
+
+#[derive(Debug)]
+pub struct RecType {
+    name: Ident,
+    pub(crate) params: TupleType,
 }
 
 #[derive(Debug)]
@@ -541,7 +514,7 @@ impl Validator {
             ScriptType::Int => global::INT.into(),
             ScriptType::Str => global::STRING.into(),
             ScriptType::Range => global::RANGE.into(),
-            ScriptType::Rec { .. } => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
+            ScriptType::RecInstance(_) => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
             ScriptType::Tuple(_) => global::TUPLE.into(),
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
             ScriptType::Opt(_) => return None,
@@ -579,10 +552,10 @@ impl Validator {
 
                     scope.types.insert(
                         rec.name.clone(),
-                        TypeDefinition::RecDefinition {
+                        TypeDefinition::RecDefinition(Arc::new(RecType {
                             params,
                             name: rec.name.clone(),
-                        },
+                        })),
                     );
                 }
                 Statement::Enum(rec) => {
@@ -811,17 +784,14 @@ impl Validator {
                     Ok(value.clone())
                 } else if let Some(typ) = scope.types.get(ident) {
                     match typ {
-                        TypeDefinition::RecDefinition { name, params } => {
+                        TypeDefinition::RecDefinition(rec) => {
                             // XXX Returning record as function up-front
                             // Should probably return a record type instead,
                             // and provide something like ScriptType::as_callable()
-                            let rec_type = ScriptType::Rec {
-                                name: name.clone(),
-                                params: params.clone(),
-                            };
+                            let ret = ScriptType::RecInstance(Arc::clone(rec));
                             Ok(ScriptType::Function {
-                                params: params.clone(),
-                                ret: rec_type.into(),
+                                params: rec.params.clone(),
+                                ret: ret.into(),
                             })
                         }
                         TypeDefinition::EnumDefinition(_) => {
@@ -836,17 +806,11 @@ impl Validator {
                 }
             }
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
-                Some(TypeDefinition::RecDefinition {
-                    name: rec_name,
-                    params: rec_params,
-                }) => {
+                Some(TypeDefinition::RecDefinition(rec)) => {
                     // TODO Associated methods like Record::foo()
                     match name.as_str() {
                         "parse" => {
-                            let ret = ScriptType::Rec {
-                                params: rec_params.clone(),
-                                name: rec_name.clone(),
-                            };
+                            let ret = ScriptType::RecInstance(Arc::clone(rec));
                             let params = TupleType(vec![TupleItemType::unnamed(ScriptType::Str)]);
                             Ok(ScriptType::Function {
                                 params,
@@ -854,7 +818,7 @@ impl Validator {
                             })
                         }
                         _ => Err(TypeError::new(TypeErrorKind::UndefinedMethod {
-                            type_name: rec_name.clone(),
+                            type_name: rec.name.clone(),
                             method_name: name.clone(),
                         })
                         .at(expr.loc)),
@@ -862,10 +826,13 @@ impl Validator {
                 }
                 Some(TypeDefinition::EnumDefinition(def)) => {
                     if let Some(var) = def.variants.iter().find(|v| v.name == *name) {
-                        if var.params.is_none() {
-                            Ok(ScriptType::Enum(Arc::clone(def)))
+                        if let Some(params) = &var.params {
+                            Ok(ScriptType::EnumVariant {
+                                def: Arc::clone(def),
+                                params: params.clone(),
+                            })
                         } else {
-                            Ok(ScriptType::EnumVariant(Arc::clone(def), var.name.clone()))
+                            Ok(ScriptType::EnumInstance(Arc::clone(def)))
                         }
                     } else {
                         Err(TypeError::new(TypeErrorKind::UndefinedVariant {
@@ -959,9 +926,7 @@ impl Validator {
                 Ok(ScriptType::Ext(Arc::new(pipe)))
             }
             #[cfg(not(feature = "pipe"))]
-            Expression::Pipe(_, _) => {
-                Err(TypeError::new(TypeErrorKind::InvalidExpression))?
-            }
+            Expression::Pipe(_, _) => Err(TypeError::new(TypeErrorKind::InvalidExpression))?,
             Expression::LogicAnd(lhs, rhs) | Expression::LogicOr(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
@@ -1479,11 +1444,12 @@ impl Validator {
                 Ok(ScriptType::Opt(inner.into()))
             }
             TypeExpression::TypeName(ident) => match scope.types.get(ident) {
-                Some(TypeDefinition::RecDefinition { name, params }) => Ok(ScriptType::Rec {
-                    params: params.clone(),
-                    name: name.clone(),
-                }),
-                Some(TypeDefinition::EnumDefinition(def)) => Ok(ScriptType::Enum(Arc::clone(def))),
+                Some(TypeDefinition::RecDefinition(rec)) => {
+                    Ok(ScriptType::RecInstance(Arc::clone(rec)))
+                }
+                Some(TypeDefinition::EnumDefinition(def)) => {
+                    Ok(ScriptType::EnumInstance(Arc::clone(def)))
+                }
                 None => Err(
                     TypeError::new(TypeErrorKind::UndefinedReference(ident.clone()))
                         .at(type_expr.loc),
@@ -1541,8 +1507,8 @@ impl Validator {
                 ScriptType::Tuple(tuple) => {
                     self.eval_destruction(pattern, lhs.loc, tuple, scope)?
                 }
-                ScriptType::Rec { params, .. } => {
-                    self.eval_destruction(pattern, lhs.loc, params, scope)?
+                ScriptType::RecInstance(rec) => {
+                    self.eval_destruction(pattern, lhs.loc, &rec.params, scope)?
                 }
                 _ => {
                     return Err(
@@ -1612,7 +1578,7 @@ impl Validator {
                 inner_scope.set_local(name.clone(), expr_type.flatten().clone());
             }
             MatchPattern::EnumVariant(_, name, Some(assignee)) => {
-                let var_typ = if let ScriptType::Enum(e) = expr_type.flatten() {
+                let var_typ = if let ScriptType::EnumInstance(e) = expr_type.flatten() {
                     e.variants.iter().find(|v| v.name == *name)
                 } else {
                     todo!("complex error pattern")
@@ -1715,8 +1681,11 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
             let arguments = TupleType::identity(); // How to get actual args here?
             found.extend(infer_types(formal, &fun.return_type(&arguments)));
         }
-        (ScriptType::Function { ret: formal, .. }, ScriptType::EnumVariant(def, _)) => {
-            found.extend(infer_types(formal, &ScriptType::Enum(Arc::clone(def))));
+        (ScriptType::Function { ret: formal, .. }, ScriptType::EnumVariant { def, .. }) => {
+            found.extend(infer_types(
+                formal,
+                &ScriptType::EnumInstance(Arc::clone(def)),
+            ));
         }
         (ScriptType::Tuple(formal), ScriptType::Tuple(actual)) => {
             found.extend(infer_tuple_types(formal, actual));

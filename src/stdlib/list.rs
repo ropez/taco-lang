@@ -240,7 +240,7 @@ impl ListMethod for ListContains {
         Ok(TupleType::from_single(inner.clone()))
     }
 
-    fn list_return_type(&self, inner: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn list_return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
         Ok(ScriptType::Bool)
     }
 
