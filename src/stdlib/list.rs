@@ -18,6 +18,7 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "take", ListTake);
     builder.add_method(global::LIST, "find", ListFind);
     builder.add_method(global::LIST, "find_index", ListFindIndex);
+    builder.add_method(global::LIST, "contains", ListContains);
     builder.add_method(global::LIST, "count", ListCount);
     builder.add_method(global::LIST, "unzip", ListUnzip);
     builder.add_method(global::LIST, "sum", ListSum);
@@ -25,16 +26,20 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "sort", ListSort);
     builder.add_method(global::LIST, "map", ListMap);
     builder.add_method(global::LIST, "map_to", ListMapTo);
+    builder.add_method(global::LIST, "any", ListAny);
     builder.add_method(global::LIST, "scan", ListScan);
     builder.add_method(global::LIST, "filter", ListFilter);
     builder.add_method(global::LIST, "flatten", ListFlatten);
     builder.add_method(global::LIST, "enumerate", ListEnumerate);
+    builder.add_method(global::LIST, "flip", ListFlip);
 
+    builder.add_method(global::RANGE, "contains", ListContains); // XXX Ineffective for Range
     builder.add_method(global::RANGE, "map", ListMap);
     builder.add_method(global::RANGE, "filter", ListFilter);
     builder.add_method(global::RANGE, "to_list", ToList);
 
     builder.add_function("List::zip", ListZip);
+    builder.add_function("List::zip4", ListZip4);
     builder.add_function("List::cartesian", ListCartesian);
 }
 
@@ -229,6 +234,28 @@ impl ListMethod for ListFind {
     }
 }
 
+pub(crate) struct ListContains;
+impl ListMethod for ListContains {
+    fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(inner.clone()))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Bool)
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        list: Arc<List>,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let val = arguments.single()?;
+        let val = list.items().iter().any(|v| ScriptValue::eq(v, val));
+        Ok(ScriptValue::Boolean(val))
+    }
+}
+
 pub(crate) struct ListFindIndex;
 impl ListMethod for ListFindIndex {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
@@ -388,6 +415,59 @@ impl NativeFunction for ListZip {
         let args = vec![
             TupleItemType::unnamed(inner_type(arguments.positional(0).unwrap())),
             TupleItemType::unnamed(inner_type(arguments.positional(1).unwrap())),
+        ];
+        ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
+    }
+}
+
+pub(crate) struct ListZip4;
+impl NativeFunction for ListZip4 {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+        let lists: Vec<_> = arguments
+            .items()
+            .iter()
+            .map(|arg| arg.value.as_iterable())
+            .collect();
+
+        let mut tuples = Vec::new();
+        let len = lists.iter().map(|l| l.len()).min().unwrap_or_default();
+        for i in 0..len {
+            let mut items = Vec::new();
+
+            for l in &lists {
+                items.push(TupleItem::unnamed(l[i].clone()));
+            }
+
+            tuples.push(Tuple::new(items));
+        }
+
+        let values = tuples
+            .into_iter()
+            .map(Arc::new)
+            .map(ScriptValue::Tuple)
+            .collect();
+
+        Ok(ScriptValue::List(Arc::new(List::new(values))))
+    }
+
+    // XXX Supporting exactly two arguments only
+
+    fn arguments_type(&self) -> TupleType {
+        let args = vec![
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(1))),
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(2))),
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(3))),
+            TupleItemType::unnamed(ScriptType::list_of(ScriptType::Infer(4))),
+        ];
+        TupleType::new(args)
+    }
+
+    fn return_type(&self, arguments: &TupleType) -> ScriptType {
+        let args = vec![
+            TupleItemType::unnamed(inner_type(arguments.positional(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.positional(1).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.positional(2).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.positional(3).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -601,6 +681,40 @@ impl ListMethod for ListMap {
     }
 }
 
+pub(crate) struct ListAny;
+impl ListMethod for ListAny {
+    fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::from_single(ScriptType::Function {
+            params: TupleType::from_single(inner.clone()),
+            ret: ScriptType::Bool.into(),
+        }))
+    }
+
+    fn list_return_type(
+        &self,
+        _inner: &ScriptType,
+        _arguments: &TupleType,
+    ) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Bool)
+    }
+
+    fn list_call(
+        &self,
+        interpreter: &Interpreter,
+        subject: Arc<List>,
+        arguments: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let callable = arguments.single()?; // XXX Maybe we can have owned args here
+        for item in subject.items() {
+            let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
+            if value.as_boolean()? {
+                return Ok(ScriptValue::Boolean(true));
+            }
+        }
+        Ok(ScriptValue::Boolean(false))
+    }
+}
+
 // 'scan' is similar to 'map', but the callback receives the previous mapped value together
 // with the current item, and we must provide an initial value for the first iteration.
 pub(crate) struct ListScan;
@@ -791,6 +905,46 @@ impl ListMethod for ListEnumerate {
             .collect();
 
         Ok(ScriptValue::from(List::new(items)))
+    }
+}
+
+struct ListFlip;
+impl ListMethod for ListFlip {
+    fn list_return_type(&self, inner: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        match inner {
+            ScriptType::List(inner) => Ok(ScriptType::list_of(ScriptType::list_of(
+                inner.as_ref().clone(),
+            ))),
+            _ => Err(TypeError::invalid_argument("List of lists", inner.clone())),
+        }
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: Arc<List>,
+        _: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let mut flipped: Vec<Vec<ScriptValue>> = Vec::new();
+
+        for inner in subject.items() {
+            for (i, item) in inner.as_iterable().iter().enumerate() {
+                if let Some(r) = flipped.get_mut(i) {
+                    r.push(item.clone());
+                } else {
+                    flipped.push(vec![item.clone()]);
+                }
+            }
+        }
+
+        Ok(List::new(
+            flipped
+                .into_iter()
+                .map(List::new)
+                .map(ScriptValue::from)
+                .collect(),
+        )
+        .into())
     }
 }
 

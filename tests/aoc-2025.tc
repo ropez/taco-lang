@@ -193,3 +193,163 @@ fun day4_printing_department() {
 
     assert answer == 13
 }
+
+fun day5_cafeteria() {
+    # The database operates on ingredient IDs. It consists of a list of fresh
+    # ingredient ID ranges, a blank line, and a list of available ingredient
+    # IDs. For example:
+    #
+    # 3-5
+    # 10-14
+    # 16-20
+    # 12-18
+    #
+    # 1
+    # 5
+    # 8
+    # 11
+    # 17
+    # 32
+    #
+    # The fresh ID ranges are inclusive: the range 3-5 means that ingredient
+    # IDs 3, 4, and 5 are all fresh. The ranges can also overlap; an ingredient
+    # ID is fresh if it is in any range.
+    #
+    # The Elves are trying to determine which of the available ingredient IDs
+    # are fresh. In this example, this is done as follows:
+    #
+    # Ingredient ID 1 is spoiled because it does not fall into any range.
+    # Ingredient ID 5 is fresh because it falls into range 3-5.
+    # Ingredient ID 8 is spoiled.
+    # Ingredient ID 11 is fresh because it falls into range 10-14.
+    # Ingredient ID 17 is fresh because it falls into range 16-20 as well as range 12-18.
+    # Ingredient ID 32 is spoiled.
+    # So, in this example, 3 of the available ingredient IDs are fresh.
+    #
+    # Process the database file from the new inventory management system. How
+    # many of the available ingredient IDs are fresh?
+
+    sample = """
+3-5
+10-14
+16-20
+12-18
+
+1
+5
+8
+11
+17
+32
+    """
+
+    fun split_blank(lines: [str]): ([str], [str]) {
+        split = lines.find_index("")!
+
+        return (lines.take(split), lines.skip(split + 1))
+    }
+
+    fun parse_input(input: str): ([range], [int]) {
+        (lhs, rhs) = split_blank(input.trim().lines())
+
+        return (
+            lhs.map(Range::parse)
+            rhs.map(int::parse)
+        )
+    }
+
+    (ranges, ids) = parse_input(sample)
+
+    fresh = ids.filter(fun(id) {
+        ranges.any(fun(r) { r.contains(id) })
+    }).len()
+
+    assert fresh == 3
+}
+
+fun day6_trash_compactor__zip() {
+    # Cephalopod math doesn't look that different from normal math. The math
+    # worksheet (your puzzle input) consists of a list of problems; each
+    # problem has a group of numbers that need to be either added (+) or
+    # multiplied (*) together.
+    #
+    # However, the problems are arranged a little strangely; they seem to be
+    # presented next to each other in a very long horizontal list. For example:
+    #
+    # 123 328  51 64
+    #  45 64  387 23
+    #   6 98  215 314
+    # *   +   *   +
+    #
+    # Each problem's numbers are arranged vertically; at the bottom of the
+    # problem is the symbol for the operation that needs to be performed.
+    # Problems are separated by a full column of only spaces. The left/right
+    # alignment of numbers within each problem can be ignored.
+    #
+    # So, this worksheet contains four problems:
+    #
+    # 123 * 45 * 6 = 33210
+    # 328 + 64 + 98 = 490
+    # 51 * 387 * 215 = 4243455
+    # 64 + 23 + 314 = 401
+    #
+    # To check their work, cephalopod students are given the grand total of
+    # adding together all of the answers to the individual problems. In this
+    # worksheet, the grand total is 33210 + 490 + 4243455 + 401 = 4277556.
+
+    sample = """
+        123 328  51 64
+         45 64  387 23
+          6 98  215 314
+        *   +   *   +
+    """
+
+    input = sample.trim().lines().map(fun(l) { l.split(" ") })
+    assert input.len() == 4
+
+    input = List::zip4(
+        input.at(0)!.map(int::parse)
+        input.at(1)!.map(int::parse)
+        input.at(2)!.map(int::parse)
+        input.at(3)!
+    )
+
+    res = input.map_to(fun(a, b, c, op) {
+        match? op {
+            "+" { a + b + c }
+            "*" { a * b * c }
+        }!
+    }).sum()
+
+    assert res == 4277556
+}
+
+fun day6_trash_compactor__list() {
+    sample = """
+        123 328  51 64
+         45 64  387 23
+          6 98  215 314
+        *   +   *   +
+    """
+
+    input = sample.trim().lines().map(fun(l) { l.split(" ") })
+    assert input.len() == 4
+
+    input = input.flip().map(fun(p) {
+        (
+            int::parse(p.at(0)!)
+            int::parse(p.at(1)!)
+            int::parse(p.at(2)!)
+            p.at(3)!
+        )
+    })
+
+    res = input.map_to(fun(a, b, c, op) {
+        match? op {
+            "+" { a + b + c }
+            "*" { a * b * c }
+        }!
+    }).sum()
+
+    assert res == 4277556
+}

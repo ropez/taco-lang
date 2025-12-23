@@ -24,7 +24,7 @@ orange
 banana
 "
 
-    assert fruits.lines() == ["apple", "orange", "banana"]
+    assert fruits.trim().lines() == ["apple", "orange", "banana"]
 }
 
 fun test_split() {

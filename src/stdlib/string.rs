@@ -50,7 +50,6 @@ impl NativeMethod for StringLines {
         let subject = subject.as_string()?;
         let lines = subject
             .lines()
-            .filter(|l| !l.is_empty())
             .map(ScriptValue::string)
             .collect();
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
