@@ -21,8 +21,8 @@ use crate::{
     },
     ident::Ident,
     interpreter::Interpreter,
+    script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
-    validate::{ScriptType, TupleType},
 };
 
 pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)

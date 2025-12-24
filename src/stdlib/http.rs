@@ -13,9 +13,9 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
+    script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple},
     stdlib::http::tls_stream::TlsStream,
-    validate::{ScriptType, TupleItemType, TupleType},
 };
 
 mod tls_stream;

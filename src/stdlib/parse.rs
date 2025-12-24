@@ -6,9 +6,9 @@ use crate::{
     ext::NativeFunction,
     interpreter::Interpreter,
     parser::{Record, TypeExpression},
+    script_type::{ScriptType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib,
-    validate::{ScriptType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {

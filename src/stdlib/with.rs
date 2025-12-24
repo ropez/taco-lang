@@ -6,8 +6,8 @@ use crate::{
     ext::NativeMethod,
     ident::global,
     interpreter::Interpreter,
+    script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ScriptValue, Tuple},
-    validate::{ScriptType, TupleItemType, TupleType},
 };
 
 pub(crate) fn build(builder: &mut Builder) {

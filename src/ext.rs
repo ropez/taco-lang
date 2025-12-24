@@ -9,8 +9,8 @@ use crate::{
     error::{ScriptError, TypeError},
     ident::Ident,
     interpreter::Interpreter,
+    script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
-    validate::{ScriptType, TupleType},
 };
 
 pub trait ExternalType {

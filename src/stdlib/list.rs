@@ -6,8 +6,8 @@ use crate::{
     ext::{NativeFunction, NativeMethod},
     ident::{Ident, global},
     interpreter::Interpreter,
+    script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
-    validate::{ScriptType, TupleItemType, TupleType},
 };
 
 pub(crate) fn build(builder: &mut Builder) {
@@ -413,8 +413,8 @@ impl NativeFunction for ListZip {
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.positional(0).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.positional(1).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(1).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -464,10 +464,10 @@ impl NativeFunction for ListZip4 {
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.positional(0).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.positional(1).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.positional(2).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.positional(3).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(1).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(2).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(3).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -517,8 +517,8 @@ impl NativeFunction for ListCartesian {
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.positional(0).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.positional(1).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.nth_positional(1).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }

@@ -6,9 +6,9 @@ use crate::{
     ext::NativeMethod,
     ident::global,
     interpreter::Interpreter,
+    script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::list::List,
-    validate::{ScriptType, TupleItemType, TupleType},
 };
 
 pub(crate) fn build(builder: &mut Builder) {
@@ -48,10 +48,7 @@ impl NativeMethod for StringLines {
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let subject = subject.as_string()?;
-        let lines = subject
-            .lines()
-            .map(ScriptValue::string)
-            .collect();
+        let lines = subject.lines().map(ScriptValue::string).collect();
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 

@@ -1,4 +1,7 @@
-use std::{io, sync::{Arc, RwLock}};
+use std::{
+    io,
+    sync::{Arc, RwLock},
+};
 
 #[derive(Clone)]
 pub(crate) struct OutputAdapter(Arc<RwLock<String>>);

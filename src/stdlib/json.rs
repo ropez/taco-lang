@@ -8,8 +8,8 @@ use crate::{
     ext::NativeFunction,
     interpreter::Interpreter,
     parser::{Expression, ParamExpression, Record, TypeExpression},
+    script_type::{ScriptType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
-    validate::{ScriptType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {

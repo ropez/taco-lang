@@ -8,7 +8,7 @@ use crate::{
     ident::Ident,
     lexer::{Loc, TokenKind},
     parser::MatchPattern,
-    validate::{ScriptType, TupleType},
+    script_type::{ScriptType, TupleType},
 };
 
 #[derive(Clone)]

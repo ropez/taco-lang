@@ -6,8 +6,8 @@ use crate::{
     ext::NativeFunction,
     interpreter::Interpreter,
     parser::{ParamExpression, TypeExpression},
+    script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
-    validate::{ScriptType, TupleType},
 };
 
 pub fn build(builder: &mut Builder) {
@@ -26,7 +26,7 @@ impl NativeFunction for TypeOfFunc {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self, _: &TupleType) -> crate::validate::ScriptType {
+    fn return_type(&self, _: &TupleType) -> ScriptType {
         ScriptType::Str
     }
 }

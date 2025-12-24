@@ -15,11 +15,9 @@ use crate::{
         Record, Statement, TypeExpression,
     },
     script_value::{ScriptFunction, ScriptValue, Tuple, TupleItem},
-    stdlib::{
-        list::List,
-        parse::ParseFunc,
-    },
+    stdlib::{list::List, parse::ParseFunc},
 };
+
 #[cfg(feature = "pipe")]
 use crate::stdlib::pipe::{PipeImpl, PipeType, Tracker, exec_pipe};
 

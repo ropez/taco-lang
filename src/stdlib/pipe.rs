@@ -13,8 +13,8 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
     interpreter::Interpreter,
+    script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
-    validate::{ScriptType, TupleType},
 };
 
 type Task = smol::Task<Result<(), ScriptError>>;
