@@ -475,9 +475,9 @@ impl Validator {
             Expression::Access { subject, key } => {
                 let subject = self.validate_expr(subject, scope)?;
                 if let Some(tuple) = subject.as_tuple()
-                    && let Some(item) = tuple.get_named_item(key)
+                    && let Some(item) = tuple.get_named(key)
                 {
-                    return Ok(item.value.clone());
+                    return Ok(item.clone());
                 }
 
                 if let Some(method) = self.get_method(&subject, key) {
@@ -1150,10 +1150,7 @@ impl Validator {
 
         for assignee in lhs.iter() {
             let opt_item = if let Some(name) = &assignee.name {
-                other
-                    .get_named_item(name)
-                    .map(|a| &a.value)
-                    .or_else(|| positional.next())
+                other.get_named(name).or_else(|| positional.next())
             } else {
                 positional.next()
             };

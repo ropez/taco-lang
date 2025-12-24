@@ -155,9 +155,9 @@ impl ExecFunc {
 impl NativeFunction for ExecFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let arg = arguments.single()?.as_string()?;
-        let opt = arguments.get_named_item("pass_output");
-        let pass = opt
-            .and_then(|o| o.value.as_boolean().ok())
+        let pass = arguments
+            .get_named("pass_output")
+            .and_then(|val| val.as_boolean().ok())
             .unwrap_or_default();
 
         // XXX Naive command line parsing. Not supporting quotes or excape chars.

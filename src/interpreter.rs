@@ -398,9 +398,9 @@ impl Interpreter {
                 let subject = self.eval_expr(subject, scope)?;
 
                 if let Some(tuple) = subject.as_tuple()
-                    && let Some(it) = tuple.get_named_item(key.clone())
+                    && let Some(val) = tuple.get_named(key.clone())
                 {
-                    return Ok(it.value.clone());
+                    return Ok(val.clone());
                 }
 
                 if let Some(method) = self.get_method(&subject, key) {
@@ -788,8 +788,8 @@ fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
     let mut positional = args.positional();
     for par in params.iter() {
         if let Some(name) = par.name.clone() {
-            if let Some(arg) = args.get_named_item(name.clone()) {
-                let val = transform_value(par, &arg.value);
+            if let Some(arg) = args.get_named(name.clone()) {
+                let val = transform_value(par, arg);
                 items.push(TupleItem::named(name, val));
             } else if let Some(arg) = positional.next() {
                 let val = transform_value(par, arg);
@@ -843,8 +843,8 @@ fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
     let mut positional = rhs.positional();
     for par in lhs.iter() {
         if let Some(name) = &par.name {
-            if let Some(arg) = rhs.get_named_item(name.clone()) {
-                eval_assignment(par, &arg.value, scope);
+            if let Some(arg) = rhs.get_named(name.clone()) {
+                eval_assignment(par, arg, scope);
             } else if let Some(arg) = positional.next() {
                 eval_assignment(par, arg, scope);
             } else {

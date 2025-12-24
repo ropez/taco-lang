@@ -94,17 +94,15 @@ impl NativeFunction for FetchFunc {
             .ok_or_else(|| ScriptError::panic("Invalid URL"))?;
         let path = url.path();
         let method = arguments
-            .get_named_item("method")
-            .map(|i| i.value.as_string())
+            .get_named("method")
+            .map(|val| val.as_string())
             .transpose()?
             .unwrap_or_else(|| "GET".into());
         let body = arguments
-            .get_named_item("body")
-            .map(|i| i.value.as_string())
+            .get_named("body")
+            .map(|val| val.as_string())
             .transpose()?;
-        let extra_headers = arguments
-            .get_named_item("headers")
-            .map(|v| v.value.as_iterable());
+        let extra_headers = arguments.get_named("headers").map(|val| val.as_iterable());
 
         let sock_addr = (hostname, 443).to_socket_addrs().unwrap().next().unwrap();
 
@@ -139,7 +137,11 @@ impl NativeFunction for FetchFunc {
                     let tup = h
                         .as_tuple()
                         .ok_or_else(|| ScriptError::panic("Expected tuple"))?;
-                    headers.push(format!("{}: {}", tup.at(0).unwrap(), tup.at(1).unwrap()));
+                    headers.push(format!(
+                        "{}: {}",
+                        tup.at_pos(0).unwrap(),
+                        tup.at_pos(1).unwrap()
+                    ));
                 }
             }
 

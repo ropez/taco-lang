@@ -413,8 +413,8 @@ impl NativeFunction for ListZip {
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(0).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(1).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(1).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -464,10 +464,10 @@ impl NativeFunction for ListZip4 {
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(0).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(1).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(2).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(3).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(1).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(2).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(3).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -477,11 +477,11 @@ pub(crate) struct ListCartesian;
 impl NativeFunction for ListCartesian {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let lhs = arguments
-            .at(0)
+            .at_pos(0)
             .ok_or_else(|| ScriptError::panic("Expected two arguments"))?
             .as_iterable();
         let rhs = arguments
-            .at(1)
+            .at_pos(1)
             .ok_or_else(|| ScriptError::panic("Expected two arguments"))?
             .as_iterable();
 
@@ -517,8 +517,8 @@ impl NativeFunction for ListCartesian {
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let args = vec![
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(0).unwrap())),
-            TupleItemType::unnamed(inner_type(arguments.nth_positional(1).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(0).unwrap())),
+            TupleItemType::unnamed(inner_type(arguments.at_pos(1).unwrap())),
         ];
         ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
     }
@@ -741,10 +741,9 @@ impl ListMethod for ListScan {
         arguments: &TupleType,
     ) -> Result<ScriptType, TypeError> {
         let arg = arguments
-            .get_named_item(&Ident::from("mapper"))
+            .get_named(&Ident::from("mapper"))
             .cloned()
-            .unwrap()
-            .value;
+            .unwrap();
         let ret = arg.as_callable_ret(arguments)?;
         Ok(ScriptType::list_of(ret))
     }
@@ -756,8 +755,8 @@ impl ListMethod for ListScan {
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         // XXX Args are not transformed
-        let callable = arguments.at(0).expect("callable");
-        let mut value = arguments.at(1).expect("initial").clone();
+        let callable = arguments.at_pos(0).expect("callable");
+        let mut value = arguments.at_pos(1).expect("initial").clone();
         let mut mapped = Vec::new();
         for item in subject.items() {
             let args = Tuple::new(vec![

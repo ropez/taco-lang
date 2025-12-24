@@ -335,48 +335,12 @@ impl TupleItemType {
 pub struct TupleType(Vec<TupleItemType>);
 
 impl TupleType {
-    pub fn new(args: Vec<TupleItemType>) -> Self {
-        TupleType(args)
-    }
-
     pub const fn identity() -> Self {
         Self(Vec::new())
     }
 
-    pub fn single(&self) -> Result<&ScriptType> {
-        self.0
-            .iter()
-            .find(|i| i.name.is_none())
-            .map(|item| &item.value)
-            .ok_or_else(|| {
-                TypeError::new(TypeErrorKind::MissingArgument {
-                    name: None,
-                    expected: TupleType::identity(), // XXX
-                    actual: self.clone(),
-                })
-            })
-    }
-
-    pub fn positional(&self) -> impl Iterator<Item = &ScriptType> {
-        self.0
-            .iter()
-            .filter(|it| it.name.is_none())
-            .map(|it| &it.value)
-    }
-
-    pub fn nth_positional(&self, n: usize) -> Result<&ScriptType> {
-        self.0
-            .iter()
-            .filter(|i| i.name.is_none())
-            .map(|item| &item.value)
-            .nth(n)
-            .ok_or_else(|| {
-                TypeError::new(TypeErrorKind::MissingArgument {
-                    name: None,
-                    expected: TupleType::identity(), // XXX
-                    actual: self.clone(),
-                })
-            })
+    pub fn new(args: Vec<TupleItemType>) -> Self {
+        TupleType(args)
     }
 
     pub fn from_single(item: ScriptType) -> Self {
@@ -387,8 +351,32 @@ impl TupleType {
         &self.0
     }
 
-    pub fn get_named_item(&self, name: &Ident) -> Option<&TupleItemType> {
-        self.items().iter().find(|a| a.name.as_ref() == Some(name))
+    pub fn positional(&self) -> impl Iterator<Item = &ScriptType> {
+        self.0
+            .iter()
+            .filter(|it| it.name.is_none())
+            .map(|it| &it.value)
+    }
+
+    pub fn at_pos(&self, n: usize) -> Result<&ScriptType> {
+        self.positional().nth(n).ok_or_else(|| {
+            TypeError::new(TypeErrorKind::MissingArgument {
+                name: None,
+                expected: TupleType::identity(), // XXX
+                actual: self.clone(),
+            })
+        })
+    }
+
+    pub fn single(&self) -> Result<&ScriptType> {
+        self.at_pos(0)
+    }
+
+    pub fn get_named(&self, name: &Ident) -> Option<&ScriptType> {
+        self.items()
+            .iter()
+            .find(|a| a.name.as_ref() == Some(name))
+            .map(|a| &a.value)
     }
 
     fn accepts(&self, other: &TupleType) -> bool {
@@ -398,10 +386,7 @@ impl TupleType {
         let mut positional = other.positional();
         for par in self.0.iter() {
             let opt_arg = if let Some(name) = &par.name {
-                other
-                    .get_named_item(name)
-                    .map(|a| &a.value)
-                    .or_else(|| positional.next())
+                other.get_named(name).or_else(|| positional.next())
             } else {
                 positional.next()
             };

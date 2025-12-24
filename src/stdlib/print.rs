@@ -50,7 +50,7 @@ where
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        if let Some(arg) = arguments.at(0) {
+        if let Some(arg) = arguments.at_pos(0) {
             let mut out = self.out.lock().unwrap();
             write!(out, "{arg}").unwrap();
             if self.newline {

@@ -303,24 +303,23 @@ impl Tuple {
         self.0.is_empty()
     }
 
-    pub fn first(&self) -> Option<&ScriptValue> {
-        self.0.first().map(|item| &item.value)
-    }
-
-    pub fn get_named_item(&self, key: impl Into<Ident>) -> Option<&TupleItem> {
+    pub fn get_named(&self, key: impl Into<Ident>) -> Option<&ScriptValue> {
         let key = key.into();
-        self.0.iter().find(|i| i.name.as_ref() == Some(&key))
+        self.0
+            .iter()
+            .find(|i| i.name.as_ref() == Some(&key))
+            .map(|i| &i.value)
     }
 
-    pub fn at(&self, index: usize) -> Option<&ScriptValue> {
+    pub fn at_pos(&self, index: usize) -> Option<&ScriptValue> {
+        // XXX Must fix transforming to native functions, then:
+        // self.positional().nth(index)
+
         self.0.get(index).map(|item| &item.value)
     }
 
     pub fn single(&self) -> Result<&ScriptValue> {
-        self.0
-            .iter()
-            .find(|i| i.name.is_none())
-            .map(|item| &item.value)
+        self.at_pos(0)
             .ok_or_else(|| ScriptError::panic("Expected argument"))
     }
 }
