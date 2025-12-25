@@ -1,8 +1,4 @@
-use std::{
-    collections::HashMap,
-    io::Write,
-    sync::{Arc, Mutex},
-};
+use std::{collections::HashMap, io::Write, sync::Arc};
 
 use crate::{
     error::Error,
@@ -14,6 +10,8 @@ use crate::{
     script_value::{ScriptValue, Tuple},
     validate::Validator,
 };
+
+use async_lock::Mutex;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::prelude::*;

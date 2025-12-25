@@ -1,10 +1,11 @@
 use std::{
     any::Any,
     collections::VecDeque,
-    sync::{Arc, Mutex, RwLock},
+    sync::Arc,
     task::{Context, Poll, Waker},
 };
 
+use async_lock::{Mutex, RwLock};
 use smol::future::{FutureExt, poll_fn};
 
 use crate::{
@@ -195,7 +196,7 @@ impl Actor {
     }
 
     fn next(&self) -> Result<Option<Option<ScriptValue>>, ScriptError> {
-        let mut queue = self.queue.lock().map_err(ScriptError::panic)?;
+        let mut queue = self.queue.lock_blocking();
         Ok(queue.pop_front())
     }
 }
@@ -229,7 +230,7 @@ impl Readable for Actor {
                 Poll::Ready(Ok(None))
             }
         } else {
-            let mut waker = self.waker.write().map_err(ScriptError::panic)?;
+            let mut waker = self.waker.write_blocking();
             *waker = Some(ctx.waker().clone());
             Poll::Pending
         }
@@ -243,18 +244,18 @@ impl Writable for Actor {
         _: &Interpreter,
         value: ScriptValue,
     ) -> Poll<Result<(), ScriptError>> {
-        let mut queue = self.queue.lock().map_err(ScriptError::panic)?;
+        let mut queue = self.queue.lock_blocking();
         queue.push_back(Some(value.clone()));
-        if let Some(waker) = self.waker.read().map_err(ScriptError::panic)?.as_ref() {
+        if let Some(waker) = self.waker.read_blocking().as_ref() {
             waker.wake_by_ref();
         };
         Poll::Ready(Ok(()))
     }
 
     fn close(&self, _: &mut Context) -> Poll<Result<(), ScriptError>> {
-        let mut queue = self.queue.lock().map_err(ScriptError::panic)?;
+        let mut queue = self.queue.lock_blocking();
         queue.push_back(None);
-        if let Some(waker) = self.waker.read().map_err(ScriptError::panic)?.as_ref() {
+        if let Some(waker) = self.waker.read_blocking().as_ref() {
             waker.wake_by_ref();
         };
         Poll::Ready(Ok(()))
@@ -268,14 +269,14 @@ pub(crate) struct Tracker {
 
 impl Tracker {
     pub(crate) fn track(&self, task: Task) {
-        let mut tasks = self.tasks.lock().unwrap();
+        let mut tasks = self.tasks.lock_arc_blocking();
         tasks.push(task);
     }
 
     pub(crate) fn wait_all(&self) -> Vec<ScriptError> {
         let mut errors = Vec::new();
         smol::block_on(async {
-            while let Some(mut task) = self.pop() {
+            while let Some(mut task) = self.pop().await {
                 if let Err(err) = poll_fn(|cx| task.poll(cx)).await {
                     errors.push(err);
                 }
@@ -284,8 +285,8 @@ impl Tracker {
         errors
     }
 
-    fn pop(&self) -> Option<Task> {
-        let mut tasks = self.tasks.lock().unwrap();
+    async fn pop(&self) -> Option<Task> {
+        let mut tasks = self.tasks.lock().await;
         tasks.pop()
     }
 }

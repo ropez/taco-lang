@@ -1,7 +1,6 @@
-use std::{
-    io,
-    sync::{Arc, Mutex},
-};
+use std::{io, sync::Arc};
+
+use async_lock::Mutex;
 
 use crate::Builder;
 

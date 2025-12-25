@@ -1,7 +1,6 @@
-use std::{
-    io,
-    sync::{Arc, Mutex},
-};
+use std::{io, sync::Arc};
+
+use async_lock::Mutex;
 
 use crate::{
     Builder,
@@ -51,7 +50,10 @@ where
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         if let Some(arg) = arguments.at_pos(0) {
-            let mut out = self.out.lock().unwrap();
+            #[cfg(target_arch = "wasm32")]
+            let mut out = self.out.try_lock().expect("Print lock");
+            #[cfg(not(target_arch = "wasm32"))]
+            let mut out = self.out.lock_blocking();
             write!(out, "{arg}").unwrap();
             if self.newline {
                 writeln!(out).unwrap();

@@ -2,10 +2,11 @@ use std::{
     any::Any,
     io::{self},
     pin::Pin,
-    sync::{Arc, Mutex},
+    sync::Arc,
     task::{Context, Poll},
 };
 
+use async_lock::Mutex;
 use smol::{
     prelude::*,
     process::{Child, Command, Stdio},
@@ -64,13 +65,13 @@ impl ExternalType for ProcessType {
 }
 
 struct Process {
-    child: Mutex<Child>,
+    child: smol::lock::Mutex<Child>,
 }
 
 impl Process {
     fn new(child: Child) -> Self {
         Self {
-            child: Mutex::new(child),
+            child: smol::lock::Mutex::new(child),
         }
     }
 }
@@ -95,7 +96,7 @@ impl Readable for Process {
         ctx: &mut Context,
         _: &Interpreter,
     ) -> Poll<Result<Option<ScriptValue>, ScriptError>> {
-        let mut child = self.child.lock().map_err(ScriptError::panic)?;
+        let mut child = self.child.lock_blocking();
         let s = child
             .stdout
             .as_mut()
@@ -121,7 +122,7 @@ impl Writable for Process {
         value: ScriptValue,
     ) -> Poll<Result<(), ScriptError>> {
         let arg = value.as_string()?;
-        let mut child = self.child.lock().map_err(ScriptError::panic)?;
+        let mut child = self.child.lock_blocking();
 
         let code = child.try_status().map_err(ScriptError::panic)?;
         if let Some(code) = code {
@@ -136,7 +137,7 @@ impl Writable for Process {
     }
 
     fn close(&self, _: &mut Context) -> Poll<Result<(), ScriptError>> {
-        let mut child = self.child.lock().map_err(ScriptError::panic)?;
+        let mut child = self.child.lock_blocking();
 
         child.stdin.take();
 
@@ -201,7 +202,7 @@ impl NativeMethod for OutputMethod {
         _: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let p = subject.as_process()?;
-        let mut child = p.child.lock().map_err(ScriptError::panic)?;
+        let mut child = p.child.lock_blocking();
 
         smol::block_on(async {
             let _exit_code = child.status().await.map_err(ScriptError::panic)?;
@@ -233,7 +234,7 @@ impl NativeMethod for RunningMethod {
         _: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let p = subject.as_process()?;
-        let mut child = p.child.lock().map_err(ScriptError::panic)?;
+        let mut child = p.child.lock_blocking();
         let code = child.try_status().map_err(ScriptError::panic)?;
         Ok(ScriptValue::Boolean(code.is_none()))
     }

@@ -1,7 +1,6 @@
-use std::{
-    any::Any,
-    sync::{Arc, RwLock},
-};
+use std::{any::Any, sync::Arc};
+
+use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
     Builder,
@@ -61,20 +60,38 @@ impl StateValue {
     }
 
     fn get(&self) -> ScriptValue {
-        self.inner.read().unwrap().clone()
+        self.lock_read().clone()
     }
 
     fn set(&self, value: ScriptValue) {
-        *self.inner.write().unwrap() = value;
+        *self.lock_write() = value;
     }
 
     fn update(
         &self,
         f: impl FnOnce(&ScriptValue) -> Result<ScriptValue, ScriptError>,
     ) -> Result<(), ScriptError> {
-        let mut val = self.inner.write().unwrap();
+        let mut val = self.lock_write();
         *val = f(&val)?;
         Ok(())
+    }
+
+    fn lock_read(&self) -> RwLockReadGuard<'_, ScriptValue> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let lock = self.inner.read_blocking();
+        #[cfg(target_arch = "wasm32")]
+        let lock = self.inner.try_read().expect("State read lock");
+
+        lock
+    }
+
+    fn lock_write(&self) -> RwLockWriteGuard<'_, ScriptValue> {
+        #[cfg(not(target_arch = "wasm32"))]
+        let lock = self.inner.write_blocking();
+        #[cfg(target_arch = "wasm32")]
+        let lock = self.inner.try_write().expect("State read lock");
+
+        lock
     }
 }
 
