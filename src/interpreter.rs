@@ -42,10 +42,11 @@ pub(crate) struct Scope {
 }
 
 impl Scope {
-    fn set_local(&mut self, name: Ident, value: ScriptValue) {
+    fn set_local(&mut self, name: impl Into<Ident>, value: ScriptValue) {
         // Make sure we never assign a value to '_'
-        if name.as_str() != "_" {
-            self.locals.insert(name, value);
+        let key = name.into();
+        if key.as_str() != "_" {
+            self.locals.insert(key, value);
         }
     }
 
@@ -125,7 +126,7 @@ impl Interpreter {
                         Arc::clone(fun),
                         Arc::new(scope.clone()),
                     ));
-                    scope.set_local(name.clone(), fun);
+                    scope.set_local(name, fun);
                 }
                 Statement::Rec(rec) => {
                     scope.records.insert(rec.name.clone(), Arc::clone(rec));
@@ -144,7 +145,7 @@ impl Interpreter {
                         ScriptValue::List(ref list) => {
                             for item in list.items() {
                                 let mut scope = scope.clone();
-                                scope.set_local(ident.clone(), item.clone());
+                                scope.set_local(ident, item.clone());
                                 if let Completion::ExplicitReturn(val) =
                                     self.execute_block(body, scope)?
                                 {
@@ -155,7 +156,7 @@ impl Interpreter {
                         ScriptValue::Range(lhs, rhs) => {
                             for v in lhs..=rhs {
                                 let mut scope = scope.clone();
-                                scope.set_local(ident.clone(), ScriptValue::Int(v));
+                                scope.set_local(ident, ScriptValue::Int(v));
                                 if let Completion::ExplicitReturn(val) =
                                     self.execute_block(body, scope)?
                                 {
@@ -168,7 +169,7 @@ impl Interpreter {
                             if let Some(readable) = val.as_readable() {
                                 while let Some(v) = readable.blocking_read_next(self)? {
                                     let mut scope = scope.clone();
-                                    scope.set_local(ident.clone(), v);
+                                    scope.set_local(ident, v);
                                     if let Completion::ExplicitReturn(val) =
                                         self.execute_block(body, scope)?
                                     {
@@ -595,7 +596,7 @@ impl Interpreter {
                 let values = transform_args(&f.function.params, arguments);
                 for item in values.items() {
                     if let Some(name) = &item.name {
-                        inner_scope.set_local(name.clone(), item.value.clone());
+                        inner_scope.set_local(name, item.value.clone());
                     }
                 }
                 inner_scope.arguments = Arc::new(values);
@@ -624,9 +625,8 @@ impl Interpreter {
                     value: Arc::new(values),
                 }
             }
-            // XXX Arguments aren't "transformed" for native calls, but passed as-is!
-            // E.g. fun(a: int, b: int), called as fun(b: 2, 1), receives (b: 2, 1), not (a: 1, b: 2)
-            // RecordWith kind-of works by accident for this reason.
+            // Arguments aren't "transformed" for native calls, but passed as-is!
+            // Native callables must use `iter_args()` to extract positional/named arguments.
             ScriptValue::NativeFunction(func) => func.call(self, arguments)?,
             ScriptValue::NativeMethodBound(method, subject) => {
                 method.call(self, *subject, arguments)?
@@ -782,30 +782,18 @@ impl Interpreter {
 // Inside foo(), we will receive a tuple with named items (a: int, b: int).
 // This also allows named arguments at call-site to be order differently than
 // inside the function, or even before positional arguments.
-fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
+fn transform_args(params: &[ParamExpression], arguments: &Tuple) -> Tuple {
     let mut items = Vec::new();
 
-    let mut positional = args.positional();
+    let mut args = arguments.iter_args();
     for par in params.iter() {
-        if let Some(name) = par.name.clone() {
-            if let Some(arg) = args.get_named(name.clone()) {
-                let val = transform_value(par, arg);
-                items.push(TupleItem::named(name, val));
-            } else if let Some(arg) = positional.next() {
-                let val = transform_value(par, arg);
-                items.push(TupleItem::named(name, val));
-            } else if par.is_optional() {
-                items.push(TupleItem::named(name, ScriptValue::None));
-            } else {
-                panic!("Missing argument {name}");
-            }
-        } else if let Some(arg) = positional.next() {
-            let val = transform_value(par, arg);
-            items.push(TupleItem::unnamed(val));
+        if let Some(arg) = args.resolve(par.name.as_ref()) {
+            let val = transform_value(par, &arg);
+            items.push(TupleItem::new(par.name.clone(), val));
         } else if par.is_optional() {
-            items.push(TupleItem::unnamed(ScriptValue::None));
+            items.push(TupleItem::new(par.name.clone(), ScriptValue::None));
         } else {
-            panic!("Missing positional argument");
+            panic!("Missing argument");
         }
     }
 
@@ -829,7 +817,7 @@ fn transform_args(params: &[ParamExpression], args: &Tuple) -> Tuple {
 fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
     match (&lhs.name, &lhs.pattern) {
         (None, None) => {}
-        (Some(name), None) => scope.set_local(name.clone(), rhs.clone()),
+        (Some(name), None) => scope.set_local(name, rhs.clone()),
         (_, Some(pattern)) => match rhs {
             ScriptValue::Tuple(value) => eval_destructure(pattern, value, scope),
             ScriptValue::Rec { value, .. } => eval_destructure(pattern, value, scope),
@@ -840,20 +828,12 @@ fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
 }
 
 fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
-    let mut positional = rhs.positional();
+    let mut args = rhs.iter_args();
     for par in lhs.iter() {
-        if let Some(name) = &par.name {
-            if let Some(arg) = rhs.get_named(name.clone()) {
-                eval_assignment(par, arg, scope);
-            } else if let Some(arg) = positional.next() {
-                eval_assignment(par, arg, scope);
-            } else {
-                panic!("Missing argument {name}");
-            }
-        } else if let Some(arg) = positional.next() {
-            eval_assignment(par, arg, scope);
+        if let Some(arg) = args.resolve(par.name.as_ref()) {
+            eval_assignment(par, &arg, scope);
         } else {
-            panic!("Missing positional argument");
+            panic!("Missing argument");
         }
     }
 }

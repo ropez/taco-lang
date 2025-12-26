@@ -105,18 +105,31 @@ impl NativeMethod for StringSplit {
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let subject = subject.as_string()?;
-        let arg = arguments.single()?.as_string()?;
+        let mut args = arguments.iter_args();
+        let arg = args
+            .next_positional()
+            .ok_or_else(|| ScriptError::panic("Missing argument"))?
+            .as_string()?;
+        let skip_empty = args
+            .get("skip_empty")
+            .map(|s| s.as_boolean())
+            .transpose()?
+            .unwrap_or(false);
 
         let lines = subject
             .split(arg.as_ref())
-            .filter(|l| !l.is_empty())
+            .filter(|l| !skip_empty || !l.is_empty())
             .map(ScriptValue::string)
             .collect();
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 
     fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
-        Ok(TupleType::from_single(ScriptType::Str))
+        let items = vec![
+            TupleItemType::unnamed(ScriptType::Str),
+            TupleItemType::named("skip_empty", ScriptType::opt_of(ScriptType::Bool)),
+        ];
+        Ok(TupleType::new(items))
     }
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {

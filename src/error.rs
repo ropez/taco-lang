@@ -298,6 +298,10 @@ impl ScriptError {
         Self::new(ScriptErrorKind::Panic(error.to_string()))
     }
 
+    pub fn expected_argument() -> Self {
+        Self::panic("Expected argument")
+    }
+
     pub fn at(self, loc: Loc) -> Self {
         // TODO Collect locations into a "stack"?
         Self {

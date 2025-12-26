@@ -329,6 +329,10 @@ impl TupleItemType {
     pub fn optional(name: impl Into<Ident>, value: ScriptType) -> Self {
         Self::new(Some(name.into()), ScriptType::Opt(value.into()))
     }
+
+    pub fn is_optional(&self) -> bool {
+        matches!(self.value, ScriptType::Opt(_))
+    }
 }
 
 #[derive(Default, Debug, Clone)]
@@ -372,10 +376,11 @@ impl TupleType {
         self.at_pos(0)
     }
 
-    pub fn get_named(&self, name: &Ident) -> Option<&ScriptType> {
+    pub fn get_named(&self, name: impl Into<Ident>) -> Option<&ScriptType> {
+        let key = name.into();
         self.items()
             .iter()
-            .find(|a| a.name.as_ref() == Some(name))
+            .find(|a| a.name.as_ref() == Some(&key))
             .map(|a| &a.value)
     }
 
@@ -386,7 +391,7 @@ impl TupleType {
         let mut positional = other.positional();
         for par in self.0.iter() {
             let opt_arg = if let Some(name) = &par.name {
-                other.get_named(name).or_else(|| positional.next())
+                other.get_named(name.clone()).or_else(|| positional.next())
             } else {
                 positional.next()
             };

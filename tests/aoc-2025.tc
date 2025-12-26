@@ -304,7 +304,7 @@ fun day6_trash_compactor__zip4() {
         *   +   *   +
     """
 
-    input = sample.trim().lines().map(fun(l) { l.split(" ") })
+    input = sample.trim().lines().map(fun(l) { l.split(" ", skip_empty: true) })
     assert input.len() == 4
 
     input = List::zip4(
@@ -332,7 +332,7 @@ fun day6_trash_compactor__list_flip() {
         *   +   *   +
     """
 
-    input = sample.trim().lines().map(fun(l) { l.split(" ") })
+    input = sample.trim().lines().map(fun(l) { l.split(" ", skip_empty: true) })
     assert input.len() == 4
 
     input = input.flip().map(fun(p) {

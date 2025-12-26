@@ -54,6 +54,19 @@ fun test_apply_arguments_from_tuple() {
     assert "$per" == "Person(name: per, age: 42)"
 }
 
+fun test_as_function_arguments() {
+    rec Person(name: str, age: int)
+
+    fun foo(arg: (name: str, age: int)) { arg.name }
+
+    assert foo(Person("per", 42)) == "per"
+    assert foo(Person(name: "per", age: 42)) == "per"
+    assert foo(Person(age: 42, name: "per")) == "per"
+    assert foo(("per", 42)) == "per"
+    assert foo((name: "per", age: 42)) == "per"
+    assert foo((age: 42, name: "per")) == "per"
+}
+
 fun test_pass_record_as_function() {
     rec Person(name: str, age: int)
 

@@ -32,3 +32,15 @@ fun test_with_method_for_tuple() {
     assert new.email == "new@email.com"
 }
 
+fun test_inner_tuple() {
+    rec Message(msg: str, sender: (name: str, age: int))
+
+    m = Message("foo", sender: ("per", 42))
+
+    fun n(m: Message) { m.sender.name }
+
+    assert n(m.with(sender: ("per", 42))) == "per"
+    assert n(m.with(sender: (name: "per", age: 42))) == "per"
+    assert n(m.with(sender: (age: 42, name: "per"))) == "per"
+}
+

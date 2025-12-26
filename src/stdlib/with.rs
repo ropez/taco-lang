@@ -51,7 +51,7 @@ impl NativeMethod for WithMethod {
         let mut items = Vec::new();
         for p in formal.items() {
             if let Some(name) = &p.name {
-                items.push(TupleItemType::named(name.clone(), p.value.as_optional()))
+                items.push(TupleItemType::named(name, p.value.as_optional()))
             }
         }
 
@@ -67,14 +67,23 @@ fn update_tuple(value: &mut Arc<Tuple>, arguments: &Tuple) {
     // Clone on write, and get a mutable reference to the items
     let values = Arc::make_mut(value).mut_items();
 
-    // XXX Kind-of works by accedent, because interpreter is not inserting 'None' for
-    // optional arguments
+    let mut args = arguments.iter_args();
 
     for item in values.iter_mut() {
         if let Some(name) = &item.name
-            && let Some(val) = arguments.get_named(name.clone())
+            && let Some(val) = args.get(name)
         {
-            item.value = val.clone();
+            match &mut item.value {
+                ScriptValue::Tuple(tuple) => {
+                    update_tuple(tuple, &val.as_tuple().expect("must be a tuple"))
+                }
+                ScriptValue::Rec { value, .. } => {
+                    update_tuple(value, &val.as_tuple().expect("must be a tuple"))
+                }
+                _ => {
+                    item.value = val.clone();
+                }
+            }
         }
     }
 }

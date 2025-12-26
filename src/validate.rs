@@ -163,7 +163,7 @@ impl Validator {
                     let (params, ret) = self.eval_function(fun, &scope)?;
 
                     scope.set_local(
-                        name.clone(),
+                        name,
                         ScriptType::Function {
                             params,
                             ret: ret.into(),
@@ -210,18 +210,18 @@ impl Validator {
                         }
                         ScriptType::List(inner) => {
                             let mut inner_scope = scope.clone();
-                            inner_scope.set_local(ident.clone(), *inner);
+                            inner_scope.set_local(ident, *inner);
                             self.validate_block(body, inner_scope)?;
                         }
                         ScriptType::Range => {
                             let mut inner_scope = scope.clone();
-                            inner_scope.set_local(ident.clone(), ScriptType::Int);
+                            inner_scope.set_local(ident, ScriptType::Int);
                             self.validate_block(body, inner_scope)?;
                         }
                         ScriptType::Ext(ref ext) => {
                             if let Some(inner) = ext.as_readable() {
                                 let mut inner_scope = scope.clone();
-                                inner_scope.set_local(ident.clone(), inner);
+                                inner_scope.set_local(ident, inner);
                                 self.validate_block(body, inner_scope)?;
                             } else {
                                 return Err(TypeError::new(TypeErrorKind::InvalidIterable(
@@ -475,7 +475,7 @@ impl Validator {
             Expression::Access { subject, key } => {
                 let subject = self.validate_expr(subject, scope)?;
                 if let Some(tuple) = subject.as_tuple()
-                    && let Some(item) = tuple.get_named(key)
+                    && let Some(item) = tuple.get_named(key.clone())
                 {
                     return Ok(item.clone());
                 }
@@ -743,7 +743,7 @@ impl Validator {
         let mut inner = scope.clone();
         for arg in params.items() {
             if let Some(name) = &arg.name {
-                inner.set_local(name.clone(), arg.value.clone());
+                inner.set_local(name, arg.value.clone());
             }
         }
         inner.arguments = params.clone();
@@ -1119,7 +1119,7 @@ impl Validator {
     ) -> Result<()> {
         match (&lhs.name, &lhs.pattern) {
             (None, None) => {}
-            (Some(name), None) => scope.set_local(name.clone(), other.clone()),
+            (Some(name), None) => scope.set_local(name, other.clone()),
             (_, Some(pattern)) => match other {
                 ScriptType::Tuple(tuple) => {
                     self.eval_destruction(pattern, lhs.loc, tuple, scope)?
@@ -1150,13 +1150,13 @@ impl Validator {
 
         for assignee in lhs.iter() {
             let opt_item = if let Some(name) = &assignee.name {
-                other.get_named(name).or_else(|| positional.next())
+                other.get_named(name.clone()).or_else(|| positional.next())
             } else {
                 positional.next()
             };
 
             if let Some(item) = opt_item {
-                self.eval_assignment(assignee, &item, scope)?;
+                self.eval_assignment(assignee, item, scope)?;
             } else {
                 return Err(TypeError::new(TypeErrorKind::MissingDestructureArgument {
                     name: assignee.name.clone(),
@@ -1188,7 +1188,7 @@ impl Validator {
 
         match arm.pattern.as_ref().as_ref() {
             MatchPattern::Assignee(name) => {
-                inner_scope.set_local(name.clone(), expr_type.flatten().clone());
+                inner_scope.set_local(name, expr_type.flatten().clone());
             }
             MatchPattern::EnumVariant(_, name, Some(assignee)) => {
                 let var_typ = if let ScriptType::EnumInstance(e) = expr_type.flatten() {

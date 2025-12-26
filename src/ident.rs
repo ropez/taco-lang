@@ -15,6 +15,12 @@ impl From<String> for Ident {
     }
 }
 
+impl From<&Ident> for Ident {
+    fn from(value: &Ident) -> Self {
+        value.clone()
+    }
+}
+
 impl Ident {
     pub fn as_str(&self) -> &str {
         self.0.as_ref()

@@ -28,8 +28,24 @@ banana
 }
 
 fun test_split() {
-    s = "1,123,foobar"
-    tokens = s.split(",")
+    s = "1 123 foobar"
+    tokens = s.split(" ")
+    assert tokens == ["1", "123", "foobar"]
+}
+
+fun test_split_skip_empty() {
+    s = "1,123,,foobar,"
+    tokens = s.split(",", skip_empty: false)
+    assert tokens == ["1", "123", "", "foobar", ""]
+    tokens = s.split(",", skip_empty: true)
+    assert tokens == ["1", "123", "foobar"]
+}
+
+fun test_split_arg_order() {
+    s = "1,123,,foobar,"
+    tokens = s.split(skip_empty: false, ",")
+    assert tokens == ["1", "123", "", "foobar", ""]
+    tokens = s.split(skip_empty: true, ",")
     assert tokens == ["1", "123", "foobar"]
 }
 

@@ -87,22 +87,24 @@ impl NativeFunction for FetchFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let config = make_config();
 
-        let url = arguments.single()?.as_string()?;
+        let mut args = arguments.iter_args();
+        let url = args
+            .get("url")
+            .ok_or_else(|| ScriptError::panic("Expected URL"))?
+            .as_string()?;
+        let method = args
+            .get("method")
+            .map(|val| val.as_string())
+            .transpose()?
+            .unwrap_or_else(|| "GET".into());
+        let body = args.get("body").map(|val| val.as_string()).transpose()?;
+        let extra_headers = args.get("headers").map(|val| val.as_iterable());
+
         let url = Url::parse(&url).map_err(ScriptError::panic)?;
         let hostname = url
             .host_str()
             .ok_or_else(|| ScriptError::panic("Invalid URL"))?;
         let path = url.path();
-        let method = arguments
-            .get_named("method")
-            .map(|val| val.as_string())
-            .transpose()?
-            .unwrap_or_else(|| "GET".into());
-        let body = arguments
-            .get_named("body")
-            .map(|val| val.as_string())
-            .transpose()?;
-        let extra_headers = arguments.get_named("headers").map(|val| val.as_iterable());
 
         let sock_addr = (hostname, 443).to_socket_addrs().unwrap().next().unwrap();
 
@@ -137,10 +139,11 @@ impl NativeFunction for FetchFunc {
                     let tup = h
                         .as_tuple()
                         .ok_or_else(|| ScriptError::panic("Expected tuple"))?;
+                    let mut args = tup.iter_args();
                     headers.push(format!(
                         "{}: {}",
-                        tup.at_pos(0).unwrap(),
-                        tup.at_pos(1).unwrap()
+                        args.get("name").unwrap(),
+                        args.get("value").unwrap()
                     ));
                 }
             }

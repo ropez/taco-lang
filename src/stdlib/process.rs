@@ -100,10 +100,10 @@ impl Readable for Process {
         let s = child
             .stdout
             .as_mut()
-            .ok_or(ScriptError::panic("No stdout"))?;
+            .ok_or_else(|| ScriptError::panic("No stdout"))?;
         let stdout = Pin::new(s);
 
-        let mut buf = [0u8; 1000];
+        let mut buf = [0u8; 4096];
         let n = ready!(stdout.poll_read(ctx, &mut buf)).map_err(ScriptError::panic)?;
         if n != 0 {
             let s = str::from_utf8(&buf[..n]).map_err(ScriptError::panic)?;
@@ -129,7 +129,12 @@ impl Writable for Process {
             eprintln!("OOPS, process already exited with code {code}");
         }
 
-        let out = Pin::new(child.stdin.as_mut().ok_or(ScriptError::panic("No stdin"))?);
+        let out = Pin::new(
+            child
+                .stdin
+                .as_mut()
+                .ok_or_else(|| ScriptError::panic("No stdin"))?,
+        );
 
         ready!(out.poll_write(ctx, arg.as_bytes())).map_err(ScriptError::panic)?;
 
@@ -155,9 +160,13 @@ impl ExecFunc {
 
 impl NativeFunction for ExecFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?.as_string()?;
-        let pass = arguments
-            .get_named("pass_output")
+        let mut args = arguments.iter_args();
+        let arg = args
+            .get("command")
+            .ok_or_else(|| ScriptError::panic("No command"))?
+            .as_string()?;
+        let pass = args
+            .get("pass_output")
             .and_then(|val| val.as_boolean().ok())
             .unwrap_or_default();
 
@@ -209,7 +218,7 @@ impl NativeMethod for OutputMethod {
             let out = child
                 .stdout
                 .as_mut()
-                .ok_or(ScriptError::panic("No stdout"))?;
+                .ok_or_else(|| ScriptError::panic("No stdout"))?;
             let mut buf = Vec::new();
             let _ = out
                 .read_to_end(&mut buf)

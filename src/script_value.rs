@@ -311,16 +311,51 @@ impl Tuple {
             .map(|i| &i.value)
     }
 
-    pub fn at_pos(&self, index: usize) -> Option<&ScriptValue> {
-        // XXX Must fix transforming to native functions, then:
-        // self.positional().nth(index)
-
-        self.0.get(index).map(|item| &item.value)
+    pub fn single(&self) -> Result<&ScriptValue> {
+        self.positional()
+            .nth(0)
+            .ok_or_else(|| ScriptError::panic("Expected argument"))
     }
 
-    pub fn single(&self) -> Result<&ScriptValue> {
-        self.at_pos(0)
-            .ok_or_else(|| ScriptError::panic("Expected argument"))
+    pub fn iter_args(&self) -> ArgsIterator<'_, impl Iterator<Item = &ScriptValue>> {
+        ArgsIterator::new(self, self.positional())
+    }
+}
+
+pub struct ArgsIterator<'a, I>
+where
+    I: Iterator<Item = &'a ScriptValue>,
+{
+    tuple: &'a Tuple,
+    positional: I,
+}
+
+impl<'a, I> ArgsIterator<'a, I>
+where
+    I: Iterator<Item = &'a ScriptValue>,
+{
+    pub fn new(tuple: &'a Tuple, positional: I) -> Self {
+        Self { tuple, positional }
+    }
+
+    pub fn get(&mut self, name: impl Into<Ident>) -> Option<ScriptValue> {
+        if let Some(arg) = self.tuple.get_named(name) {
+            Some(arg.clone())
+        } else {
+            self.next_positional()
+        }
+    }
+
+    pub fn resolve(&mut self, name: Option<&Ident>) -> Option<ScriptValue> {
+        if let Some(name) = name {
+            self.get(name.clone())
+        } else {
+            self.next_positional()
+        }
+    }
+
+    pub fn next_positional(&mut self) -> Option<ScriptValue> {
+        self.positional.next().cloned()
     }
 }
 

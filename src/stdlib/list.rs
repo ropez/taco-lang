@@ -4,7 +4,7 @@ use crate::{
     Builder,
     error::{ScriptError, TypeError, TypeErrorKind},
     ext::{NativeFunction, NativeMethod},
-    ident::{Ident, global},
+    ident::global,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
@@ -94,7 +94,10 @@ impl ListMethod for ListPush {
         mut subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?;
+        let arg = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
         Arc::make_mut(&mut subject).push(arg.clone());
         Ok(ScriptValue::List(subject))
     }
@@ -162,7 +165,11 @@ impl ListMethod for ListAt {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single()?.as_int()?;
+        let val = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?
+            .as_int()?;
         let opt_val = list.items().get(val as usize);
         Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
     }
@@ -184,7 +191,11 @@ impl ListMethod for ListSkip {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let n = arguments.single()?.as_int()?;
+        let n = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?
+            .as_int()?;
         let items = list.items().iter().skip(n as usize).cloned().collect();
         Ok(ScriptValue::from(List::new(items)))
     }
@@ -206,7 +217,11 @@ impl ListMethod for ListTake {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let n = arguments.single()?.as_int()?;
+        let n = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?
+            .as_int()?;
         let items = list.items().iter().take(n as usize).cloned().collect();
         Ok(ScriptValue::from(List::new(items)))
     }
@@ -228,8 +243,11 @@ impl ListMethod for ListFind {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single()?;
-        let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, val));
+        let val = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
+        let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, &val));
         Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
     }
 }
@@ -250,8 +268,11 @@ impl ListMethod for ListContains {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single()?;
-        let val = list.items().iter().any(|v| ScriptValue::eq(v, val));
+        let val = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
+        let val = list.items().iter().any(|v| ScriptValue::eq(v, &val));
         Ok(ScriptValue::Boolean(val))
     }
 }
@@ -276,8 +297,11 @@ impl ListMethod for ListFindIndex {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single()?;
-        let opt_idx = list.items().iter().position(|v| ScriptValue::eq(v, val));
+        let val = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
+        let opt_idx = list.items().iter().position(|v| ScriptValue::eq(v, &val));
         Ok(match opt_idx {
             Some(idx) => ScriptValue::Int(idx as i64),
             None => ScriptValue::None,
@@ -305,11 +329,14 @@ impl ListMethod for ListCount {
         list: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let val = arguments.single()?;
+        let val = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
         let count = list
             .items()
             .iter()
-            .filter(|v| ScriptValue::eq(v, val))
+            .filter(|v| ScriptValue::eq(v, &val))
             .count();
         Ok(ScriptValue::Int(count.try_into().unwrap()))
     }
@@ -476,12 +503,13 @@ impl NativeFunction for ListZip4 {
 pub(crate) struct ListCartesian;
 impl NativeFunction for ListCartesian {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let lhs = arguments
-            .at_pos(0)
+        let mut args = arguments.iter_args();
+        let lhs = args
+            .next_positional()
             .ok_or_else(|| ScriptError::panic("Expected two arguments"))?
             .as_iterable();
-        let rhs = arguments
-            .at_pos(1)
+        let rhs = args
+            .next_positional()
             .ok_or_else(|| ScriptError::panic("Expected two arguments"))?
             .as_iterable();
 
@@ -671,7 +699,10 @@ impl ListMethod for ListMap {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single()?; // XXX Maybe we can have owned args here
+        let callable = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
         let mut mapped = Vec::new();
         for item in subject.items() {
             let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
@@ -704,7 +735,10 @@ impl ListMethod for ListAny {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single()?; // XXX Maybe we can have owned args here
+        let callable = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
         for item in subject.items() {
             let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
             if value.as_boolean()? {
@@ -740,10 +774,7 @@ impl ListMethod for ListScan {
         _inner: &ScriptType,
         arguments: &TupleType,
     ) -> Result<ScriptType, TypeError> {
-        let arg = arguments
-            .get_named(&Ident::from("mapper"))
-            .cloned()
-            .unwrap();
+        let arg = arguments.get_named("mapper").cloned().unwrap();
         let ret = arg.as_callable_ret(arguments)?;
         Ok(ScriptType::list_of(ret))
     }
@@ -754,16 +785,21 @@ impl ListMethod for ListScan {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        // XXX Args are not transformed
-        let callable = arguments.at_pos(0).expect("callable");
-        let mut value = arguments.at_pos(1).expect("initial").clone();
+        let mut args = arguments.iter_args();
+        let mapper = args
+            .get("mapper")
+            .ok_or_else(|| ScriptError::panic("mapper"))?;
+        let mut value = args
+            .get("initial")
+            .ok_or_else(|| ScriptError::panic("initial"))?
+            .clone();
         let mut mapped = Vec::new();
         for item in subject.items() {
             let args = Tuple::new(vec![
                 TupleItem::unnamed(value.clone()),
                 TupleItem::unnamed(item.clone()),
             ]);
-            value = interpreter.eval_callable(callable.clone(), &args)?;
+            value = interpreter.eval_callable(mapper.clone(), &args)?;
             mapped.push(value.clone());
         }
         Ok(ScriptValue::List(Arc::new(List::new(mapped))))
@@ -789,7 +825,10 @@ impl ListMethod for ListFilter {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single()?;
+        let callable = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
         let mut mapped = Vec::new();
         for item in subject.items() {
             let value = interpreter.eval_callable(callable.clone(), &item.to_single_argument())?;
@@ -863,7 +902,10 @@ impl ListMethod for ListMapTo {
         subject: Arc<List>,
         arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single()?;
+        let callable = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
         let mut mapped = Vec::new();
         for item in subject.items() {
             let tuple = item.as_tuple().expect("list of tuples");
