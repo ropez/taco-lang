@@ -333,6 +333,8 @@ impl Validator {
 
                     self.try_static_assert(expr, &scope)?;
                 }
+                Statement::Break => {}, // XXX Not allowed outside loop
+                Statement::Continue => {}, // XXX Not allowed outside loop
             }
         }
 

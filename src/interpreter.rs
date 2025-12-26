@@ -26,6 +26,9 @@ enum Completion {
     EndOfBlock(Scope),
     ExplicitReturn(ScriptValue),
     ImpliedReturn(ScriptValue),
+
+    Break,
+    Continue,
 }
 
 type Result<T> = result::Result<T, ScriptError>;
@@ -146,10 +149,10 @@ impl Interpreter {
                             for item in list.items() {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident, item.clone());
-                                if let Completion::ExplicitReturn(val) =
-                                    self.execute_block(body, scope)?
-                                {
-                                    return Ok(Completion::ExplicitReturn(val));
+                                match self.execute_block(body, scope)? {
+                                    Completion::ExplicitReturn(val) => return Ok(Completion::ExplicitReturn(val)),
+                                    Completion::Break => break,
+                                    _ => (),
                                 }
                             }
                         }
@@ -157,10 +160,10 @@ impl Interpreter {
                             for v in lhs..=rhs {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident, ScriptValue::Int(v));
-                                if let Completion::ExplicitReturn(val) =
-                                    self.execute_block(body, scope)?
-                                {
-                                    return Ok(Completion::ExplicitReturn(val));
+                                match self.execute_block(body, scope)? {
+                                    Completion::ExplicitReturn(val) => return Ok(Completion::ExplicitReturn(val)),
+                                    Completion::Break => break,
+                                    _ => (),
                                 }
                             }
                         }
@@ -230,6 +233,8 @@ impl Interpreter {
                             Completion::ImpliedReturn(val) if ast.len() == 1 => {
                                 return Ok(Completion::ImpliedReturn(val));
                             }
+                            Completion::Break => return Ok(Completion::Break),
+                            Completion::Continue => return Ok(Completion::Continue),
                             _ => (),
                         }
                     }
@@ -244,6 +249,7 @@ impl Interpreter {
                             Completion::ImpliedReturn(val) if ast.len() == 1 => {
                                 return Ok(Completion::ImpliedReturn(val));
                             }
+                            Completion::Break => break,
                             _ => (),
                         }
                     }
@@ -266,6 +272,12 @@ impl Interpreter {
                 }
                 Statement::Assert(expr) => {
                     self.eval_assert_expr(expr, &scope)?;
+                }
+                Statement::Break => {
+                    return Ok(Completion::Break);
+                }
+                Statement::Continue => {
+                    return Ok(Completion::Continue);
                 }
             }
         }
@@ -605,6 +617,7 @@ impl Interpreter {
                     Completion::EndOfBlock(_) => ScriptValue::None,
                     Completion::ExplicitReturn(v) => v,
                     Completion::ImpliedReturn(v) => v,
+                    _ => panic!("Script function ended with break/continue"),
                 }
             }
             ScriptValue::Record(rec) => {

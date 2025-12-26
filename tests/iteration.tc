@@ -17,3 +17,28 @@ fun test_empty_list_iteration() {
         assert false
     }
 }
+
+fun test_while_break() {
+    s = State(0)
+    while true {
+        s.update(fun(s) { s + 1 })
+        if s.get() == 4 {
+            break
+        }
+    }
+    assert s.get() == 4
+}
+
+fun test_break_from_range() {
+    s = State(0)
+    for i in 1..100 {
+        s.set(i)
+        if i < 10 {
+            continue
+        } else {
+            break
+        }
+    }
+
+    assert s.get() == 10
+}

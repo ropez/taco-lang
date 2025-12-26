@@ -59,6 +59,8 @@ pub enum Statement {
 
     Return(Option<Src<Expression>>),
     Assert(Src<Expression>),
+    Break,
+    Continue,
 
     // Everything else is an expression
     Expression(Src<Expression>),
@@ -370,6 +372,16 @@ impl<'a> Parser<'a> {
                     let expr = self.parse_expression(0)?;
                     self.expect_end_of_line()?;
                     ast.push(Statement::Assert(expr));
+                }
+                TokenKind::Break => {
+                    self.expect_kind(TokenKind::Break)?;
+                    self.expect_end_of_line()?;
+                    ast.push(Statement::Break);
+                }
+                TokenKind::Continue => {
+                    self.expect_kind(TokenKind::Continue)?;
+                    self.expect_end_of_line()?;
+                    ast.push(Statement::Continue);
                 }
                 TokenKind::Identifier(name) => {
                     if let Some(TokenKind::Assign) = self.peek_kind_nth(1) {
