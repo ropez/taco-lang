@@ -1,9 +1,6 @@
-use std::{
-    any::Any,
-    fmt, ops,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::{any::Any, fmt, ops, sync::Arc};
+
+use async_trait::async_trait;
 
 use crate::{
     error::{ScriptError, TypeError},
@@ -50,22 +47,17 @@ impl fmt::Debug for dyn ExternalValue + Send + Sync {
     }
 }
 
+#[async_trait]
 pub trait Readable {
-    fn read(
-        &self,
-        context: &mut Context,
-        interpreter: &Interpreter,
-    ) -> Poll<Result<Option<ScriptValue>, ScriptError>>;
+    async fn read(&self, interpreter: &Interpreter) -> Result<Option<ScriptValue>, ScriptError>;
 }
 
+#[async_trait]
 pub trait Writable {
-    fn write(
-        &self,
-        context: &mut Context,
-        interpreter: &Interpreter,
-        value: ScriptValue,
-    ) -> Poll<Result<(), ScriptError>>;
-    fn close(&self, context: &mut Context) -> Poll<Result<(), ScriptError>>;
+    async fn write(&self, interpreter: &Interpreter, value: ScriptValue)
+    -> Result<(), ScriptError>;
+
+    async fn close(&self) -> Result<(), ScriptError>;
 }
 
 pub trait NativeFunction {
@@ -200,7 +192,7 @@ impl ReadableExt for &(dyn Readable + Send + Sync) {
     ) -> Result<Option<ScriptValue>, ScriptError> {
         let i = interpreter.clone();
         smol::block_on(async move {
-            let r = smol::future::poll_fn(|ctx| self.read(ctx, &i)).await?;
+            let r = self.read(&i).await?;
             Ok(r)
         })
     }

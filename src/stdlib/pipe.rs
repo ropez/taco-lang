@@ -1,12 +1,8 @@
-use std::{
-    any::Any,
-    collections::VecDeque,
-    sync::Arc,
-    task::{Context, Poll, Waker},
-};
+use std::{any::Any, sync::Arc};
 
-use async_lock::{Mutex, RwLock};
-use smol::future::{FutureExt, poll_fn};
+use async_lock::Mutex;
+use async_trait::async_trait;
+use smol::channel;
 
 use crate::{
     Builder,
@@ -20,7 +16,6 @@ use crate::{
 
 type Task = smol::Task<Result<(), ScriptError>>;
 
-// Make "stream" or "actor" is a better name
 pub fn build(builder: &mut Builder) {
     builder.add_function("apply", ActorFunc);
 }
@@ -94,11 +89,11 @@ pub(crate) fn exec_pipe(
             .as_writable()
             .ok_or_else(|| ScriptError::panic("dst is not writable"))?;
 
-        while let Some(val) = poll_fn(|ctx| src.read(ctx, &i)).await? {
-            poll_fn(|ctx| dst.write(ctx, &i, val.clone())).await?;
+        while let Some(val) = src.read(&i).await? {
+            dst.write(&i, val.clone()).await?;
         }
 
-        poll_fn(|ctx| dst.close(ctx)).await?;
+        dst.close().await?;
 
         Ok(())
     });
@@ -181,23 +176,18 @@ impl ExternalType for ActorType {
 struct Actor {
     callable: ScriptValue,
 
-    // XXX Seems natural to use 'channel' here, but couldn't get the poll methods to work
-    queue: Mutex<VecDeque<Option<ScriptValue>>>,
-    waker: RwLock<Option<Waker>>,
+    sender: channel::Sender<Option<ScriptValue>>,
+    receiver: channel::Receiver<Option<ScriptValue>>,
 }
 
 impl Actor {
     fn new(callable: ScriptValue) -> Self {
+        let (sender, receiver) = channel::unbounded::<Option<ScriptValue>>();
         Self {
             callable,
-            queue: Mutex::new(VecDeque::new()),
-            waker: RwLock::new(None),
+            sender,
+            receiver,
         }
-    }
-
-    fn next(&self) -> Result<Option<Option<ScriptValue>>, ScriptError> {
-        let mut queue = self.queue.lock_blocking();
-        Ok(queue.pop_front())
     }
 }
 
@@ -215,50 +205,33 @@ impl ExternalValue for Actor {
     }
 }
 
+#[async_trait]
 impl Readable for Actor {
-    fn read(
-        &self,
-        ctx: &mut Context,
-        interpreter: &Interpreter,
-    ) -> Poll<Result<Option<ScriptValue>, ScriptError>> {
-        if let Some(value) = self.next()? {
-            if let Some(value) = value {
-                let args = Tuple::new(vec![TupleItem::unnamed(value.clone())]);
-                let val = interpreter.eval_callable(self.callable.clone(), &args)?;
-                Poll::Ready(Ok(Some(val)))
-            } else {
-                Poll::Ready(Ok(None))
-            }
+    async fn read(&self, interpreter: &Interpreter) -> Result<Option<ScriptValue>, ScriptError> {
+        let value = self.receiver.recv().await.map_err(ScriptError::panic)?;
+        if let Some(value) = value {
+            let args = Tuple::new(vec![TupleItem::unnamed(value.clone())]);
+            let val = interpreter.eval_callable(self.callable.clone(), &args)?;
+            Ok(Some(val))
         } else {
-            let mut waker = self.waker.write_blocking();
-            *waker = Some(ctx.waker().clone());
-            Poll::Pending
+            Ok(None)
         }
     }
 }
 
+#[async_trait]
 impl Writable for Actor {
-    fn write(
-        &self,
-        _: &mut Context,
-        _: &Interpreter,
-        value: ScriptValue,
-    ) -> Poll<Result<(), ScriptError>> {
-        let mut queue = self.queue.lock_blocking();
-        queue.push_back(Some(value.clone()));
-        if let Some(waker) = self.waker.read_blocking().as_ref() {
-            waker.wake_by_ref();
-        };
-        Poll::Ready(Ok(()))
+    async fn write(&self, _: &Interpreter, value: ScriptValue) -> Result<(), ScriptError> {
+        self.sender
+            .send(Some(value.clone()))
+            .await
+            .map_err(ScriptError::panic)?;
+        Ok(())
     }
 
-    fn close(&self, _: &mut Context) -> Poll<Result<(), ScriptError>> {
-        let mut queue = self.queue.lock_blocking();
-        queue.push_back(None);
-        if let Some(waker) = self.waker.read_blocking().as_ref() {
-            waker.wake_by_ref();
-        };
-        Poll::Ready(Ok(()))
+    async fn close(&self) -> Result<(), ScriptError> {
+        self.sender.send(None).await.map_err(ScriptError::panic)?;
+        Ok(())
     }
 }
 
@@ -276,8 +249,8 @@ impl Tracker {
     pub(crate) fn wait_all(&self) -> Vec<ScriptError> {
         let mut errors = Vec::new();
         smol::block_on(async {
-            while let Some(mut task) = self.pop().await {
-                if let Err(err) = poll_fn(|cx| task.poll(cx)).await {
+            while let Some(task) = self.pop().await {
+                if let Err(err) = task.await {
                     errors.push(err);
                 }
             }

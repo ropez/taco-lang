@@ -1,16 +1,14 @@
 use std::{
     any::Any,
     io::{self},
-    pin::Pin,
     sync::Arc,
-    task::{Context, Poll},
 };
 
 use async_lock::Mutex;
+use async_trait::async_trait;
 use smol::{
     prelude::*,
-    process::{Child, Command, Stdio},
-    ready,
+    process::{Child, ChildStdin, ChildStdout, Command, Stdio},
 };
 
 use crate::{
@@ -65,13 +63,19 @@ impl ExternalType for ProcessType {
 }
 
 struct Process {
-    child: smol::lock::Mutex<Child>,
+    child: Mutex<Child>,
+    stdin: Mutex<Option<ChildStdin>>,
+    stdout: Mutex<Option<ChildStdout>>,
 }
 
 impl Process {
-    fn new(child: Child) -> Self {
+    fn new(mut child: Child) -> Self {
+        let stdin = child.stdin.take();
+        let stdout = child.stdout.take();
         Self {
-            child: smol::lock::Mutex::new(child),
+            stdin: Mutex::new(stdin),
+            stdout: Mutex::new(stdout),
+            child: Mutex::new(child),
         }
     }
 }
@@ -90,63 +94,50 @@ impl ExternalValue for Process {
     }
 }
 
+#[async_trait]
 impl Readable for Process {
-    fn read(
-        &self,
-        ctx: &mut Context,
-        _: &Interpreter,
-    ) -> Poll<Result<Option<ScriptValue>, ScriptError>> {
-        let mut child = self.child.lock_blocking();
-        let s = child
-            .stdout
+    async fn read(&self, _: &Interpreter) -> Result<Option<ScriptValue>, ScriptError> {
+        let mut guard = self.stdout.lock().await;
+        let stdout = guard
             .as_mut()
             .ok_or_else(|| ScriptError::panic("No stdout"))?;
-        let stdout = Pin::new(s);
 
         let mut buf = [0u8; 4096];
-        let n = ready!(stdout.poll_read(ctx, &mut buf)).map_err(ScriptError::panic)?;
+        let n = stdout.read(&mut buf).await.map_err(ScriptError::panic)?;
         if n != 0 {
             let s = str::from_utf8(&buf[..n]).map_err(ScriptError::panic)?;
-            Poll::Ready(Ok(Some(ScriptValue::string(s))))
+            Ok(Some(ScriptValue::string(s)))
         } else {
-            Poll::Ready(Ok(None))
+            Ok(None)
         }
     }
 }
 
+#[async_trait]
 impl Writable for Process {
-    fn write(
-        &self,
-        ctx: &mut Context,
-        _: &Interpreter,
-        value: ScriptValue,
-    ) -> Poll<Result<(), ScriptError>> {
+    async fn write(&self, _: &Interpreter, value: ScriptValue) -> Result<(), ScriptError> {
         let arg = value.as_string()?;
-        let mut child = self.child.lock_blocking();
 
-        let code = child.try_status().map_err(ScriptError::panic)?;
-        if let Some(code) = code {
-            eprintln!("OOPS, process already exited with code {code}");
-        }
+        let mut guard = self.stdin.lock().await;
+        let stdin = guard
+            .as_mut()
+            .ok_or_else(|| ScriptError::panic("No stdin"))?;
 
-        let out = Pin::new(
-            child
-                .stdin
-                .as_mut()
-                .ok_or_else(|| ScriptError::panic("No stdin"))?,
-        );
+        stdin
+            .write(arg.as_bytes())
+            .await
+            .map_err(ScriptError::panic)?;
 
-        ready!(out.poll_write(ctx, arg.as_bytes())).map_err(ScriptError::panic)?;
-
-        Poll::Ready(Ok(()))
+        Ok(())
     }
 
-    fn close(&self, _: &mut Context) -> Poll<Result<(), ScriptError>> {
-        let mut child = self.child.lock_blocking();
+    async fn close(&self) -> Result<(), ScriptError> {
+        let mut child = self.stdin.lock().await;
 
-        child.stdin.take();
+        // Drops the value inside the option
+        child.take();
 
-        Poll::Ready(Ok(()))
+        Ok(())
     }
 }
 
