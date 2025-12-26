@@ -411,7 +411,7 @@ impl Interpreter {
                 let subject = self.eval_expr(subject, scope)?;
 
                 if let Some(tuple) = subject.as_tuple()
-                    && let Some(val) = tuple.get_named(key.clone())
+                    && let Some(val) = tuple.get_named(key)
                 {
                     return Ok(val.clone());
                 }

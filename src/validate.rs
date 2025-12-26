@@ -175,12 +175,12 @@ impl Validator {
 
                     scope.types.insert(
                         rec.name.clone(),
-                        TypeDefinition::RecDefinition(RecType::new(rec.name.clone(), params)),
+                        TypeDefinition::RecDefinition(RecType::new(&rec.name, params)),
                     );
                 }
                 Statement::Enum(rec) => {
                     let def = EnumType::new(
-                        rec.name.clone(),
+                        &rec.name,
                         rec.variants
                             .iter()
                             .map(|v| {
@@ -189,7 +189,7 @@ impl Validator {
                                     .as_ref()
                                     .map(|p| self.eval_params(p, &scope))
                                     .transpose()?;
-                                Ok(EnumVariantType::new(v.name.clone(), params))
+                                Ok(EnumVariantType::new(&v.name, params))
                             })
                             .collect::<Result<Vec<EnumVariantType>>>()?,
                     );
@@ -477,7 +477,7 @@ impl Validator {
             Expression::Access { subject, key } => {
                 let subject = self.validate_expr(subject, scope)?;
                 if let Some(tuple) = subject.as_tuple()
-                    && let Some(item) = tuple.get_named(key.clone())
+                    && let Some(item) = tuple.get_named(key)
                 {
                     return Ok(item.clone());
                 }
@@ -1152,7 +1152,7 @@ impl Validator {
 
         for assignee in lhs.iter() {
             let opt_item = if let Some(name) = &assignee.name {
-                other.get_named(name.clone()).or_else(|| positional.next())
+                other.get_named(name).or_else(|| positional.next())
             } else {
                 positional.next()
             };

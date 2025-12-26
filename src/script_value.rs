@@ -348,7 +348,7 @@ where
 
     pub fn resolve(&mut self, name: Option<&Ident>) -> Option<ScriptValue> {
         if let Some(name) = name {
-            self.get(name.clone())
+            self.get(name)
         } else {
             self.next_positional()
         }

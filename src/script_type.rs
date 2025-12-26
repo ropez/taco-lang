@@ -391,7 +391,7 @@ impl TupleType {
         let mut positional = other.positional();
         for par in self.0.iter() {
             let opt_arg = if let Some(name) = &par.name {
-                other.get_named(name.clone()).or_else(|| positional.next())
+                other.get_named(name).or_else(|| positional.next())
             } else {
                 positional.next()
             };
