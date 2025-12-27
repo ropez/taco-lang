@@ -7,7 +7,7 @@ use crate::{
     error::ScriptError,
     ext::NativeFunction,
     interpreter::Interpreter,
-    parser::{Expression, ParamExpression, Record, TypeExpression},
+    parser::{Expression, Literal, ParamExpression, Record, TypeExpression},
     script_type::{ScriptType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
 };
@@ -123,16 +123,8 @@ fn get_json_name(i: usize, expr: &ParamExpression) -> String {
         // we can validate etc. Probably it should just be a function!
         if let Some(args) = &attr.args {
             if let Some(f) = args.first() {
-                if let Expression::Str(s) = f.expr.as_ref() {
+                if let Some(Literal::Str(s)) = f.expr.as_literal() {
                     s.to_string()
-                } else if let Expression::String(t) = f.expr.as_ref() {
-                    if let Some(Expression::Str(s)) = t.first().map(|t| t.0.as_ref())
-                        && t.len() == 1
-                    {
-                        s.to_string()
-                    } else {
-                        panic!("String interpolation in attribute");
-                    }
                 } else {
                     panic!(
                         "Expected string expression in @json attr, found {:?}",

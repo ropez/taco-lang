@@ -7,8 +7,8 @@ use crate::{
     ident::{Ident, global},
     lexer::{Loc, Src},
     parser::{
-        ArgumentExpression, Assignee, CallExpression, Expression, Function, MatchArm, MatchPattern,
-        ParamExpression, Statement, TypeExpression,
+        ArgumentExpression, Assignee, CallExpression, Expression, Function, Literal, MatchArm,
+        MatchPattern, ParamExpression, Statement, TypeExpression,
     },
     script_type::{EnumType, EnumVariantType, RecType, ScriptType, TupleItemType, TupleType},
     stdlib,
@@ -333,8 +333,8 @@ impl Validator {
 
                     self.try_static_assert(expr, &scope)?;
                 }
-                Statement::Break => {}, // XXX Not allowed outside loop
-                Statement::Continue => {}, // XXX Not allowed outside loop
+                Statement::Break => {}    // XXX Not allowed outside loop
+                Statement::Continue => {} // XXX Not allowed outside loop
             }
         }
 
@@ -348,10 +348,12 @@ impl Validator {
 
     fn validate_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptType> {
         match expr.as_ref() {
-            Expression::Int(_) => Ok(ScriptType::Int),
-            Expression::Str(_) => Ok(ScriptType::Str),
-            Expression::True => Ok(ScriptType::Bool),
-            Expression::False => Ok(ScriptType::Bool),
+            Expression::Literal(literal) => match literal {
+                Literal::True => Ok(ScriptType::Bool),
+                Literal::False => Ok(ScriptType::Bool),
+                Literal::Int(_) => Ok(ScriptType::Int),
+                Literal::Str(_) => Ok(ScriptType::Str),
+            },
             Expression::Arguments => Ok(ScriptType::Tuple(scope.arguments.clone())),
             Expression::String(parts) => {
                 for (part, offset) in parts {
@@ -1234,10 +1236,13 @@ impl Validator {
     // XXX For general purpose, this should return ScriptValue instead of String
     fn try_static_eval(&self, expr: &Expression, scope: &Scope) -> Result<Option<String>> {
         let opt = match expr {
-            Expression::Str(s) => Some(s.to_string()),
+            Expression::Literal(literal) => match literal {
+                Literal::Str(s) => Some(s.to_string()),
+                _ => None,
+            },
             Expression::String(s) => {
                 if s.len() == 1
-                    && let Some(Expression::Str(f)) = s.first().map(|k| &*k.0)
+                    && let Some(Expression::Literal(Literal::Str(f))) = s.first().map(|k| &*k.0)
                 {
                     Some(f.to_string())
                 } else {

@@ -6,7 +6,7 @@ use crate::{
     fmt::fmt_tuple,
     ident::Ident,
     lexer::Src,
-    parser::MatchPattern,
+    parser::{Literal, MatchPattern},
 };
 
 type Result<T> = result::Result<T, TypeError>;
@@ -122,9 +122,12 @@ impl ScriptType {
         // Finite types
         match self {
             Self::Bool => {
-                if [MatchPattern::False, MatchPattern::True]
-                    .iter()
-                    .all(|k| patterns.iter().any(|p| k.matches(p)))
+                if [
+                    MatchPattern::Literal(Literal::False),
+                    MatchPattern::Literal(Literal::True),
+                ]
+                .iter()
+                .all(|k| patterns.iter().any(|p| k.matches(p)))
                 {
                     return true;
                 }

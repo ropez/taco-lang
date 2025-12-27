@@ -11,8 +11,8 @@ use crate::{
     ident::{Ident, global},
     lexer::Src,
     parser::{
-        Assignee, CallExpression, Enumeration, Expression, MatchArm, MatchPattern, ParamExpression,
-        Record, Statement, TypeExpression,
+        Assignee, CallExpression, Enumeration, Expression, Literal, MatchArm, MatchPattern,
+        ParamExpression, Record, Statement, TypeExpression,
     },
     script_value::{ScriptFunction, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseFunc},
@@ -150,7 +150,9 @@ impl Interpreter {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident, item.clone());
                                 match self.execute_block(body, scope)? {
-                                    Completion::ExplicitReturn(val) => return Ok(Completion::ExplicitReturn(val)),
+                                    Completion::ExplicitReturn(val) => {
+                                        return Ok(Completion::ExplicitReturn(val));
+                                    }
                                     Completion::Break => break,
                                     _ => (),
                                 }
@@ -161,7 +163,9 @@ impl Interpreter {
                                 let mut scope = scope.clone();
                                 scope.set_local(ident, ScriptValue::Int(v));
                                 match self.execute_block(body, scope)? {
-                                    Completion::ExplicitReturn(val) => return Ok(Completion::ExplicitReturn(val)),
+                                    Completion::ExplicitReturn(val) => {
+                                        return Ok(Completion::ExplicitReturn(val));
+                                    }
                                     Completion::Break => break,
                                     _ => (),
                                 }
@@ -328,7 +332,6 @@ impl Interpreter {
 
     fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptValue> {
         let value = match expr.as_ref() {
-            Expression::Str(s) => ScriptValue::string(Arc::clone(s)),
             Expression::String(parts) => {
                 // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
                 let mut builder = String::new();
@@ -338,9 +341,12 @@ impl Interpreter {
                 }
                 ScriptValue::string(builder)
             }
-            Expression::Int(n) => ScriptValue::Int(*n),
-            Expression::True => ScriptValue::Boolean(true),
-            Expression::False => ScriptValue::Boolean(false),
+            Expression::Literal(literal) => match literal {
+                Literal::True => ScriptValue::Boolean(true),
+                Literal::False => ScriptValue::Boolean(false),
+                Literal::Int(n) => ScriptValue::Int(*n),
+                Literal::Str(s) => ScriptValue::string(Arc::clone(s)),
+            },
             Expression::Arguments => ScriptValue::Tuple(Arc::clone(&scope.arguments)),
             Expression::List(s) => {
                 let values = s
@@ -707,34 +713,36 @@ impl Interpreter {
     ) -> Result<Option<HashMap<Ident, ScriptValue>>> {
         match pattern {
             MatchPattern::Discard => Ok(Some(HashMap::new())),
-            MatchPattern::True => {
-                if val.as_boolean()? {
-                    Ok(Some(HashMap::new()))
-                } else {
-                    Ok(None)
+            MatchPattern::Literal(lit) => match lit {
+                Literal::True => {
+                    if val.as_boolean()? {
+                        Ok(Some(HashMap::new()))
+                    } else {
+                        Ok(None)
+                    }
                 }
-            }
-            MatchPattern::False => {
-                if !val.as_boolean()? {
-                    Ok(Some(HashMap::new()))
-                } else {
-                    Ok(None)
+                Literal::False => {
+                    if !val.as_boolean()? {
+                        Ok(Some(HashMap::new()))
+                    } else {
+                        Ok(None)
+                    }
                 }
-            }
-            MatchPattern::Int(n) => {
-                if *n == val.as_int()? {
-                    Ok(Some(HashMap::new()))
-                } else {
-                    Ok(None)
+                Literal::Int(n) => {
+                    if *n == val.as_int()? {
+                        Ok(Some(HashMap::new()))
+                    } else {
+                        Ok(None)
+                    }
                 }
-            }
-            MatchPattern::Str(s) => {
-                if *s == val.as_string()? {
-                    Ok(Some(HashMap::new()))
-                } else {
-                    Ok(None)
+                Literal::Str(s) => {
+                    if *s == val.as_string()? {
+                        Ok(Some(HashMap::new()))
+                    } else {
+                        Ok(None)
+                    }
                 }
-            }
+            },
             MatchPattern::Assignee(name) => {
                 if val.is_none() {
                     Ok(None)

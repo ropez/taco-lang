@@ -70,12 +70,9 @@ pub enum Statement {
 pub enum Expression {
     Ref(Ident),
     PrefixedName(Ident, Ident),
-    Str(Arc<str>),
-    String(Vec<(Src<Expression>, usize)>),
-    Int(i64),
-    True,
-    False,
+    Literal(Literal),
     Arguments,
+    String(Vec<(Src<Expression>, usize)>),
     List(Vec<Src<Expression>>),
     Tuple(Src<Vec<ArgumentExpression>>),
     Pipe(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -119,6 +116,32 @@ pub enum Expression {
         arms: Vec<MatchArm>,
         is_opt: bool,
     },
+}
+
+#[derive(Debug, Clone)]
+pub enum Literal {
+    True,
+    False,
+    Int(i64),
+    Str(Arc<str>),
+}
+
+impl Expression {
+    pub(crate) fn as_literal(&self) -> Option<&Literal> {
+        match self {
+            Self::Literal(literal) => Some(literal),
+            Self::String(t) => {
+                if let Some(Expression::Literal(l)) = t.first().map(|t| t.0.as_ref())
+                    && t.len() == 1
+                {
+                    Some(l)
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -256,13 +279,9 @@ pub struct MatchArm {
 
 #[derive(Debug, Clone)]
 pub enum MatchPattern {
-    // XXX DRY this into some "LiteralExpression"?
     Discard,
     Assignee(Ident),
-    True,
-    False,
-    Int(i64),
-    Str(Arc<str>),
+    Literal(Literal),
     EnumVariant(Option<Ident>, Ident, Option<Src<Assignee>>),
 }
 
@@ -271,8 +290,8 @@ impl MatchPattern {
         match self {
             Self::Discard => true,
             Self::Assignee(_) => !matches!(other, Self::Discard),
-            Self::True => matches!(other, Self::True),
-            Self::False => matches!(other, Self::False),
+            Self::Literal(Literal::True) => matches!(other, Self::Literal(Literal::True)),
+            Self::Literal(Literal::False) => matches!(other, Self::Literal(Literal::False)),
             _ => unreachable!("comparing patterns, {self:?}"),
         }
     }
@@ -518,7 +537,7 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::Number(n) => {
-                let e = Src::new(Expression::Int(*n), token.loc);
+                let e = Src::new(Expression::Literal(Literal::Int(*n)), token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::Minus => {
@@ -528,11 +547,11 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::True => {
-                let e = Src::new(Expression::True, token.loc);
+                let e = Src::new(Expression::Literal(Literal::True), token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::False => {
-                let e = Src::new(Expression::False, token.loc);
+                let e = Src::new(Expression::Literal(Literal::False), token.loc);
                 self.parse_continuation(e, bp)?
             }
             TokenKind::Arguments => {
@@ -911,10 +930,13 @@ impl<'a> Parser<'a> {
     fn parse_match_pattern(&mut self) -> Result<Src<MatchPattern>> {
         let token = self.expect_token()?;
         let pattern = match token.as_ref() {
-            TokenKind::True => Src::new(MatchPattern::True, token.loc),
-            TokenKind::False => Src::new(MatchPattern::False, token.loc),
-            TokenKind::Number(n) => Src::new(MatchPattern::Int(*n), token.loc),
-            TokenKind::String(s) => Src::new(MatchPattern::Str(Arc::clone(s)), token.loc),
+            TokenKind::True => Src::new(MatchPattern::Literal(Literal::True), token.loc),
+            TokenKind::False => Src::new(MatchPattern::Literal(Literal::False), token.loc),
+            TokenKind::Number(n) => Src::new(MatchPattern::Literal(Literal::Int(*n)), token.loc),
+            TokenKind::String(s) => Src::new(
+                MatchPattern::Literal(Literal::Str(Arc::clone(s))),
+                token.loc,
+            ),
             TokenKind::Identifier(s) => {
                 self.handle_identifier_match_pattern(s.clone(), token.loc)?
             }
@@ -1244,7 +1266,7 @@ impl<'a> Parser<'a> {
         let parts = interpolation::tokenise_string(src);
 
         if parts.is_empty() {
-            return Ok(Src::new(Expression::Str("".into()), loc));
+            return Ok(Src::new(Expression::Literal(Literal::Str("".into())), loc));
         }
 
         let mut res = Vec::new();
@@ -1253,7 +1275,7 @@ impl<'a> Parser<'a> {
         for part in parts {
             let expr = match &part.kind {
                 StringTokenKind::Str => Src::new(
-                    Expression::Str(part.src.into()),
+                    Expression::Literal(Literal::Str(part.src.into())),
                     Loc::new(0, part.src.len()),
                 ),
                 StringTokenKind::Expr => {
