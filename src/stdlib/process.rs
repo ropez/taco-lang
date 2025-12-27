@@ -1,6 +1,7 @@
 use std::{
     any::Any,
     io::{self},
+    process::ExitStatus,
     sync::Arc,
 };
 
@@ -77,6 +78,11 @@ impl Process {
             stdout: Mutex::new(stdout),
             child: Mutex::new(child),
         }
+    }
+
+    async fn status(&self) -> Result<ExitStatus, ScriptError> {
+        let mut child = self.child.lock().await;
+        child.status().await.map_err(ScriptError::panic)
     }
 }
 
@@ -202,16 +208,17 @@ impl NativeMethod for OutputMethod {
         _: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let p = subject.as_process()?;
-        let mut child = p.child.lock_blocking();
 
         smol::block_on(async {
-            let _exit_code = child.status().await.map_err(ScriptError::panic)?;
-            let out = child
-                .stdout
+            p.status().await?;
+
+            let mut guard = p.stdout.lock().await;
+            let stdout = guard
                 .as_mut()
                 .ok_or_else(|| ScriptError::panic("No stdout"))?;
+
             let mut buf = Vec::new();
-            let _ = out
+            let _ = stdout
                 .read_to_end(&mut buf)
                 .await
                 .map_err(ScriptError::panic)?;
