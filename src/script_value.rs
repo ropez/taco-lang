@@ -193,7 +193,7 @@ impl PartialEq for ScriptValue {
             }
             (Self::None, Self::None) => true,
             (Self::None, _) | (_, Self::None) => false,
-            _ => todo!("Equality for {self:?}"),
+            _ => todo!("Equality for {self:?} and {other:?}"),
         }
     }
 }

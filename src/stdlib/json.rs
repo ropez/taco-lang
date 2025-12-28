@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 use tinyjson::JsonValue;
 
@@ -7,9 +7,10 @@ use crate::{
     error::ScriptError,
     ext::NativeFunction,
     interpreter::Interpreter,
-    parser::{Expression, Literal, ParamExpression, Record, TypeExpression},
+    parser::{Literal, ParamExpression, Record, TypeExpression},
     script_type::{ScriptType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
+    stdlib::list::List,
 };
 
 pub fn build(builder: &mut Builder) {
@@ -29,7 +30,7 @@ impl NativeFunction for JsonFunc {
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let jv = JsonValue::from(arguments.single()?);
+        let jv = JsonValue::try_from(arguments.single()?)?;
         match jv.stringify() {
             Ok(json) => Ok(ScriptValue::string_with_type(json, ContentType::Json)),
             Err(err) => Err(ScriptError::panic(err)),
@@ -44,68 +45,114 @@ pub(crate) fn parse_json(rec: &Record, input: &str) -> Result<Tuple, ScriptError
         .ok_or_else(|| ScriptError::panic("Expected a JSON object"))?;
     let mut values = Vec::new();
     for (i, d) in rec.params.as_ref().iter().enumerate() {
-        let name = get_json_name(i, d);
+        let name = get_json_name(i, d)?;
         let val = obj
             .get(name.as_str())
             .ok_or_else(|| ScriptError::panic(format!("Attribute '{name}' not found")))?;
         values.push(TupleItem::new(
             d.name.clone(),
-            match d.type_expr.as_ref() {
-                TypeExpression::Int => {
-                    let n: &f64 = val.get().ok_or_else(|| {
-                        ScriptError::panic(format!("Expected number, found {val:?}"))
-                    })?;
-                    ScriptValue::Int(*n as i64)
-                }
-                TypeExpression::Bool => {
-                    let n: &bool = val.get().ok_or_else(|| {
-                        ScriptError::panic(format!("Expected number, found {val:?}"))
-                    })?;
-                    ScriptValue::Boolean(*n)
-                }
-                TypeExpression::Str => {
-                    let s: &String = val
-                        .get()
-                        .ok_or_else(|| ScriptError::panic("Expected string"))?;
-                    ScriptValue::string(s.clone())
-                }
-                o => todo!("Don't know how to parse {o:?}"),
-            },
+            from_json_value(&d.type_expr, val)?,
         ));
     }
 
     Ok(Tuple::new(values))
 }
 
-impl From<&ScriptValue> for JsonValue {
-    fn from(value: &ScriptValue) -> Self {
-        match value {
+pub(crate) fn from_json_value(
+    type_expr: &TypeExpression,
+    val: &JsonValue,
+) -> Result<ScriptValue, ScriptError> {
+    let value = match type_expr {
+        TypeExpression::Int => {
+            let n: &f64 = val
+                .get()
+                .ok_or_else(|| ScriptError::panic(format!("Expected number, found {val:?}")))?;
+            ScriptValue::Int(*n as i64)
+        }
+        TypeExpression::Bool => {
+            let n: &bool = val
+                .get()
+                .ok_or_else(|| ScriptError::panic(format!("Expected number, found {val:?}")))?;
+            ScriptValue::Boolean(*n)
+        }
+        TypeExpression::Str => {
+            let s: &String = val
+                .get()
+                .ok_or_else(|| ScriptError::panic("Expected string"))?;
+            ScriptValue::string(s.clone())
+        }
+        TypeExpression::List(inner) => {
+            let val: &Vec<_> = val
+                .get()
+                .ok_or_else(|| ScriptError::panic(format!("Expected array, found {val:?}")))?;
+            let items = val
+                .iter()
+                .map(|v| from_json_value(inner, v))
+                .collect::<Result<Vec<_>, ScriptError>>()?;
+            let list = List::new(items);
+            ScriptValue::List(Arc::new(list))
+        }
+        TypeExpression::TypeName(name) => {
+            todo!("Need types in scope, at the time the rec was defined")
+        }
+        o => todo!("Don't know how to parse {o:?}"),
+    };
+
+    Ok(value)
+}
+
+impl TryFrom<&ScriptValue> for JsonValue {
+    type Error = ScriptError;
+
+    fn try_from(value: &ScriptValue) -> Result<Self, Self::Error> {
+        let val = match value {
+            ScriptValue::Boolean(b) => JsonValue::Boolean(*b),
             ScriptValue::Int(n) => JsonValue::Number(*n as f64),
             ScriptValue::String { content, .. } => JsonValue::String(content.to_string()),
-            ScriptValue::Tuple(value) => JsonValue::from(value.as_ref()),
-            ScriptValue::Rec { def, value } => JsonValue::Object(transform_record(def, value)),
+            ScriptValue::Tuple(value) => JsonValue::try_from(value.as_ref())?,
+            ScriptValue::Rec { def, value } => JsonValue::Object(transform_record(def, value)?),
             ScriptValue::List(l) => {
-                let items: Vec<_> = l.items().iter().map(JsonValue::from).collect();
+                let items: Vec<_> = l.items().iter().map(JsonValue::try_from).collect::<Result<
+                    Vec<_>,
+                    ScriptError,
+                >>(
+                )?;
                 JsonValue::Array(items)
             }
+            ScriptValue::Enum { def, index, value } => {
+                if value.is_empty() {
+                    JsonValue::String(def.variants[*index].name.to_string())
+                } else {
+                    unimplemented!("Serialize enum with values");
+                }
+            }
 
-            _ => panic!("into json for {value:?}"),
-        }
+            _ => {
+                return Err(ScriptError::panic(format!(
+                    "Value is not JSON serializable: {value}"
+                )));
+            }
+        };
+
+        Ok(val)
     }
 }
 
-fn transform_record(def: &Record, value: &Tuple) -> HashMap<String, JsonValue> {
+fn transform_record(
+    def: &Record,
+    value: &Tuple,
+) -> Result<HashMap<String, JsonValue>, ScriptError> {
     let mut items = HashMap::new();
 
     for (i, (item, d)) in value.items().iter().zip(def.params.as_ref()).enumerate() {
-        let name = get_json_name(i, d);
-        items.insert(name, JsonValue::from(&item.value));
+        let name = get_json_name(i, d)?;
+        items.insert(name, JsonValue::try_from(&item.value)?);
     }
 
-    items
+    Ok(items)
 }
 
-fn get_json_name(i: usize, expr: &ParamExpression) -> String {
+fn get_json_name(i: usize, expr: &ParamExpression) -> Result<String, ScriptError> {
     let default_name = expr
         .name
         .as_ref()
@@ -124,26 +171,28 @@ fn get_json_name(i: usize, expr: &ParamExpression) -> String {
         if let Some(args) = &attr.args {
             if let Some(f) = args.first() {
                 if let Some(Literal::Str(s)) = f.expr.as_literal() {
-                    s.to_string()
+                    Ok(s.to_string())
                 } else {
-                    panic!(
+                    Err(ScriptError::panic(format!(
                         "Expected string expression in @json attr, found {:?}",
                         f.expr
-                    );
+                    )))
                 }
             } else {
-                default_name
+                Ok(default_name)
             }
         } else {
-            default_name
+            Ok(default_name)
         }
     } else {
-        default_name
+        Ok(default_name)
     }
 }
 
-impl From<&Tuple> for JsonValue {
-    fn from(value: &Tuple) -> Self {
+impl TryFrom<&Tuple> for JsonValue {
+    type Error = ScriptError;
+
+    fn try_from(value: &Tuple) -> Result<Self, Self::Error> {
         let mut map = HashMap::new();
 
         for (i, item) in value.items().iter().enumerate() {
@@ -152,9 +201,9 @@ impl From<&Tuple> for JsonValue {
                 .as_ref()
                 .map(|n| n.to_string())
                 .unwrap_or_else(|| i.to_string());
-            map.insert(key, JsonValue::from(&item.value));
+            map.insert(key, JsonValue::try_from(&item.value)?);
         }
 
-        JsonValue::Object(map)
+        Ok(JsonValue::Object(map))
     }
 }

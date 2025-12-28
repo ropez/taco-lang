@@ -174,7 +174,10 @@ impl Interpreter {
                         #[cfg(feature = "pipe")]
                         ScriptValue::Ext(_, val) => {
                             if let Some(readable) = val.as_readable() {
-                                while let Some(v) = readable.blocking_read_next(self)? {
+                                while let Some(v) = readable
+                                    .blocking_read_next(self)
+                                    .map_err(|err| err.at(loc))?
+                                {
                                     let mut scope = scope.clone();
                                     scope.set_local(ident, v);
                                     if let Completion::ExplicitReturn(val) =
@@ -486,7 +489,7 @@ impl Interpreter {
                 let lhs = self.eval_expr(lhs, scope).map_err(|err| err.at(lhs.loc))?;
                 let rhs = self.eval_expr(rhs, scope).map_err(|err| err.at(rhs.loc))?;
 
-                exec_pipe(self, lhs.as_ext()?, rhs.as_ext()?)?;
+                exec_pipe(self, lhs.as_ext()?, rhs.as_ext()?).map_err(|err| err.at(expr.loc))?;
 
                 ScriptValue::Ext(
                     Arc::new(PipeType::new(None, None)), // XXX Type not really used in runtine
@@ -495,6 +498,7 @@ impl Interpreter {
             }
             #[cfg(not(feature = "pipe"))]
             Expression::Pipe(lhs, rhs) => {
+                // XXX Fix error
                 panic!("pipes are not enabled");
             }
             Expression::LogicAnd(lhs, rhs) => self.eval_logic(|a, b| a && b, lhs, rhs, scope)?,
