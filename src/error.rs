@@ -137,6 +137,12 @@ pub enum TypeErrorKind {
     MatchHasNoArms,
 }
 
+impl fmt::Display for TypeError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{self:?}") // XXX Display properly
+    }
+}
+
 // Promote ArgumentError to "Error" below
 
 impl TypeError {

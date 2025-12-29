@@ -62,7 +62,7 @@ impl ScriptValue {
             ScriptValue::EnumVariant { def, index } => {
                 let variant = def.variants.get(*index).expect("enum variant exists");
                 let params = variant.params.as_ref().expect("enum variant has params");
-                format!("fun{}: {}", params_to_type(params), def.name)
+                format!("fun{}: {}", params, def.name)
             }
             _ => todo!("to_type for {self:?}"),
         }

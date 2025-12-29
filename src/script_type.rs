@@ -7,6 +7,7 @@ use crate::{
     ident::Ident,
     lexer::Src,
     parser::{Literal, MatchPattern},
+    script_value::Tuple,
 };
 
 type Result<T> = result::Result<T, TypeError>;
@@ -279,7 +280,7 @@ impl RecType {
 #[derive(Debug)]
 pub struct EnumType {
     pub(crate) name: Ident,
-    variants: Vec<EnumVariantType>,
+    pub(crate) variants: Vec<EnumVariantType>,
 }
 
 impl EnumType {
@@ -290,8 +291,11 @@ impl EnumType {
         })
     }
 
-    pub fn find_variant(&self, name: &Ident) -> Option<&EnumVariantType> {
-        self.variants.iter().find(|v| v.name == *name)
+    pub fn find_variant(&self, name: &Ident) -> Option<(usize, &EnumVariantType)> {
+        self.variants
+            .iter()
+            .enumerate()
+            .find(|(_, v)| v.name == *name)
     }
 }
 
@@ -314,11 +318,24 @@ impl EnumVariantType {
 pub struct TupleItemType {
     pub name: Option<Ident>,
     pub value: ScriptType,
+    pub attrs: Vec<TypeAttribute>,
 }
 
 impl TupleItemType {
     pub fn new(name: Option<Ident>, value: ScriptType) -> Self {
-        Self { name, value }
+        Self {
+            name,
+            value,
+            attrs: Vec::new(),
+        }
+    }
+
+    pub fn new_with_attrs(
+        name: Option<Ident>,
+        value: ScriptType,
+        attrs: Vec<TypeAttribute>,
+    ) -> Self {
+        Self { name, value, attrs }
     }
 
     pub fn named(name: impl Into<Ident>, value: ScriptType) -> Self {
@@ -336,6 +353,15 @@ impl TupleItemType {
     pub fn is_optional(&self) -> bool {
         matches!(self.value, ScriptType::Opt(_))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeAttribute {
+    pub(crate) name: Ident,
+
+    // Refers to Tuple, which is a 'value' (not a type), Because these expressions are
+    // evaluated statically, and the result of evaluation (value) becomes part of the type.
+    pub(crate) args: Option<Tuple>,
 }
 
 #[derive(Default, Debug, Clone)]

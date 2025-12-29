@@ -11,11 +11,13 @@ use crate::{
     ident::{Ident, global},
     lexer::Src,
     parser::{
-        Assignee, CallExpression, Enumeration, Expression, Literal, MatchArm, MatchPattern,
-        ParamExpression, Record, Statement, TypeExpression,
+        Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, ParamExpression,
+        Statement, TypeExpression,
     },
+    script_type::{ScriptType, TupleType},
     script_value::{ScriptFunction, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseFunc},
+    type_scope::{TypeDefinition, TypeScope},
 };
 
 #[cfg(feature = "pipe")]
@@ -37,9 +39,7 @@ type Result<T> = result::Result<T, ScriptError>;
 pub(crate) struct Scope {
     locals: HashMap<Ident, ScriptValue>,
 
-    // XXX Use some "types" like in validation?
-    records: HashMap<Ident, Arc<Record>>,
-    enums: HashMap<Ident, Arc<Enumeration>>,
+    types: TypeScope,
 
     arguments: Arc<Tuple>,
 }
@@ -132,10 +132,18 @@ impl Interpreter {
                     scope.set_local(name, fun);
                 }
                 Statement::Rec(rec) => {
-                    scope.records.insert(rec.name.clone(), Arc::clone(rec));
+                    let expected_type = None; // XXX This is needed
+                    scope
+                        .types
+                        .eval_rec(rec, expected_type.as_ref())
+                        .map_err(ScriptError::panic)?;
                 }
-                Statement::Enum(rec) => {
-                    scope.enums.insert(rec.name.clone(), Arc::clone(rec));
+                Statement::Enum(def) => {
+                    let expected_type = None; // XXX This is needed
+                    scope
+                        .types
+                        .eval_enum(def, expected_type.as_ref())
+                        .map_err(ScriptError::panic)?;
                 }
                 Statement::Iteration {
                     ident,
@@ -372,47 +380,49 @@ impl Interpreter {
             Expression::Ref(ident) => {
                 if let Some(value) = scope.locals.get(ident) {
                     value.clone()
-                } else if let Some(typ) = scope.records.get(ident) {
+                } else if let Some(TypeDefinition::RecDefinition(typ)) = scope.types.get(ident) {
                     ScriptValue::Record(Arc::clone(typ))
                 } else {
                     panic!("Undefined reference: {ident}")
                 }
             }
             Expression::PrefixedName(prefix, name) => {
-                if let Some(v) = scope.records.get(prefix) {
-                    match name.as_str() {
+                match scope.types.get(prefix) {
+                    Some(TypeDefinition::RecDefinition(v)) => match name.as_str() {
                         "parse" => {
                             let func = ParseFunc::new(Arc::clone(v));
                             ScriptValue::NativeFunction(NativeFunctionRef::from(func))
                         }
                         _ => panic!("Unexpected expression {prefix}::{name}"),
-                    }
-                } else if let Some(v) = scope.enums.get(prefix) {
-                    if let Some((index, variant)) =
-                        v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
-                    {
-                        if variant.params.is_none() {
-                            ScriptValue::Enum {
-                                def: Arc::clone(v),
-                                index,
-                                value: Arc::new(Tuple::identity()),
+                    },
+                    Some(TypeDefinition::EnumDefinition(v)) => {
+                        if let Some((index, variant)) =
+                            v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
+                        {
+                            if variant.params.is_none() {
+                                ScriptValue::Enum {
+                                    def: Arc::clone(v),
+                                    index,
+                                    value: Arc::new(Tuple::identity()),
+                                }
+                            } else {
+                                ScriptValue::EnumVariant {
+                                    def: Arc::clone(v),
+                                    index,
+                                }
                             }
                         } else {
-                            ScriptValue::EnumVariant {
-                                def: Arc::clone(v),
-                                index,
-                            }
+                            panic!("Enum variant not found: {name} in {prefix}");
                         }
-                    } else {
-                        panic!("Enum variant not found: {name} in {prefix}");
                     }
-                } else {
-                    // XXX Little bit hackish to re-combine the full name like this
-                    let full_ident = format!("{prefix}::{name}").into();
-                    if let Some(value) = scope.locals.get(&full_ident) {
-                        value.clone()
-                    } else {
-                        panic!("Enum not found: {prefix}")
+                    _ => {
+                        // XXX Little bit hackish to re-combine the full name like this
+                        let full_ident = format!("{prefix}::{name}").into();
+                        if let Some(value) = scope.locals.get(&full_ident) {
+                            value.clone()
+                        } else {
+                            panic!("Enum not found: {prefix}")
+                        }
                     }
                 }
             }
@@ -631,7 +641,7 @@ impl Interpreter {
                 }
             }
             ScriptValue::Record(rec) => {
-                let values = transform_args(&rec.params, arguments);
+                let values = transform_args2(&rec.params, arguments);
                 ScriptValue::Rec {
                     def: Arc::clone(&rec),
                     value: Arc::new(values),
@@ -641,7 +651,7 @@ impl Interpreter {
                 let variant = &def.variants[index];
                 // XXX Shouldn't be an option at this point
                 let params = variant.params.as_ref().unwrap();
-                let values = transform_args(params, arguments);
+                let values = transform_args2(params, arguments);
                 ScriptValue::Enum {
                     def: Arc::clone(&def),
                     index,
@@ -760,9 +770,9 @@ impl Interpreter {
                 if let ScriptValue::Enum { def, index, .. } = val {
                     let def = {
                         if let Some(ident) = prefix {
-                            match scope.enums.get(ident) {
-                                Some(e) => Ok(e),
-                                None => Err(ScriptError::panic(format!("Enum not found: {ident}"))),
+                            match scope.types.get(ident) {
+                                Some(TypeDefinition::EnumDefinition(e)) => Ok(e),
+                                _ => Err(ScriptError::panic(format!("Enum not found: {ident}"))),
                             }
                         } else {
                             Ok(def)
@@ -830,6 +840,41 @@ fn transform_args(params: &[ParamExpression], arguments: &Tuple) -> Tuple {
             }
             (TypeExpression::Tuple(t), ScriptValue::Rec { value: values, .. }) => {
                 let applied = transform_args(t, values);
+                ScriptValue::Tuple(Arc::new(applied))
+            }
+            _ => value.clone(),
+        }
+    }
+
+    Tuple::new(items)
+}
+
+// XX Duplicates the function above temporarily, until Function is updated to something like a
+// "TypeDefinition" like RecType and EnumType. That is, function argument expressions are evaluated
+// to types when we evaluate the function definition.
+fn transform_args2(params: &TupleType, arguments: &Tuple) -> Tuple {
+    let mut items = Vec::new();
+
+    let mut args = arguments.iter_args();
+    for par in params.items() {
+        if let Some(arg) = args.resolve(par.name.as_ref()) {
+            let val = transform_value(&par.value, &arg);
+            items.push(TupleItem::new(par.name.clone(), val));
+        } else if par.is_optional() {
+            items.push(TupleItem::new(par.name.clone(), ScriptValue::None));
+        } else {
+            panic!("Missing argument");
+        }
+    }
+
+    fn transform_value(par: &ScriptType, value: &ScriptValue) -> ScriptValue {
+        match (&par, value) {
+            (ScriptType::Tuple(t), ScriptValue::Tuple(tup)) => {
+                let applied = transform_args2(t, tup);
+                ScriptValue::Tuple(Arc::new(applied))
+            }
+            (ScriptType::Tuple(t), ScriptValue::Rec { value: values, .. }) => {
+                let applied = transform_args2(t, values);
                 ScriptValue::Tuple(Arc::new(applied))
             }
             _ => value.clone(),

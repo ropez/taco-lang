@@ -7,8 +7,7 @@ use crate::{
     error::ScriptError,
     ext::NativeFunction,
     interpreter::Interpreter,
-    parser::{Literal, ParamExpression, Record, TypeExpression},
-    script_type::{ScriptType, TupleType},
+    script_type::{RecType, ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::list::List,
 };
@@ -38,20 +37,20 @@ impl NativeFunction for JsonFunc {
     }
 }
 
-pub(crate) fn parse_json(rec: &Record, input: &str) -> Result<Tuple, ScriptError> {
+pub(crate) fn parse_json(rec: &RecType, input: &str) -> Result<Tuple, ScriptError> {
     let json: JsonValue = input.parse().map_err(ScriptError::panic)?;
     let obj: &HashMap<_, _> = json
         .get()
         .ok_or_else(|| ScriptError::panic("Expected a JSON object"))?;
     let mut values = Vec::new();
-    for (i, d) in rec.params.as_ref().iter().enumerate() {
+    for (i, d) in rec.params.items().iter().enumerate() {
         let name = get_json_name(i, d)?;
         let val = obj
             .get(name.as_str())
             .ok_or_else(|| ScriptError::panic(format!("Attribute '{name}' not found")))?;
         values.push(TupleItem::new(
             d.name.clone(),
-            from_json_value(&d.type_expr, val)?,
+            from_json_value(&d.value, val)?,
         ));
     }
 
@@ -59,29 +58,29 @@ pub(crate) fn parse_json(rec: &Record, input: &str) -> Result<Tuple, ScriptError
 }
 
 pub(crate) fn from_json_value(
-    type_expr: &TypeExpression,
+    type_expr: &ScriptType,
     val: &JsonValue,
 ) -> Result<ScriptValue, ScriptError> {
     let value = match type_expr {
-        TypeExpression::Int => {
+        ScriptType::Int => {
             let n: &f64 = val
                 .get()
                 .ok_or_else(|| ScriptError::panic(format!("Expected number, found {val:?}")))?;
             ScriptValue::Int(*n as i64)
         }
-        TypeExpression::Bool => {
+        ScriptType::Bool => {
             let n: &bool = val
                 .get()
                 .ok_or_else(|| ScriptError::panic(format!("Expected number, found {val:?}")))?;
             ScriptValue::Boolean(*n)
         }
-        TypeExpression::Str => {
+        ScriptType::Str => {
             let s: &String = val
                 .get()
                 .ok_or_else(|| ScriptError::panic("Expected string"))?;
             ScriptValue::string(s.clone())
         }
-        TypeExpression::List(inner) => {
+        ScriptType::List(inner) => {
             let val: &Vec<_> = val
                 .get()
                 .ok_or_else(|| ScriptError::panic(format!("Expected array, found {val:?}")))?;
@@ -92,8 +91,26 @@ pub(crate) fn from_json_value(
             let list = List::new(items);
             ScriptValue::List(Arc::new(list))
         }
-        TypeExpression::TypeName(name) => {
-            todo!("Need types in scope, at the time the rec was defined")
+        ScriptType::EnumInstance(e) => {
+            let s: &String = val
+                .get()
+                .ok_or_else(|| ScriptError::panic("Expected string"))?;
+
+            let (i, var) = e
+                .find_variant(&s.as_str().into())
+                .ok_or_else(|| ScriptError::panic("Variant not found"))?;
+
+            if var.params.is_some() {
+                Err(ScriptError::panic(
+                    "Don't know how to parse enum with params",
+                ))?;
+            }
+
+            ScriptValue::Enum {
+                def: Arc::clone(e),
+                index: i,
+                value: Arc::new(Tuple::identity()),
+            }
         }
         o => todo!("Don't know how to parse {o:?}"),
     };
@@ -139,12 +156,12 @@ impl TryFrom<&ScriptValue> for JsonValue {
 }
 
 fn transform_record(
-    def: &Record,
+    def: &RecType,
     value: &Tuple,
 ) -> Result<HashMap<String, JsonValue>, ScriptError> {
     let mut items = HashMap::new();
 
-    for (i, (item, d)) in value.items().iter().zip(def.params.as_ref()).enumerate() {
+    for (i, (item, d)) in value.items().iter().zip(def.params.items()).enumerate() {
         let name = get_json_name(i, d)?;
         items.insert(name, JsonValue::try_from(&item.value)?);
     }
@@ -152,32 +169,20 @@ fn transform_record(
     Ok(items)
 }
 
-fn get_json_name(i: usize, expr: &ParamExpression) -> Result<String, ScriptError> {
+fn get_json_name(i: usize, expr: &TupleItemType) -> Result<String, ScriptError> {
     let default_name = expr
         .name
         .as_ref()
         .map(|n| n.to_string())
         .unwrap_or_else(|| i.to_string());
-    let json_attr = expr
-        .attrs
-        .iter()
-        .map(|it| it.as_ref())
-        .find(|it| it.name.as_str() == "json");
+    let json_attr = expr.attrs.iter().find(|it| it.name.as_str() == "json");
 
     if let Some(attr) = json_attr {
-        // XXX Need to "resolve" attribute args like in "transform_args" (interpreter.rs)
-        // It means that the params to the "@json" attribute must be defined somewhere, so that
-        // we can validate etc. Probably it should just be a function!
         if let Some(args) = &attr.args {
-            if let Some(f) = args.first() {
-                if let Some(Literal::Str(s)) = f.expr.as_literal() {
-                    Ok(s.to_string())
-                } else {
-                    Err(ScriptError::panic(format!(
-                        "Expected string expression in @json attr, found {:?}",
-                        f.expr
-                    )))
-                }
+            let mut args = args.iter_args();
+            if let Some(f) = args.get("name") {
+                let s = f.as_string()?;
+                Ok(s.to_string())
             } else {
                 Ok(default_name)
             }

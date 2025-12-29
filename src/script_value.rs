@@ -6,7 +6,8 @@ use crate::{
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
     interpreter::Scope,
-    parser::{Enumeration, Function, Record},
+    parser::Function,
+    script_type::{EnumType, RecType},
     stdlib::list::List,
 };
 
@@ -32,21 +33,21 @@ pub enum ScriptValue {
 
     // The *instance* of a record. Not the record itself (which is a callable)
     Rec {
-        def: Arc<Record>,
+        def: Arc<RecType>,
         value: Arc<Tuple>,
     },
 
     Enum {
-        def: Arc<Enumeration>,
+        def: Arc<EnumType>,
         index: usize,
         value: Arc<Tuple>,
     },
 
     ScriptFunction(ScriptFunction),
 
-    Record(Arc<Record>),
+    Record(Arc<RecType>),
     EnumVariant {
-        def: Arc<Enumeration>,
+        def: Arc<EnumType>,
         index: usize,
     },
 

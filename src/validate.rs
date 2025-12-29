@@ -8,19 +8,14 @@ use crate::{
     lexer::{Loc, Src},
     parser::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, Literal, MatchArm,
-        MatchPattern, ParamExpression, Statement, TypeExpression,
+        MatchPattern, Statement,
     },
-    script_type::{EnumType, EnumVariantType, RecType, ScriptType, TupleItemType, TupleType},
+    script_type::{ScriptType, TupleItemType, TupleType},
     stdlib,
+    type_scope::{TypeDefinition, TypeScope, eval_params, eval_type_expr},
 };
 
 type Result<T> = result::Result<T, TypeError>;
-
-#[derive(Debug, Clone)]
-pub enum TypeDefinition {
-    RecDefinition(Arc<RecType>),
-    EnumDefinition(Arc<EnumType>),
-}
 
 #[derive(Debug, Clone)]
 pub struct ArgumentExpressionType {
@@ -37,7 +32,7 @@ impl Display for Src<Vec<ArgumentExpressionType>> {
 #[derive(Default, Clone)]
 struct Scope {
     locals: HashMap<Ident, ScriptType>,
-    types: HashMap<Ident, TypeDefinition>,
+    types: TypeScope,
     ret: Option<ScriptType>,
     arguments: TupleType,
 
@@ -171,31 +166,10 @@ impl Validator {
                     );
                 }
                 Statement::Rec(rec) => {
-                    let params = self.eval_params(&rec.params, &scope)?;
-
-                    scope.types.insert(
-                        rec.name.clone(),
-                        TypeDefinition::RecDefinition(RecType::new(&rec.name, params)),
-                    );
+                    scope.types.eval_rec(rec, scope.expected_type.as_ref())?;
                 }
-                Statement::Enum(rec) => {
-                    let def = EnumType::new(
-                        &rec.name,
-                        rec.variants
-                            .iter()
-                            .map(|v| {
-                                let params = v
-                                    .params
-                                    .as_ref()
-                                    .map(|p| self.eval_params(p, &scope))
-                                    .transpose()?;
-                                Ok(EnumVariantType::new(&v.name, params))
-                            })
-                            .collect::<Result<Vec<EnumVariantType>>>()?,
-                    );
-                    scope
-                        .types
-                        .insert(rec.name.clone(), TypeDefinition::EnumDefinition(def));
+                Statement::Enum(def) => {
+                    scope.types.eval_enum(def, scope.expected_type.as_ref())?;
                 }
                 Statement::Iteration {
                     ident,
@@ -446,7 +420,7 @@ impl Validator {
                     }
                 }
                 Some(TypeDefinition::EnumDefinition(def)) => {
-                    if let Some(var) = def.find_variant(name) {
+                    if let Some((_, var)) = def.find_variant(name) {
                         if let Some(params) = &var.params {
                             Ok(ScriptType::EnumVariant {
                                 def: Arc::clone(def),
@@ -738,11 +712,11 @@ impl Validator {
     }
 
     fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> Result<(TupleType, ScriptType)> {
-        let params = self.eval_params(&fun.params, scope)?;
+        let params = eval_params(&fun.params, &scope.types, scope.expected_type.as_ref())?;
         let declared_type = fun
             .type_expr
             .as_ref()
-            .map(|expr| self.eval_type_expr(expr, scope))
+            .map(|expr| eval_type_expr(expr, &scope.types, scope.expected_type.as_ref()))
             .transpose()?;
         let mut inner = scope.clone();
         for arg in params.items() {
@@ -867,43 +841,6 @@ impl Validator {
         Ok(typ)
     }
 
-    fn eval_params(&self, params: &[ParamExpression], scope: &Scope) -> Result<TupleType> {
-        let mut items = Vec::new();
-
-        let expected_params =
-            if let Some(ScriptType::Function { params, ret: _ }) = &scope.expected_type {
-                Some(params.items())
-            } else {
-                None
-            };
-
-        if let Some(expected) = expected_params {
-            let mut expected_positional = expected.iter().filter(|arg| arg.name.is_none());
-            for param in params {
-                let exp = if let Some(name) = &param.name {
-                    expected
-                        .iter()
-                        .find(|e| e.name.as_ref() == Some(name))
-                        .or_else(|| expected_positional.next())
-                } else {
-                    expected_positional.next()
-                };
-                let typ = self.eval_type_expr(
-                    &param.type_expr,
-                    &scope.with_expected(exp.map(|it| it.value.clone())),
-                )?;
-                items.push(TupleItemType::new(param.name.clone(), typ))
-            }
-        } else {
-            for param in params {
-                let typ = self.eval_type_expr(&param.type_expr, scope)?;
-                items.push(TupleItemType::new(param.name.clone(), typ))
-            }
-        }
-
-        Ok(TupleType::new(items))
-    }
-
     fn validate_arithmetic(
         &self,
         lhs: &Src<Expression>,
@@ -932,10 +869,7 @@ impl Validator {
             .iter()
             .map(|arg| {
                 let value = self.eval_expr(&arg.expr, scope)?;
-                Ok(TupleItemType {
-                    name: arg.name.clone(),
-                    value: value.into_inner(),
-                })
+                Ok(TupleItemType::new(arg.name.clone(), value.into_inner()))
             })
             .collect::<Result<Vec<_>>>()?;
 
@@ -1044,46 +978,6 @@ impl Validator {
         }
         found_types.extend(infer_types(&expected, actual));
         Ok(())
-    }
-
-    fn eval_type_expr(&self, type_expr: &Src<TypeExpression>, scope: &Scope) -> Result<ScriptType> {
-        match type_expr.as_ref() {
-            TypeExpression::Int => Ok(ScriptType::Int),
-            TypeExpression::Str => Ok(ScriptType::Str),
-            TypeExpression::Bool => Ok(ScriptType::Bool),
-            TypeExpression::Range => Ok(ScriptType::Range),
-            TypeExpression::Tuple(params) => {
-                let types = self.eval_params(params, scope)?;
-                Ok(ScriptType::Tuple(types))
-            }
-            TypeExpression::List(inner) => {
-                let inner = self.eval_type_expr(inner.as_ref(), scope)?;
-                Ok(ScriptType::list_of(inner))
-            }
-            TypeExpression::Opt(inner) => {
-                let inner = self.eval_type_expr(inner.as_ref(), scope)?;
-                Ok(ScriptType::Opt(inner.into()))
-            }
-            TypeExpression::TypeName(ident) => match scope.types.get(ident) {
-                Some(TypeDefinition::RecDefinition(rec)) => {
-                    Ok(ScriptType::RecInstance(Arc::clone(rec)))
-                }
-                Some(TypeDefinition::EnumDefinition(def)) => {
-                    Ok(ScriptType::EnumInstance(Arc::clone(def)))
-                }
-                None => Err(
-                    TypeError::new(TypeErrorKind::UndefinedReference(ident.clone()))
-                        .at(type_expr.loc),
-                ),
-            },
-            TypeExpression::Infer => {
-                if let Some(t) = &scope.expected_type {
-                    Ok(t.clone())
-                } else {
-                    Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(type_expr.loc))
-                }
-            }
-        }
     }
 
     // Check that all the given types are "compatible", meaning that it's possible
@@ -1202,7 +1096,7 @@ impl Validator {
                 };
 
                 // Need to "fake" enum variant type to tuple type
-                let var_params = var_typ.and_then(|t| t.params.as_ref());
+                let var_params = var_typ.and_then(|(_, t)| t.params.as_ref());
                 if let Some(tuple) = var_params {
                     let as_type = ScriptType::Tuple(tuple.clone());
                     self.eval_assignment(assignee, &as_type, &mut inner_scope)?;

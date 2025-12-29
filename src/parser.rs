@@ -55,7 +55,7 @@ pub enum Statement {
     },
 
     Rec(Arc<Record>),
-    Enum(Arc<Enumeration>),
+    Enum(Arc<EnumExpression>),
 
     Return(Option<Src<Expression>>),
     Assert(Src<Expression>),
@@ -124,24 +124,6 @@ pub enum Literal {
     False,
     Int(i64),
     Str(Arc<str>),
-}
-
-impl Expression {
-    pub(crate) fn as_literal(&self) -> Option<&Literal> {
-        match self {
-            Self::Literal(literal) => Some(literal),
-            Self::String(t) => {
-                if let Some(Expression::Literal(l)) = t.first().map(|t| t.0.as_ref())
-                    && t.len() == 1
-                {
-                    Some(l)
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        }
-    }
 }
 
 #[derive(Debug)]
@@ -229,22 +211,13 @@ pub struct AttributeExpression {
 }
 
 #[derive(Debug)]
-pub struct Enumeration {
+pub struct EnumExpression {
     pub(crate) name: Ident,
-    pub(crate) variants: Vec<Variant>,
-}
-
-impl Enumeration {
-    pub(crate) fn find_variant(&self, name: &Ident) -> Option<(usize, &Variant)> {
-        self.variants
-            .iter()
-            .enumerate()
-            .find(|(_, v)| v.name == *name)
-    }
+    pub(crate) variants: Vec<VariantExpression>,
 }
 
 #[derive(Debug)]
-pub struct Variant {
+pub struct VariantExpression {
     pub(crate) name: Ident,
     pub(crate) params: Option<Src<Vec<ParamExpression>>>,
 }
@@ -506,7 +479,7 @@ impl<'a> Parser<'a> {
                     let variants = self.parse_variants()?;
                     self.expect_end_of_line()?;
 
-                    let rec = Arc::new(Enumeration { name, variants });
+                    let rec = Arc::new(EnumExpression { name, variants });
                     ast.push(Statement::Enum(rec));
                 }
 
@@ -1021,7 +994,7 @@ impl<'a> Parser<'a> {
         Ok(Src::new(assignee, loc))
     }
 
-    fn parse_variants(&mut self) -> Result<Vec<Variant>> {
+    fn parse_variants(&mut self) -> Result<Vec<VariantExpression>> {
         self.expect_kind(TokenKind::LeftBrace)?;
         let variants = self.parse_inner_list(TokenKind::RightBrace, |p| {
             let (name, _) = p.expect_ident()?;
@@ -1029,12 +1002,12 @@ impl<'a> Parser<'a> {
             if let Some(TokenKind::LeftParen) = p.peek_kind() {
                 let params = p.parse_params(false)?;
 
-                Ok(Variant {
+                Ok(VariantExpression {
                     name,
                     params: Some(params),
                 })
             } else {
-                Ok(Variant { name, params: None })
+                Ok(VariantExpression { name, params: None })
             }
         })?;
         self.expect_kind(TokenKind::RightBrace)?;

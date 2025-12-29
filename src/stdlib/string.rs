@@ -65,8 +65,8 @@ impl NativeMethod for StringTrim {
         subject: ScriptValue,
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
-        let s = subject.as_string()?;
-        Ok(ScriptValue::string(s.trim()))
+        let (s, t) = subject.as_string_and_type()?;
+        Ok(ScriptValue::string_with_type(s.trim(), t))
     }
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {

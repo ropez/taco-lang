@@ -24,6 +24,7 @@ pub mod lexer;
 pub mod parser;
 pub mod script_type;
 pub mod script_value;
+pub mod type_scope;
 pub mod validate;
 
 mod fmt;

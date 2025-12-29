@@ -5,8 +5,7 @@ use crate::{
     error::ScriptError,
     ext::NativeFunction,
     interpreter::Interpreter,
-    parser::{Record, TypeExpression},
-    script_type::{ScriptType, TupleType},
+    script_type::{RecType, ScriptType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib,
 };
@@ -17,11 +16,11 @@ pub fn build(builder: &mut Builder) {
 }
 
 pub(crate) struct ParseFunc {
-    def: Arc<Record>,
+    def: Arc<RecType>,
 }
 
 impl ParseFunc {
-    pub(crate) fn new(def: Arc<Record>) -> Self {
+    pub(crate) fn new(def: Arc<RecType>) -> Self {
         Self { def }
     }
 }
@@ -47,21 +46,21 @@ impl NativeFunction for ParseFunc {
     }
 }
 
-fn parse_default(rec: &Record, input: &str) -> Result<Tuple, ScriptError> {
+fn parse_default(rec: &RecType, input: &str) -> Result<Tuple, ScriptError> {
     let mut values = Vec::new();
     let mut tokens = input.split_ascii_whitespace();
-    for d in rec.params.as_ref() {
+    for d in rec.params.items() {
         values.push(TupleItem::new(
             d.name.clone(),
-            match d.type_expr.as_ref() {
-                TypeExpression::Int => ScriptValue::Int(
+            match &d.value {
+                ScriptType::Int => ScriptValue::Int(
                     tokens
                         .next()
                         .ok_or_else(|| ScriptError::panic("Expected token"))?
                         .parse::<i64>()
                         .map_err(ScriptError::panic)?,
                 ),
-                TypeExpression::Str => ScriptValue::string(
+                ScriptType::Str => ScriptValue::string(
                     tokens
                         .next()
                         .ok_or_else(|| ScriptError::panic("Expected token"))?,
