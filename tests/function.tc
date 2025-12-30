@@ -261,3 +261,19 @@ fun test_forward_implied_arguments() {
 
     assert bar("banana", 42) == "42 banana"
 }
+
+fun test_param_type_binding() {
+    rec Foo(x: int)
+
+    fun foo(arg: Foo): str {
+        assert typeof(arg) == "Foo(x: int)"
+
+        return json(arg) # Type definition is needed here
+    }
+    a = Foo(42)
+
+    # 'Foo(int)' is not in scope when calling the function
+    rec Foo(x: bool)
+
+    assert foo(a) == """{"x":42}"""
+}

@@ -133,7 +133,7 @@ pub fn run_tests(src: &str) -> Result<TestStats, Error> {
     let mut stats = TestStats::default();
     for (ident, value) in exported {
         if let ScriptValue::ScriptFunction(f) = &value {
-            if f.function.params.is_empty() {
+            if f.function.params.items().is_empty() {
                 eprint!("  {ident}...");
 
                 let eval_result = interpreter.eval_callable(value, &Tuple::identity());

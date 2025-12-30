@@ -28,10 +28,7 @@ pub enum ScriptType {
         params: TupleType,
         def: Arc<EnumType>,
     },
-    Function {
-        params: TupleType,
-        ret: Box<ScriptType>,
-    },
+    Function(Arc<FunctionType>),
 
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
@@ -74,17 +71,11 @@ impl ScriptType {
             (ScriptType::EnumInstance(l), ScriptType::EnumInstance(r)) => Arc::ptr_eq(l, r),
             (ScriptType::EnumInstance(_), ScriptType::EnumVariant { .. }) => false,
             (ScriptType::RecInstance(l), ScriptType::RecInstance(r)) => Arc::ptr_eq(l, r),
-            (
-                ScriptType::Function {
-                    params: lp,
-                    ret: lr,
-                },
-                rhs,
-            ) => {
+            (ScriptType::Function(l), rhs) => {
                 if let Ok(rp) = rhs.as_callable_params()
-                    && let Ok(rr) = rhs.as_callable_ret(lp)
+                    && let Ok(rr) = rhs.as_callable_ret(&l.params)
                 {
-                    rp.accepts(lp) && lr.accepts(&rr)
+                    rp.accepts(&l.params) && l.ret.accepts(&rr)
                 } else {
                     false
                 }
@@ -182,9 +173,8 @@ impl ScriptType {
     pub fn as_callable_params(&self) -> Result<TupleType> {
         // XXX Too much cloning
         match &self {
-            ScriptType::Function { params, .. } | ScriptType::EnumVariant { params, .. } => {
-                Ok(params.clone())
-            }
+            ScriptType::Function(fun) => Ok(fun.params.clone()),
+            ScriptType::EnumVariant { params, .. } => Ok(params.clone()),
             ScriptType::NativeFunction(func) => {
                 let params = func.arguments_type();
                 Ok(params.clone())
@@ -199,7 +189,7 @@ impl ScriptType {
 
     pub fn as_callable_ret(&self, arguments: &TupleType) -> Result<ScriptType> {
         match &self {
-            ScriptType::Function { ret, .. } => Ok(ScriptType::clone(ret)),
+            ScriptType::Function(fun) => Ok(ScriptType::clone(&fun.ret)),
             ScriptType::EnumVariant { def, .. } => Ok(ScriptType::EnumInstance(Arc::clone(def))),
             ScriptType::NativeFunction(func) => Ok(func.return_type(arguments)),
             ScriptType::NativeMethodBound(method, subject_typ) => {
@@ -254,11 +244,23 @@ impl fmt::Display for ScriptType {
             Self::Opt(inner) => write!(f, "{inner}?"),
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::RecInstance(rec) => write!(f, "{}{}", rec.name, rec.params),
-            Self::Function { params, ret } => write!(f, "fun{params}: {ret}"),
+            Self::Function(fun) => write!(f, "fun{}: {}", fun.params, fun.ret),
             Self::Infer(n) => write!(f, "<{n}>"),
             Self::Ext(e) => write!(f, "{{{}}}", e.name()),
             _ => write!(f, "{:?}", self),
         }
+    }
+}
+
+#[derive(Debug)]
+pub struct FunctionType {
+    pub params: TupleType,
+    pub ret: ScriptType,
+}
+
+impl FunctionType {
+    pub fn new(params: TupleType, ret: ScriptType) -> Arc<Self> {
+        Arc::new(Self { params, ret })
     }
 }
 

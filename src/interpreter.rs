@@ -10,14 +10,11 @@ use crate::{
     ext::{NativeFunctionRef, NativeMethodRef, ReadableExt},
     ident::{Ident, global},
     lexer::Src,
-    parser::{
-        Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, ParamExpression,
-        Statement, TypeExpression,
-    },
+    parser::{Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, Statement},
     script_type::{ScriptType, TupleType},
     script_value::{ScriptFunction, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseFunc},
-    type_scope::{TypeDefinition, TypeScope},
+    type_scope::{TypeDefinition, TypeScope, eval_function},
 };
 
 #[cfg(feature = "pipe")]
@@ -29,6 +26,7 @@ enum Completion {
     ExplicitReturn(ScriptValue),
     ImpliedReturn(ScriptValue),
 
+    // TODO: See if we can implement the 'Try' trait, and simplify calls
     Break,
     Continue,
 }
@@ -108,6 +106,12 @@ impl Interpreter {
 
     pub fn execute(&self, ast: &[Statement]) -> Result<HashMap<Ident, ScriptValue>> {
         let mut scope = Scope::default();
+
+        // During evaluation, we don't really care about type inferrence.
+        // Setting 'expected_type' to Infer, is like an "identity function", it always infers to
+        // Infer.
+        scope.types = scope.types.with_expected(ScriptType::Infer(0));
+
         scope.locals.extend(self.globals.clone());
         let end = self.execute_block(ast, scope)?;
 
@@ -125,25 +129,20 @@ impl Interpreter {
                     eval_assignment(assignee, &rhs, &mut scope);
                 }
                 Statement::Function { name, fun, .. } => {
+                    let function = eval_function(fun, &scope.types).map_err(ScriptError::panic)?;
+
                     let fun = ScriptValue::ScriptFunction(ScriptFunction::new(
+                        function,
                         Arc::clone(fun),
                         Arc::new(scope.clone()),
                     ));
                     scope.set_local(name, fun);
                 }
                 Statement::Rec(rec) => {
-                    let expected_type = None; // XXX This is needed
-                    scope
-                        .types
-                        .eval_rec(rec, expected_type.as_ref())
-                        .map_err(ScriptError::panic)?;
+                    scope.types.eval_rec(rec).map_err(ScriptError::panic)?;
                 }
                 Statement::Enum(def) => {
-                    let expected_type = None; // XXX This is needed
-                    scope
-                        .types
-                        .eval_enum(def, expected_type.as_ref())
-                        .map_err(ScriptError::panic)?;
+                    scope.types.eval_enum(def).map_err(ScriptError::panic)?;
                 }
                 Statement::Iteration {
                     ident,
@@ -300,47 +299,6 @@ impl Interpreter {
         Ok(Completion::EndOfBlock(scope))
     }
 
-    fn eval_assert_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<()> {
-        match expr.as_ref() {
-            Expression::Equal(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope)?;
-                let rhs = self.eval_expr(rhs, scope)?;
-
-                // TODO Smart handling of complex type equality (which list item is different etc)
-
-                if lhs.eq(&rhs) {
-                    Ok(())
-                } else {
-                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
-                        "\n        + {lhs} == {rhs}"
-                    )))
-                    .at(expr.loc))
-                }
-            }
-            Expression::NotEqual(lhs, rhs) => {
-                let lhs = self.eval_expr(lhs, scope)?;
-                let rhs = self.eval_expr(rhs, scope)?;
-
-                if !lhs.eq(&rhs) {
-                    Ok(())
-                } else {
-                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
-                        "\n        + {lhs} != {rhs}"
-                    )))
-                    .at(expr.loc))
-                }
-            }
-            _ => {
-                let val = self.eval_expr(expr, scope)?;
-                if val.as_boolean()? {
-                    Ok(())
-                } else {
-                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed("".into())).at(expr.loc))
-                }
-            }
-        }
-    }
-
     fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptValue> {
         let value = match expr.as_ref() {
             Expression::String(parts) => {
@@ -441,10 +399,15 @@ impl Interpreter {
                     panic!("No such attribute {key} for {subject}");
                 }
             }
-            Expression::Function(fun) => ScriptValue::ScriptFunction(ScriptFunction::new(
-                Arc::clone(fun),
-                Arc::new(scope.clone()),
-            )),
+            Expression::Function(fun) => {
+                let function = eval_function(fun, &scope.types).map_err(ScriptError::panic)?;
+
+                ScriptValue::ScriptFunction(ScriptFunction::new(
+                    function,
+                    Arc::clone(fun),
+                    Arc::new(scope.clone()),
+                ))
+            }
             Expression::LogicNot(expr) => {
                 let val = self.eval_expr(expr, scope)?;
                 if let ScriptValue::Boolean(b) = val {
@@ -559,6 +522,47 @@ impl Interpreter {
         Ok(value)
     }
 
+    fn eval_assert_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<()> {
+        match expr.as_ref() {
+            Expression::Equal(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope)?;
+                let rhs = self.eval_expr(rhs, scope)?;
+
+                // TODO Smart handling of complex type equality (which list item is different etc)
+
+                if lhs.eq(&rhs) {
+                    Ok(())
+                } else {
+                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
+                        "\n        + {lhs} == {rhs}"
+                    )))
+                    .at(expr.loc))
+                }
+            }
+            Expression::NotEqual(lhs, rhs) => {
+                let lhs = self.eval_expr(lhs, scope)?;
+                let rhs = self.eval_expr(rhs, scope)?;
+
+                if !lhs.eq(&rhs) {
+                    Ok(())
+                } else {
+                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
+                        "\n        + {lhs} != {rhs}"
+                    )))
+                    .at(expr.loc))
+                }
+            }
+            _ => {
+                let val = self.eval_expr(expr, scope)?;
+                if val.as_boolean()? {
+                    Ok(())
+                } else {
+                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed("".into())).at(expr.loc))
+                }
+            }
+        }
+    }
+
     fn eval_arithmetic<F>(
         &self,
         op: F,
@@ -633,7 +637,7 @@ impl Interpreter {
                 }
                 inner_scope.arguments = Arc::new(values);
 
-                match self.execute_block(&f.function.body, inner_scope)? {
+                match self.execute_block(&f.source.body, inner_scope)? {
                     Completion::EndOfBlock(_) => ScriptValue::None,
                     Completion::ExplicitReturn(v) => v,
                     Completion::ImpliedReturn(v) => v,
@@ -641,7 +645,7 @@ impl Interpreter {
                 }
             }
             ScriptValue::Record(rec) => {
-                let values = transform_args2(&rec.params, arguments);
+                let values = transform_args(&rec.params, arguments);
                 ScriptValue::Rec {
                     def: Arc::clone(&rec),
                     value: Arc::new(values),
@@ -651,7 +655,7 @@ impl Interpreter {
                 let variant = &def.variants[index];
                 // XXX Shouldn't be an option at this point
                 let params = variant.params.as_ref().unwrap();
-                let values = transform_args2(params, arguments);
+                let values = transform_args(params, arguments);
                 ScriptValue::Enum {
                     def: Arc::clone(&def),
                     index,
@@ -817,42 +821,7 @@ impl Interpreter {
 // Inside foo(), we will receive a tuple with named items (a: int, b: int).
 // This also allows named arguments at call-site to be order differently than
 // inside the function, or even before positional arguments.
-fn transform_args(params: &[ParamExpression], arguments: &Tuple) -> Tuple {
-    let mut items = Vec::new();
-
-    let mut args = arguments.iter_args();
-    for par in params.iter() {
-        if let Some(arg) = args.resolve(par.name.as_ref()) {
-            let val = transform_value(par, &arg);
-            items.push(TupleItem::new(par.name.clone(), val));
-        } else if par.is_optional() {
-            items.push(TupleItem::new(par.name.clone(), ScriptValue::None));
-        } else {
-            panic!("Missing argument");
-        }
-    }
-
-    fn transform_value(par: &ParamExpression, value: &ScriptValue) -> ScriptValue {
-        match (&*par.type_expr, value) {
-            (TypeExpression::Tuple(t), ScriptValue::Tuple(tup)) => {
-                let applied = transform_args(t, tup);
-                ScriptValue::Tuple(Arc::new(applied))
-            }
-            (TypeExpression::Tuple(t), ScriptValue::Rec { value: values, .. }) => {
-                let applied = transform_args(t, values);
-                ScriptValue::Tuple(Arc::new(applied))
-            }
-            _ => value.clone(),
-        }
-    }
-
-    Tuple::new(items)
-}
-
-// XX Duplicates the function above temporarily, until Function is updated to something like a
-// "TypeDefinition" like RecType and EnumType. That is, function argument expressions are evaluated
-// to types when we evaluate the function definition.
-fn transform_args2(params: &TupleType, arguments: &Tuple) -> Tuple {
+fn transform_args(params: &TupleType, arguments: &Tuple) -> Tuple {
     let mut items = Vec::new();
 
     let mut args = arguments.iter_args();
@@ -870,11 +839,11 @@ fn transform_args2(params: &TupleType, arguments: &Tuple) -> Tuple {
     fn transform_value(par: &ScriptType, value: &ScriptValue) -> ScriptValue {
         match (&par, value) {
             (ScriptType::Tuple(t), ScriptValue::Tuple(tup)) => {
-                let applied = transform_args2(t, tup);
+                let applied = transform_args(t, tup);
                 ScriptValue::Tuple(Arc::new(applied))
             }
             (ScriptType::Tuple(t), ScriptValue::Rec { value: values, .. }) => {
-                let applied = transform_args2(t, values);
+                let applied = transform_args(t, values);
                 ScriptValue::Tuple(Arc::new(applied))
             }
             _ => value.clone(),

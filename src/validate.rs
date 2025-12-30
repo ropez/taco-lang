@@ -10,7 +10,7 @@ use crate::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, Literal, MatchArm,
         MatchPattern, Statement,
     },
-    script_type::{ScriptType, TupleItemType, TupleType},
+    script_type::{FunctionType, ScriptType, TupleItemType, TupleType},
     stdlib,
     type_scope::{TypeDefinition, TypeScope, eval_params, eval_type_expr},
 };
@@ -35,8 +35,6 @@ struct Scope {
     types: TypeScope,
     ret: Option<ScriptType>,
     arguments: TupleType,
-
-    expected_type: Option<ScriptType>,
 }
 
 impl Scope {
@@ -47,13 +45,12 @@ impl Scope {
             types: Default::default(),
             ret: None,
             arguments: TupleType::identity(),
-            expected_type: None,
         }
     }
 
     fn with_expected(&self, exp: impl Into<Option<ScriptType>>) -> Self {
         Self {
-            expected_type: exp.into(),
+            types: self.types.with_expected(exp),
             ..self.clone()
         }
     }
@@ -155,21 +152,15 @@ impl Validator {
                     self.eval_assignment(assignee, &typ, &mut scope)?;
                 }
                 Statement::Function { name, fun } => {
-                    let (params, ret) = self.eval_function(fun, &scope)?;
+                    let fun = self.eval_function(fun, &scope)?;
 
-                    scope.set_local(
-                        name,
-                        ScriptType::Function {
-                            params,
-                            ret: ret.into(),
-                        },
-                    );
+                    scope.set_local(name, ScriptType::Function(fun));
                 }
                 Statement::Rec(rec) => {
-                    scope.types.eval_rec(rec, scope.expected_type.as_ref())?;
+                    scope.types.eval_rec(rec)?;
                 }
                 Statement::Enum(def) => {
-                    scope.types.eval_enum(def, scope.expected_type.as_ref())?;
+                    scope.types.eval_enum(def)?;
                 }
                 Statement::Iteration {
                     ident,
@@ -383,10 +374,10 @@ impl Validator {
                             // Should probably return a record type instead,
                             // and provide something like ScriptType::as_callable()
                             let ret = ScriptType::RecInstance(Arc::clone(rec));
-                            Ok(ScriptType::Function {
-                                params: rec.params.clone(),
-                                ret: ret.into(),
-                            })
+                            Ok(ScriptType::Function(FunctionType::new(
+                                rec.params.clone(),
+                                ret,
+                            )))
                         }
                         TypeDefinition::EnumDefinition(_) => {
                             Err(TypeError::new(TypeErrorKind::InvalidExpression).at(expr.loc))
@@ -407,10 +398,7 @@ impl Validator {
                             let ret = ScriptType::RecInstance(Arc::clone(rec));
                             let params =
                                 TupleType::new(vec![TupleItemType::unnamed(ScriptType::Str)]);
-                            Ok(ScriptType::Function {
-                                params,
-                                ret: ret.into(),
-                            })
+                            Ok(ScriptType::Function(FunctionType::new(params, ret)))
                         }
                         _ => Err(TypeError::new(TypeErrorKind::UndefinedMethod {
                             type_name: rec.name.clone(),
@@ -472,11 +460,8 @@ impl Validator {
                 }
             }
             Expression::Function(fun) => {
-                let (params, ret) = self.eval_function(fun, scope)?;
-                Ok(ScriptType::Function {
-                    params,
-                    ret: ret.into(),
-                })
+                let fun = self.eval_function(fun, scope)?;
+                Ok(ScriptType::Function(fun))
             }
             Expression::LogicNot(expr) => {
                 let typ = self.validate_expr(expr, scope)?;
@@ -711,12 +696,12 @@ impl Validator {
         .map_err(|err| err.at(expr.loc))
     }
 
-    fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> Result<(TupleType, ScriptType)> {
-        let params = eval_params(&fun.params, &scope.types, scope.expected_type.as_ref())?;
+    fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> Result<Arc<FunctionType>> {
+        let params = eval_params(&fun.params, &scope.types)?;
         let declared_type = fun
             .type_expr
             .as_ref()
-            .map(|expr| eval_type_expr(expr, &scope.types, scope.expected_type.as_ref()))
+            .map(|expr| eval_type_expr(expr, &scope.types))
             .transpose()?;
         let mut inner = scope.clone();
         for arg in params.items() {
@@ -751,7 +736,8 @@ impl Validator {
             (Some(r), _) => r,
             (None, r) => r,
         };
-        Ok((params, ret))
+
+        Ok(FunctionType::new(params, ret))
     }
 
     fn eval_return_type(&self, ast: &[Statement], scope: &Scope) -> Result<Option<ReturnType>> {
@@ -1181,23 +1167,17 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
         (ScriptType::List(formal), ScriptType::Range) => {
             found.extend(infer_types(formal, &ScriptType::Int));
         }
-        (
-            ScriptType::Function {
-                params: f_params,
-                ret: formal,
-            },
-            ScriptType::Function { params, ret },
-        ) => {
-            found.extend(infer_tuple_types(f_params, params));
-            found.extend(infer_types(formal, ret));
+        (ScriptType::Function(formal), ScriptType::Function(actual)) => {
+            found.extend(infer_tuple_types(&formal.params, &actual.params));
+            found.extend(infer_types(&formal.ret, &actual.ret));
         }
-        (ScriptType::Function { ret: formal, .. }, ScriptType::NativeFunction(fun)) => {
+        (ScriptType::Function(formal), ScriptType::NativeFunction(fun)) => {
             let arguments = TupleType::identity(); // How to get actual args here?
-            found.extend(infer_types(formal, &fun.return_type(&arguments)));
+            found.extend(infer_types(&formal.ret, &fun.return_type(&arguments)));
         }
-        (ScriptType::Function { ret: formal, .. }, ScriptType::EnumVariant { def, .. }) => {
+        (ScriptType::Function(formal), ScriptType::EnumVariant { def, .. }) => {
             found.extend(infer_types(
-                formal,
+                &formal.ret,
                 &ScriptType::EnumInstance(Arc::clone(def)),
             ));
         }
@@ -1238,14 +1218,11 @@ fn apply_inferred_types(
             let (inner, complete) = apply_inferred_types(inner, found_types)?;
             (ScriptType::list_of(inner), complete)
         }
-        ScriptType::Function { params, ret } => {
-            let (params, params_complete) = apply_inferred_types_tuple(params, found_types)?;
-            let (ret, ret_complete) = apply_inferred_types(ret, found_types)?;
+        ScriptType::Function(fun) => {
+            let (params, params_complete) = apply_inferred_types_tuple(&fun.params, found_types)?;
+            let (ret, ret_complete) = apply_inferred_types(&fun.ret, found_types)?;
             (
-                ScriptType::Function {
-                    params,
-                    ret: ret.into(),
-                },
+                ScriptType::Function(FunctionType::new(params, ret)),
                 params_complete && ret_complete,
             )
         }
@@ -1254,10 +1231,7 @@ fn apply_inferred_types(
                 apply_inferred_types_tuple(&f.arguments_type(), found_types)?;
             let (ret, ret_complete) = apply_inferred_types(&f.return_type(&params), found_types)?;
             (
-                ScriptType::Function {
-                    params,
-                    ret: ret.into(),
-                },
+                ScriptType::Function(FunctionType::new(params, ret)),
                 params_complete && ret_complete,
             )
         }
@@ -1267,10 +1241,7 @@ fn apply_inferred_types(
             let (ret, ret_complete) =
                 apply_inferred_types(&met.return_type(subj, &params)?, found_types)?;
             (
-                ScriptType::Function {
-                    params,
-                    ret: ret.into(),
-                },
+                ScriptType::Function(FunctionType::new(params, ret)),
                 params_complete && ret_complete,
             )
         }

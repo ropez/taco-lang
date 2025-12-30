@@ -7,7 +7,7 @@ use crate::{
     ident::Ident,
     interpreter::Scope,
     parser::Function,
-    script_type::{EnumType, RecType},
+    script_type::{EnumType, FunctionType, RecType},
     stdlib::list::List,
 };
 
@@ -368,14 +368,20 @@ impl fmt::Display for Tuple {
 
 #[derive(Debug, Clone)]
 pub struct ScriptFunction {
-    pub(crate) function: Arc<Function>,
+    pub(crate) function: Arc<FunctionType>,
+    pub(crate) source: Arc<Function>,
     captured_scope: Arc<Scope>, // XXX Kind-of circular
 }
 
 impl ScriptFunction {
-    pub(crate) fn new(function: Arc<Function>, captured_scope: Arc<Scope>) -> Self {
+    pub(crate) fn new(
+        function: Arc<FunctionType>,
+        source: Arc<Function>,
+        captured_scope: Arc<Scope>,
+    ) -> Self {
         Self {
             function,
+            source,
             captured_scope,
         }
     }

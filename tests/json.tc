@@ -1,0 +1,24 @@
+
+fun test_simple_serialization() {
+    rec Foo(x: int)
+
+    assert json(Foo(13)) == """{"x":13}"""
+}
+
+fun test_serialization_with_attrs() {
+    rec Foo(
+        x: int @json(name: "taco")
+    )
+
+    assert json(Foo(x: 13)) == """{"taco":13}"""
+}
+
+fun test_serialization_in_callback() {
+    rec Foo(
+        x: int @json(name: "taco")
+    )
+
+    points = [Foo(2), Foo(4)]
+
+    assert points.map(fun(p) { json(p) }) == ["""{"taco":2}""", """{"taco":4}"""]
+}

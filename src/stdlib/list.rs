@@ -6,7 +6,7 @@ use crate::{
     ext::{NativeFunction, NativeMethod},
     ident::global,
     interpreter::Interpreter,
-    script_type::{ScriptType, TupleItemType, TupleType},
+    script_type::{FunctionType, ScriptType, TupleItemType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
 };
 
@@ -677,10 +677,9 @@ impl ListMethod for ToList {
 pub(crate) struct ListMap;
 impl ListMethod for ListMap {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
-        Ok(TupleType::from_single(ScriptType::Function {
-            params: TupleType::from_single(inner.clone()),
-            ret: ScriptType::Infer(1).into(),
-        }))
+        Ok(TupleType::from_single(ScriptType::Function(
+            FunctionType::new(TupleType::from_single(inner.clone()), ScriptType::Infer(1)),
+        )))
     }
 
     fn list_return_type(
@@ -715,10 +714,9 @@ impl ListMethod for ListMap {
 pub(crate) struct ListAny;
 impl ListMethod for ListAny {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
-        Ok(TupleType::from_single(ScriptType::Function {
-            params: TupleType::from_single(inner.clone()),
-            ret: ScriptType::Bool.into(),
-        }))
+        Ok(TupleType::from_single(ScriptType::Function(
+            FunctionType::new(TupleType::from_single(inner.clone()), ScriptType::Bool),
+        )))
     }
 
     fn list_return_type(
@@ -758,13 +756,13 @@ impl ListMethod for ListScan {
             TupleItemType::named("initial", ScriptType::Infer(1)),
             TupleItemType::named(
                 "mapper",
-                ScriptType::Function {
-                    params: TupleType::new(vec![
+                ScriptType::Function(FunctionType::new(
+                    TupleType::new(vec![
                         TupleItemType::unnamed(ScriptType::Infer(1)),
                         TupleItemType::unnamed(inner.clone()),
                     ]),
-                    ret: ScriptType::Infer(1).into(),
-                },
+                    ScriptType::Infer(1),
+                )),
             ),
         ]))
     }
@@ -809,10 +807,9 @@ impl ListMethod for ListScan {
 pub(crate) struct ListFilter;
 impl ListMethod for ListFilter {
     fn list_arguments_type(&self, inner: &ScriptType) -> Result<TupleType, TypeError> {
-        Ok(TupleType::from_single(ScriptType::Function {
-            params: TupleType::from_single(inner.clone()),
-            ret: ScriptType::Bool.into(),
-        }))
+        Ok(TupleType::from_single(ScriptType::Function(
+            FunctionType::new(TupleType::from_single(inner.clone()), ScriptType::Bool),
+        )))
     }
 
     fn list_return_type(&self, inner: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
@@ -880,10 +877,9 @@ impl ListMethod for ListMapTo {
         let Some(tuple_typ) = inner.as_tuple() else {
             return Err(TypeError::new(TypeErrorKind::InvalidMapTo(inner.clone())));
         };
-        Ok(TupleType::from_single(ScriptType::Function {
-            params: tuple_typ.clone(),
-            ret: ScriptType::Infer(1).into(),
-        }))
+        Ok(TupleType::from_single(ScriptType::Function(
+            FunctionType::new(tuple_typ.clone(), ScriptType::Infer(1)),
+        )))
     }
 
     fn list_return_type(

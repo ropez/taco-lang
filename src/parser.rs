@@ -198,12 +198,6 @@ pub struct ParamExpression {
     pub(crate) attrs: Vec<Src<AttributeExpression>>,
 }
 
-impl ParamExpression {
-    pub(crate) fn is_optional(&self) -> bool {
-        matches!(*self.type_expr, TypeExpression::Opt(_))
-    }
-}
-
 #[derive(Debug)]
 pub struct AttributeExpression {
     pub(crate) name: Ident,

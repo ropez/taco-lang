@@ -5,11 +5,12 @@ use crate::{
     ident::Ident,
     lexer::Src,
     parser::{
-        AttributeExpression, EnumExpression, Expression, Literal, ParamExpression, Record,
-        TypeExpression,
+        AttributeExpression, EnumExpression, Expression, Function, Literal, ParamExpression,
+        Record, TypeExpression,
     },
     script_type::{
-        EnumType, EnumVariantType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute,
+        EnumType, EnumVariantType, FunctionType, RecType, ScriptType, TupleItemType, TupleType,
+        TypeAttribute,
     },
     script_value::{ScriptValue, Tuple, TupleItem},
 };
@@ -23,36 +24,38 @@ pub enum TypeDefinition {
 }
 
 #[derive(Clone, Default)]
-pub(crate) struct TypeScope(HashMap<Ident, TypeDefinition>);
+pub(crate) struct TypeScope {
+    types: HashMap<Ident, TypeDefinition>,
+    expected_type: Option<ScriptType>,
+}
 
 impl TypeScope {
+    pub(crate) fn with_expected(&self, exp: impl Into<Option<ScriptType>>) -> Self {
+        Self {
+            types: self.types.clone(),
+            expected_type: exp.into(),
+        }
+    }
+
     pub(crate) fn get(&self, name: &Ident) -> Option<&TypeDefinition> {
-        self.0.get(name)
+        self.types.get(name)
     }
 
     pub(crate) fn add_enum(&mut self, name: impl Into<Ident>, def: Arc<EnumType>) {
-        self.0
+        self.types
             .insert(name.into(), TypeDefinition::EnumDefinition(def));
     }
 
-    pub(crate) fn eval_rec(
-        &mut self,
-        rec: &Record,
-        expected_type: Option<&ScriptType>,
-    ) -> Result<()> {
-        let rec_type = RecType::new(&rec.name, eval_params(&rec.params, self, expected_type)?);
+    pub(crate) fn eval_rec(&mut self, rec: &Record) -> Result<()> {
+        let rec_type = RecType::new(&rec.name, eval_params(&rec.params, self)?);
 
-        self.0
+        self.types
             .insert(rec.name.clone(), TypeDefinition::RecDefinition(rec_type));
 
         Ok(())
     }
 
-    pub(crate) fn eval_enum(
-        &mut self,
-        def: &EnumExpression,
-        expected_type: Option<&ScriptType>,
-    ) -> Result<()> {
+    pub(crate) fn eval_enum(&mut self, def: &EnumExpression) -> Result<()> {
         let enum_type = EnumType::new(
             &def.name,
             def.variants
@@ -61,7 +64,7 @@ impl TypeScope {
                     let params = v
                         .params
                         .as_ref()
-                        .map(|p| eval_params(p, self, expected_type))
+                        .map(|p| eval_params(p, self))
                         .transpose()?;
                     Ok(EnumVariantType::new(&v.name, params))
                 })
@@ -74,15 +77,25 @@ impl TypeScope {
     }
 }
 
-pub(crate) fn eval_params(
-    params: &[ParamExpression],
-    scope: &TypeScope,
-    expected_type: Option<&ScriptType>,
-) -> Result<TupleType> {
+pub(crate) fn eval_function(source: &Function, scope: &TypeScope) -> Result<Arc<FunctionType>> {
+    let params = eval_params(&source.params, scope)?;
+    let ret = source
+        .type_expr
+        .as_ref()
+        .map(|expr| eval_type_expr(expr, scope))
+        .transpose()?
+        .unwrap_or_else(ScriptType::identity);
+
+    let function = FunctionType::new(params, ret);
+
+    Ok(function)
+}
+
+pub(crate) fn eval_params(params: &[ParamExpression], scope: &TypeScope) -> Result<TupleType> {
     let mut items = Vec::new();
 
-    let expected_params = if let Some(ScriptType::Function { params, ret: _ }) = expected_type {
-        Some(params.items())
+    let expected_params = if let Some(ScriptType::Function(fun)) = &scope.expected_type {
+        Some(fun.params.items())
     } else {
         None
     };
@@ -98,7 +111,10 @@ pub(crate) fn eval_params(
             } else {
                 expected_positional.next()
             };
-            let typ = eval_type_expr(&param.type_expr, scope, exp.map(|it| &it.value))?;
+            let typ = eval_type_expr(
+                &param.type_expr,
+                &scope.with_expected(exp.map(|it| it.value.clone())),
+            )?;
             let attrs = eval_type_attrs(&param.attrs)?;
 
             items.push(TupleItemType::new_with_attrs(
@@ -109,7 +125,7 @@ pub(crate) fn eval_params(
         }
     } else {
         for param in params {
-            let typ = eval_type_expr(&param.type_expr, scope, expected_type)?;
+            let typ = eval_type_expr(&param.type_expr, scope)?;
             let attrs = eval_type_attrs(&param.attrs)?;
 
             items.push(TupleItemType::new_with_attrs(
@@ -126,7 +142,6 @@ pub(crate) fn eval_params(
 pub(crate) fn eval_type_expr(
     type_expr: &Src<TypeExpression>,
     scope: &TypeScope,
-    expected_type: Option<&ScriptType>,
 ) -> Result<ScriptType> {
     match type_expr.as_ref() {
         TypeExpression::Int => Ok(ScriptType::Int),
@@ -134,15 +149,15 @@ pub(crate) fn eval_type_expr(
         TypeExpression::Bool => Ok(ScriptType::Bool),
         TypeExpression::Range => Ok(ScriptType::Range),
         TypeExpression::Tuple(params) => {
-            let types = eval_params(params, scope, expected_type)?;
+            let types = eval_params(params, scope)?;
             Ok(ScriptType::Tuple(types))
         }
         TypeExpression::List(inner) => {
-            let inner = eval_type_expr(inner.as_ref(), scope, expected_type)?;
+            let inner = eval_type_expr(inner.as_ref(), scope)?;
             Ok(ScriptType::list_of(inner))
         }
         TypeExpression::Opt(inner) => {
-            let inner = eval_type_expr(inner.as_ref(), scope, expected_type)?;
+            let inner = eval_type_expr(inner.as_ref(), scope)?;
             Ok(ScriptType::Opt(inner.into()))
         }
         TypeExpression::TypeName(ident) => match scope.get(ident) {
@@ -157,7 +172,7 @@ pub(crate) fn eval_type_expr(
             ),
         },
         TypeExpression::Infer => {
-            if let Some(t) = expected_type {
+            if let Some(t) = &scope.expected_type {
                 Ok(t.clone())
             } else {
                 Err(TypeError::new(TypeErrorKind::TypeNotInferred).at(type_expr.loc))

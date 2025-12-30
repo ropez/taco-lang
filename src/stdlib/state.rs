@@ -8,7 +8,7 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
-    script_type::{ScriptType, TupleType},
+    script_type::{FunctionType, ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
 };
 
@@ -178,10 +178,12 @@ pub(crate) struct StateUpdate;
 impl NativeMethod for StateUpdate {
     fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
         let state = subject.as_state()?;
-        Ok(TupleType::from_single(ScriptType::Function {
-            params: TupleType::from_single(state.inner.clone()),
-            ret: Box::new(state.inner.clone()),
-        }))
+        Ok(TupleType::from_single(ScriptType::Function(
+            FunctionType::new(
+                TupleType::from_single(state.inner.clone()),
+                state.inner.clone(),
+            ),
+        )))
     }
 
     fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {

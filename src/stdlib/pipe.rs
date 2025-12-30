@@ -10,7 +10,7 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
     interpreter::Interpreter,
-    script_type::{ScriptType, TupleType},
+    script_type::{FunctionType, ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
 };
 
@@ -121,19 +121,19 @@ impl ExternalValue for PipeImpl {
 struct ActorFunc;
 impl NativeFunction for ActorFunc {
     fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Function {
-            params: TupleType::from_single(ScriptType::Infer(1)),
-            ret: ScriptType::Infer(2).into(),
-        })
+        TupleType::from_single(ScriptType::Function(FunctionType::new(
+            TupleType::from_single(ScriptType::Infer(1)),
+            ScriptType::Infer(2),
+        )))
     }
 
     fn return_type(&self, arguments: &TupleType) -> ScriptType {
         let arg = arguments.single().unwrap();
-        if let ScriptType::Function { params, ret } = arg {
-            let lhs = params.single().cloned().unwrap();
+        if let ScriptType::Function(fun) = arg {
+            let lhs = fun.params.single().cloned().unwrap();
 
             // Not really a pipe, but the type works here
-            let pipe = PipeType::new(Some(lhs.clone()), Some(ret.as_ref().clone()));
+            let pipe = PipeType::new(Some(lhs.clone()), Some(fun.ret.clone()));
 
             ScriptType::Ext(Arc::new(pipe))
         } else {

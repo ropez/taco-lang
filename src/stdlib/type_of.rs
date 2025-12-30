@@ -5,7 +5,6 @@ use crate::{
     error::ScriptError,
     ext::NativeFunction,
     interpreter::Interpreter,
-    parser::{ParamExpression, TypeExpression},
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
 };
@@ -45,19 +44,12 @@ impl ScriptValue {
                 }
             }
             ScriptValue::Tuple(t) => tuple_to_type(t),
+            ScriptValue::Rec { def, value } => format!("{}{}", def.name, tuple_to_type(value)),
             ScriptValue::Enum { def, .. } => {
                 format!("{}", def.name)
             }
             ScriptValue::ScriptFunction(f) => {
-                if let Some(type_expr) = &f.function.type_expr {
-                    format!(
-                        "fun{}: {}",
-                        params_to_type(&f.function.params),
-                        type_expr_to_str(type_expr)
-                    )
-                } else {
-                    format!("fun{}: ()", params_to_type(&f.function.params))
-                }
+                format!("fun{}: {}", f.function.params, f.function.ret)
             }
             ScriptValue::EnumVariant { def, index } => {
                 let variant = def.variants.get(*index).expect("enum variant exists");
@@ -92,63 +84,5 @@ fn write_tuple_item(f: &mut String, o: &TupleItem) -> fmt::Result {
     }
 
     write!(f, "{}", o.value.to_type())?;
-    Ok(())
-}
-
-fn params_to_type(items: &[ParamExpression]) -> String {
-    let mut f = String::new();
-    write!(f, "(").unwrap();
-
-    let mut items = items.iter();
-    if let Some(first) = items.next() {
-        write_param_expr(&mut f, first).unwrap();
-        for val in items {
-            write!(f, ", ").unwrap();
-            write_param_expr(&mut f, val).unwrap();
-        }
-    }
-
-    write!(f, ")").unwrap();
-    f
-}
-
-fn write_param_expr(f: &mut String, o: &ParamExpression) -> fmt::Result {
-    if let Some(name) = &o.name {
-        write!(f, "{name}: ")?;
-    }
-    write_type_expr(f, &o.type_expr)?;
-    Ok(())
-}
-
-fn type_expr_to_str(type_expr: &TypeExpression) -> String {
-    let mut s = String::new();
-
-    write_type_expr(&mut s, type_expr).unwrap();
-
-    s
-}
-
-fn write_type_expr(f: &mut String, type_expr: &TypeExpression) -> fmt::Result {
-    match type_expr {
-        TypeExpression::Int => write!(f, "int")?,
-        TypeExpression::Str => write!(f, "str")?,
-        TypeExpression::Bool => write!(f, "bool")?,
-        TypeExpression::Range => write!(f, "range")?,
-        TypeExpression::List(inner) => {
-            write!(f, "[")?;
-            write_type_expr(f, inner.as_ref())?;
-            write!(f, "]")?;
-        }
-        TypeExpression::Opt(inner) => {
-            write_type_expr(f, inner.as_ref())?;
-            write!(f, "?")?;
-        }
-        TypeExpression::Tuple(params) => {
-            write!(f, "{}", params_to_type(params))?;
-        }
-        TypeExpression::TypeName(ident) => write!(f, "{ident}")?,
-        TypeExpression::Infer => write!(f, "_")?,
-    }
-
     Ok(())
 }

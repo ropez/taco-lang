@@ -29,7 +29,7 @@ pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)
 where
     O: io::Write + Send + Sync + 'static,
 {
-    let _ = out;
+    let _ = out; // XXX Send stdout to this stream
 
     builder.add_function("exec", ExecFunc(Arc::new(ProcessType)));
 }
