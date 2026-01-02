@@ -1,3 +1,4 @@
+mod interpolation;
 mod validation;
 
 use crate::check_output;
