@@ -158,8 +158,15 @@ impl NativeFunction for FetchFunc {
             }
             stream.flush().await.unwrap();
 
-            let mut buf = [0; 10000];
-            stream.read(&mut buf).await.unwrap();
+            let mut buf = Vec::new();
+            match stream.read_to_end(&mut buf).await {
+                Ok(_) => {}
+                Err(err) => match err.kind() {
+                    // XXX https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof
+                    std::io::ErrorKind::UnexpectedEof => {}
+                    _ => panic!("{err}")
+                }
+            }
 
             let mut headers = [httparse::EMPTY_HEADER; 32];
             let mut res = Response::new(&mut headers);
@@ -167,7 +174,6 @@ impl NativeFunction for FetchFunc {
             match res.parse(&buf).map_err(ScriptError::panic)? {
                 httparse::Status::Complete(n) => {
                     let code = res.code.unwrap_or_default();
-                    // eprintln!("Response: {code}");
                     let body = if buf.len() > n {
                         Some(parse_body(&res, &buf[n..])?)
                     } else {
@@ -191,14 +197,23 @@ fn parse_body(res: &Response<'_, '_>, buf: &[u8]) -> Result<Arc<str>, ScriptErro
     {
         let enc = str::from_utf8(h.value).map_err(ScriptError::panic)?;
         if enc.eq_ignore_ascii_case("chunked") {
-            let p = buf
-                .iter()
-                .position(|c| *c == b'\r')
-                .ok_or_else(|| ScriptError::panic("Parse error"))?;
-            let (sz, rest) = buf.split_at(p);
-            let src = str::from_utf8(sz).map_err(ScriptError::panic)?;
-            let size: usize = usize::from_str_radix(src, 16).map_err(ScriptError::panic)?;
-            let b = str::from_utf8(&rest[2..2 + size]).map_err(ScriptError::panic)?;
+            let mut b = String::new();
+
+            let mut r = buf;
+            while !r.is_empty() {
+                let p = r
+                    .iter()
+                    .position(|c| *c == b'\r')
+                    .ok_or_else(|| ScriptError::panic("Parse error"))?;
+                if p == 0 { break }
+                let (sz, rest) = r.split_at(p);
+                let src = str::from_utf8(sz).map_err(ScriptError::panic)?;
+                let size: usize = usize::from_str_radix(src, 16).map_err(ScriptError::panic)?;
+                b.push_str(str::from_utf8(&rest[2..2 + size]).map_err(ScriptError::panic)?);
+
+                r = &rest[2 + size + 2..];
+            }
+
             Ok(b.into())
         } else {
             todo!("encoding: {:?}", h.value);

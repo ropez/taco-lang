@@ -91,6 +91,27 @@ pub(crate) fn from_json_value(
             let list = List::new(items);
             ScriptValue::List(Arc::new(list))
         }
+        ScriptType::RecInstance(rec) => {
+            let obj: &HashMap<_, _> = val
+                .get()
+                .ok_or_else(|| ScriptError::panic("Expected a JSON object"))?;
+            let mut values = Vec::new();
+            for (i, d) in rec.params.items().iter().enumerate() {
+                let name = get_json_name(i, d)?;
+                let val = obj
+                    .get(name.as_str())
+                    .ok_or_else(|| ScriptError::panic(format!("Attribute '{name}' not found")))?;
+                values.push(TupleItem::new(
+                    d.name.clone(),
+                    from_json_value(&d.value, val)?,
+                ));
+            }
+
+            ScriptValue::Rec {
+                def: Arc::clone(rec),
+                value: Arc::new(Tuple::new(values)),
+            }
+        }
         ScriptType::EnumInstance(e) => {
             let s: &String = val
                 .get()
