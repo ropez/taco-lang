@@ -164,8 +164,8 @@ impl NativeFunction for FetchFunc {
                 Err(err) => match err.kind() {
                     // XXX https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof
                     std::io::ErrorKind::UnexpectedEof => {}
-                    _ => panic!("{err}")
-                }
+                    _ => panic!("{err}"),
+                },
             }
 
             let mut headers = [httparse::EMPTY_HEADER; 32];
@@ -205,7 +205,9 @@ fn parse_body(res: &Response<'_, '_>, buf: &[u8]) -> Result<Arc<str>, ScriptErro
                     .iter()
                     .position(|c| *c == b'\r')
                     .ok_or_else(|| ScriptError::panic("Parse error"))?;
-                if p == 0 { break }
+                if p == 0 {
+                    break;
+                }
                 let (sz, rest) = r.split_at(p);
                 let src = str::from_utf8(sz).map_err(ScriptError::panic)?;
                 let size: usize = usize::from_str_radix(src, 16).map_err(ScriptError::panic)?;

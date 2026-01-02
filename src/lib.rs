@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Write, sync::Arc};
+use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
 
 use crate::{
     error::Error,
@@ -91,23 +91,37 @@ where
 
 #[derive(Clone, Debug, Default)]
 pub struct TestStats {
-    pub failed: i32,
     pub succeeded: i32,
-    pub errors: i32,
+
+    pub failures: Vec<TestFailure>,
+    pub errors: Vec<TestError>,
+}
+
+#[derive(Clone, Debug)]
+pub struct TestFailure {
+    pub test_name: Ident,
+    pub error: String,
+    pub output: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct TestError {
+    pub file_name: PathBuf,
+    pub error: String,
 }
 
 impl TestStats {
-    pub fn update(&mut self, other: &Self) {
-        self.failed += other.failed;
+    pub fn update(&mut self, other: Self) {
         self.succeeded += other.succeeded;
-        self.errors += other.errors;
+        self.failures.extend(other.failures);
+        self.errors.extend(other.errors);
     }
 
-    pub fn error() -> Self {
+    pub fn error(err: impl Into<TestError>) -> Self {
         Self {
-            failed: 0,
             succeeded: 0,
-            errors: 1,
+            failures: Vec::new(),
+            errors: vec![err.into()],
         }
     }
 }
@@ -145,16 +159,11 @@ pub fn run_tests(src: &str) -> Result<TestStats, Error> {
                     }
                     Err(err) => {
                         eprintln!("\x1b[31m failed\x1b[0m");
-                        eprintln!("{}", err.into_source_error(src));
-
-                        let buf = stdout.output();
-                        if !buf.is_empty() {
-                            eprintln!();
-                            eprintln!("=== Captured output ===");
-                            eprintln!("{buf}");
-                            eprintln!();
-                        }
-                        stats.failed += 1;
+                        stats.failures.push(TestFailure {
+                            test_name: ident,
+                            error: err.into_source_error(src).to_string(),
+                            output: stdout.output(),
+                        });
                     }
                 }
 

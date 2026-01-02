@@ -77,6 +77,7 @@ pub struct TypeError {
 #[derive(Clone, Debug)]
 pub enum TypeErrorKind {
     InvalidExpression,
+    InvalidStaticExpression,
     UndefinedReference(Ident),
     UndefinedMethod {
         type_name: Ident,
@@ -240,6 +241,9 @@ impl TypeError {
             TypeErrorKind::MissingReturnStatement => "Missing return statement".into(),
             TypeErrorKind::EmptyList => "List is always empty".into(),
             TypeErrorKind::InvalidExpression => "Expected expression".into(),
+            TypeErrorKind::InvalidStaticExpression => {
+                "Expression can not be evaluated statically".into()
+            }
             TypeErrorKind::InvalidDestructure(actual) => {
                 format!("Invalid destructure: Expected a tuple, found '{actual}'")
             }

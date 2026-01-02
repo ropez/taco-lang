@@ -1,4 +1,4 @@
-use std::{collections::HashMap, result, sync::Arc};
+use std::{collections::HashMap, fmt::Write, result, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind},
@@ -115,6 +115,11 @@ pub(crate) fn eval_params(params: &[ParamExpression], scope: &TypeScope) -> Resu
                 &param.type_expr,
                 &scope.with_expected(exp.map(|it| it.value.clone())),
             )?;
+
+            // XXX Should evaluate _type_ of expression, not only value
+            // E.g. This should fail validation, but fails in runtime:
+            // @json(name: 2)
+
             let attrs = eval_type_attrs(&param.attrs)?;
 
             items.push(TupleItemType::new_with_attrs(
@@ -192,12 +197,7 @@ fn eval_type_attrs(attrs: &[Src<AttributeExpression>]) -> Result<Vec<TypeAttribu
                     let items = args
                         .as_ref()
                         .iter()
-                        .map(|a| {
-                            Ok(TupleItem::new(
-                                a.name.clone(),
-                                try_static_eval(a.expr.as_ref())?,
-                            ))
-                        })
+                        .map(|a| Ok(TupleItem::new(a.name.clone(), try_static_eval(&a.expr)?)))
                         .collect::<Result<Vec<_>>>()?;
                     Ok(Tuple::new(items))
                 })
@@ -211,22 +211,35 @@ fn eval_type_attrs(attrs: &[Src<AttributeExpression>]) -> Result<Vec<TypeAttribu
         .collect::<Result<Vec<_>>>()
 }
 
-fn try_static_eval(expr: &Expression) -> Result<ScriptValue> {
-    let opt = match expr {
+fn try_static_eval(expr: &Src<Expression>) -> Result<ScriptValue> {
+    let err_mapper = |_| TypeError::new(TypeErrorKind::InvalidStaticExpression).at(expr.loc);
+
+    let opt = match expr.as_ref() {
         Expression::Literal(literal) => match literal {
             Literal::Str(s) => ScriptValue::string(Arc::clone(s)),
-            _ => todo!(),
+            Literal::True => ScriptValue::Boolean(true),
+            Literal::False => ScriptValue::Boolean(false),
+            Literal::Int(n) => ScriptValue::Int(*n),
         },
-        Expression::String(s) => {
-            if s.len() == 1
-                && let Some(Expression::Literal(Literal::Str(f))) = s.first().map(|k| &*k.0)
-            {
-                ScriptValue::string(Arc::clone(f))
-            } else {
-                panic!()
+        Expression::String(parts) => {
+            let mut builder = String::new();
+            for (expr, offset) in parts {
+                let val = try_static_eval(expr).map_err(|err| err.at_offset(*offset))?;
+                write!(builder, "{}", val).unwrap();
             }
+            ScriptValue::string(builder)
         }
-        _ => panic!(),
+        Expression::Addition(lhs, rhs) => {
+            let lhs = try_static_eval(lhs)?.as_int().map_err(err_mapper)?;
+            let rhs = try_static_eval(rhs)?.as_int().map_err(err_mapper)?;
+            ScriptValue::Int(lhs + rhs)
+        }
+        Expression::Subtraction(lhs, rhs) => {
+            let lhs = try_static_eval(lhs)?.as_int().map_err(err_mapper)?;
+            let rhs = try_static_eval(rhs)?.as_int().map_err(err_mapper)?;
+            ScriptValue::Int(lhs - rhs)
+        }
+        _ => Err(TypeError::new(TypeErrorKind::InvalidStaticExpression).at(expr.loc))?,
     };
 
     Ok(opt)
