@@ -132,6 +132,7 @@ impl Validator {
             ScriptType::RecInstance(_) => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
             ScriptType::Tuple(_) => global::TUPLE.into(),
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
+            ScriptType::Fallible(_, _) => global::FALLIBLE.into(),
             ScriptType::Opt(_) => return None,
             ScriptType::Ext(ext) => return ext.get_method(name),
             _ => todo!("NS for {subject}"),

@@ -1,8 +1,10 @@
 use std::{
-    env::args,
+    env::{self, args},
+    ffi::{OsStr, OsString},
     fs,
     io::{self, stdout},
-    path::Path,
+    os,
+    path::{Path, PathBuf},
 };
 
 use taco::{TestError, TestStats, check_call, run_tests};
@@ -43,7 +45,7 @@ fn main() -> io::Result<()> {
 
 fn testing_main(arg: Option<String>) -> Result<(), io::Error> {
     let stats = if let Some(path) = arg {
-        run_test_file(&path)
+        run_test_file(path.as_ref())?
     } else {
         let mut stats = TestStats::default();
         for entry in fs::read_dir("tests")? {
@@ -51,7 +53,7 @@ fn testing_main(arg: Option<String>) -> Result<(), io::Error> {
             let s = path.as_os_str().to_str().expect("path to str");
             if path.is_file() && s.ends_with(".tc") {
                 eprintln!("\nRunning {path:?}");
-                stats.update(run_test_file(path));
+                stats.update(run_test_file(&path)?);
             }
         }
 
@@ -92,19 +94,32 @@ fn testing_main(arg: Option<String>) -> Result<(), io::Error> {
     Ok(())
 }
 
-fn run_test_file<P>(path: P) -> TestStats
-where
-    P: AsRef<Path>,
-{
-    let src = fs::read_to_string(&path).unwrap();
-    match run_tests(&src) {
+fn run_test_file(path: &Path) -> io::Result<TestStats> {
+    let (dir, file) = split_path(path)?;
+    let cwd = env::current_dir()?;
+    env::set_current_dir(dir)?;
+    let src = fs::read_to_string(file)?;
+
+    let test_stats = match run_tests(&src) {
         Ok(stats) => stats,
         Err(err) => {
             eprintln!("{err}");
             TestStats::error(TestError {
-                file_name: path.as_ref().into(),
+                file_name: path.into(),
                 error: err.to_string(),
             })
         }
-    }
+    };
+
+    env::set_current_dir(cwd)?;
+
+    Ok(test_stats)
+}
+
+fn split_path(p: &Path) -> io::Result<(PathBuf, OsString)> {
+    let a = std::path::absolute(p)?;
+    let p = a.parent().expect("non-root path").to_owned();
+    let f = a.iter().next_back().expect("non-empty path").to_owned();
+
+    Ok((p, f))
 }

@@ -1,0 +1,22 @@
+
+fun try_open_missing_file() {
+    res = File::read_all("not-a-file.txt")
+
+    assert res.is_ok() == false
+    assert res.is_err() == true
+    assert Opt::is_none(res.value())
+    assert Opt::is_some(res.error())
+    assert res.error()! == "File not found"
+}
+
+fun try_open_this_file() {
+    res = File::read_all("fs.tc")
+
+    assert res.is_ok() == true
+    assert res.is_err() == false
+    assert Opt::is_some(res.value())
+    assert Opt::is_none(res.error())
+
+    assert res.value()!.trim().split(" ").at(0) == "fun"
+}
+

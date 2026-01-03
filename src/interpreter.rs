@@ -98,6 +98,7 @@ impl Interpreter {
             ScriptValue::List(_) => global::LIST.into(),
             ScriptValue::Tuple(_) => global::TUPLE.into(),
             ScriptValue::Rec { .. } => global::REC.into(),
+            ScriptValue::Fallible(_) => global::FALLIBLE.into(),
             ScriptValue::Ext(typ, _) => return typ.get_method(name),
             _ => todo!("NS for {subject}"),
         };

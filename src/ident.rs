@@ -40,4 +40,5 @@ pub(crate) mod global {
     pub(crate) const RANGE: &str = "__range__";
     pub(crate) const INT: &str = "__int__";
     pub(crate) const STRING: &str = "__string__";
+    pub(crate) const FALLIBLE: &str = "__fallible__";
 }

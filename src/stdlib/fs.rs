@@ -1,4 +1,4 @@
-use std::fs;
+use std::{fs, io::ErrorKind};
 
 use crate::{
     Builder,
@@ -21,15 +21,22 @@ impl NativeFunction for ReadFunc {
     }
 
     fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Str
+        // XXX Need to define custom error types like "IO::Error"
+        ScriptType::fallible_of(ScriptType::Str, ScriptType::Str)
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let name = arguments.single()?.as_string()?;
 
         match fs::read_to_string(name.as_ref()) {
-            Ok(content) => Ok(ScriptValue::string(content)),
-            Err(err) => Err(ScriptError::panic(err)),
+            Ok(content) => Ok(ScriptValue::ok(ScriptValue::string(content))),
+            Err(err) => {
+                let msg = match err.kind() {
+                    ErrorKind::NotFound => "File not found",
+                    _ => unimplemented!("Error: {err}"),
+                };
+                Ok(ScriptValue::err(ScriptValue::string(msg)))
+            }
         }
     }
 }

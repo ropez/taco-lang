@@ -31,6 +31,9 @@ pub enum ScriptValue {
     // inner value, or the special 'None' value.
     None,
 
+    // Like Rust 'Result' type.
+    Fallible(Fallible),
+
     // The *instance* of a record. Not the record itself (which is a callable)
     Rec {
         def: Arc<RecType>,
@@ -81,6 +84,14 @@ impl ScriptValue {
 
     pub fn empty_string() -> Self {
         Self::string("")
+    }
+
+    pub fn ok(value: ScriptValue) -> Self {
+        Self::Fallible(Fallible::Ok(value.into()))
+    }
+
+    pub fn err(error: ScriptValue) -> Self {
+        Self::Fallible(Fallible::Err(error.into()))
     }
 
     pub fn is_nan(&self) -> bool {
@@ -139,6 +150,14 @@ impl ScriptValue {
             Self::List(list) => Vec::from(list.items()),
             Self::Range(l, r) => (*l..=*r).map(ScriptValue::Int).collect(),
             _ => panic!("Expected iterable, found {self}"),
+        }
+    }
+
+    pub(crate) fn as_fallible(&self) -> Result<&Fallible> {
+        if let Self::Fallible(v) = self {
+            Ok(v)
+        } else {
+            Err(ScriptError::panic("Expected fallible, found {self}"))
         }
     }
 
@@ -238,10 +257,20 @@ impl fmt::Display for ScriptValue {
                 Ok(())
             }
             ScriptValue::NaN => write!(f, "NaN"),
+            ScriptValue::Fallible(v) => match v {
+                Fallible::Ok(v) => write!(f, "Ok({v})"),
+                Fallible::Err(v) => write!(f, "Err({v})"),
+            },
             ScriptValue::Ext(t, _) => write!(f, "{{{}}}", t.name()),
             _ => todo!("Display impl for {self:?}"),
         }
     }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Fallible {
+    Ok(Box<ScriptValue>),
+    Err(Box<ScriptValue>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]

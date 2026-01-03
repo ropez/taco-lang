@@ -4,6 +4,7 @@ use async_lock::Mutex;
 
 use crate::Builder;
 
+pub(crate) mod fallible;
 pub(crate) mod list;
 pub(crate) mod math;
 pub(crate) mod opt;
@@ -40,6 +41,7 @@ where
     opt::build(builder);
     panic::build(builder);
     with::build(builder);
+    fallible::build(builder);
     state::build(builder);
     print::build(builder, Arc::clone(&out));
     parse::build(builder);

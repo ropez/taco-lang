@@ -20,6 +20,7 @@ pub enum ScriptType {
     Str,
     EmptyList,
     Opt(Box<ScriptType>),
+    Fallible(Box<ScriptType>, Box<ScriptType>),
     List(Box<ScriptType>),
     Tuple(TupleType),
     RecInstance(Arc<RecType>),
@@ -52,6 +53,10 @@ impl ScriptType {
 
     pub fn opt_of(inner: ScriptType) -> ScriptType {
         Self::Opt(inner.into())
+    }
+
+    pub fn fallible_of(inner_value: ScriptType, inner_error: ScriptType) -> ScriptType {
+        Self::Fallible(inner_value.into(), inner_error.into())
     }
 
     pub fn accepts(&self, other: &ScriptType) -> bool {
