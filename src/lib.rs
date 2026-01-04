@@ -7,6 +7,7 @@ use crate::{
     interpreter::Interpreter,
     output_adapter::OutputAdapter,
     parser::Parser,
+    script_type::ScriptType,
     script_value::{ScriptValue, Tuple},
     validate::Validator,
 };
@@ -194,17 +195,33 @@ where
 
 #[derive(Default)]
 struct Builder {
-    functions: HashMap<Ident, NativeFunctionRef>,
+    global_types: HashMap<Ident, ScriptType>,
+    global_values: HashMap<Ident, ScriptValue>,
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
 }
 
 impl Builder {
+    pub fn add_global(
+        &mut self,
+        name: impl Into<Ident>,
+        script_type: ScriptType,
+        value: ScriptValue,
+    ) {
+        let key = name.into();
+        self.global_types.insert(key.clone(), script_type);
+        self.global_values.insert(key.clone(), value);
+    }
+
     pub fn add_function<T>(&mut self, name: impl Into<Ident>, func: T)
     where
         T: NativeFunction + Send + Sync + 'static,
     {
-        self.functions
-            .insert(name.into(), NativeFunctionRef::from(func));
+        let f = NativeFunctionRef::from(func);
+        self.add_global(
+            name,
+            ScriptType::NativeFunction(f.clone()),
+            ScriptValue::NativeFunction(f.clone()),
+        );
     }
 
     pub fn add_method<T>(&mut self, ns: impl Into<Ident>, name: impl Into<Ident>, method: T)
@@ -217,13 +234,13 @@ impl Builder {
 
     fn build_validator(&self) -> Validator {
         Validator::default()
-            .with_functions(self.functions.clone())
+            .with_globals(self.global_types.clone())
             .with_methods(self.methods.clone())
     }
 
     fn build_interpreter(&self) -> Interpreter {
         Interpreter::default()
-            .with_functions(self.functions.clone())
+            .with_globals(self.global_values.clone())
             .with_methods(self.methods.clone())
     }
 }

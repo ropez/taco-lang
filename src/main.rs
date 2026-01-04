@@ -1,9 +1,8 @@
 use std::{
     env::{self, args},
-    ffi::{OsStr, OsString},
+    ffi::OsString,
     fs,
     io::{self, stdout},
-    os,
     path::{Path, PathBuf},
 };
 

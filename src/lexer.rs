@@ -87,6 +87,7 @@ pub enum TokenKind {
     LeftSquare,
     RightSquare,
     Question,
+    Tilde,
     Coalesce,
     Alpha,
     Exclamation,
@@ -206,6 +207,7 @@ impl<'a> Tokenizer<'a> {
                 '}' => Some(self.produce(TokenKind::RightBrace)),
                 '[' => Some(self.produce(TokenKind::LeftSquare)),
                 ']' => Some(self.produce(TokenKind::RightSquare)),
+                '~' => Some(self.produce(TokenKind::Tilde)),
                 '?' => {
                     if self.take_if_eq('?') {
                         Some(self.produce(TokenKind::Coalesce))

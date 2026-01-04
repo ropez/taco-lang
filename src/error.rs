@@ -9,6 +9,7 @@ use crate::{
     lexer::{Loc, TokenKind},
     parser::MatchPattern,
     script_type::{ScriptType, TupleType},
+    script_value::ScriptValue,
 };
 
 #[derive(Clone)]
@@ -121,7 +122,7 @@ pub enum TypeErrorKind {
     },
     InvalidDestructure(ScriptType),
     InvalidIterable(ScriptType),
-    InvalidOptional(ScriptType),
+    InvalidQuestion(ScriptType),
     InvalidCallable(ScriptType),
     InvalidMapTo(ScriptType),
     InvalidReturnType {
@@ -250,8 +251,8 @@ impl TypeError {
             TypeErrorKind::InvalidIterable(actual) => {
                 format!("Expected iterable, found '{actual}'")
             }
-            TypeErrorKind::InvalidOptional(actual) => {
-                format!("Expected option type, found '{actual}'")
+            TypeErrorKind::InvalidQuestion(actual) => {
+                format!("Expected fallible or option type, found '{actual}'")
             }
             TypeErrorKind::InvalidCallable(actual) => {
                 format!("Expected a callable, found '{actual}'")
@@ -291,6 +292,7 @@ pub struct ScriptError {
 #[derive(Debug, Clone)]
 pub enum ScriptErrorKind {
     NoValue,
+    Error(ScriptValue),
     Panic(String),
     AssertionFailed(String),
 }
@@ -302,6 +304,10 @@ impl ScriptError {
 
     pub fn no_value() -> Self {
         Self::new(ScriptErrorKind::NoValue)
+    }
+
+    pub fn error(value: ScriptValue) -> Self {
+        Self::new(ScriptErrorKind::Error(value))
     }
 
     pub fn panic(error: impl ToString) -> Self {
@@ -323,6 +329,7 @@ impl ScriptError {
     pub(crate) fn into_source_error(self, source: &str) -> Error {
         let msg = match self.kind {
             ScriptErrorKind::NoValue => "No value".into(),
+            ScriptErrorKind::Error(err) => format!("Unhandled error: {err}"),
             ScriptErrorKind::Panic(error) => format!("Script panicked: {error}"),
             ScriptErrorKind::AssertionFailed(msg) => format!("Assertion failed: {msg}"),
         };

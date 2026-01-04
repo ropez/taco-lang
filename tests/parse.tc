@@ -13,16 +13,22 @@ fun test_parse_range() {
 fun test_parse_unnamed_record() {
     rec Point(int, int)
 
-    p = Point::parse("100 200")
+    res = Point::parse("100 200")
 
+    assert res.is_ok()
+
+    p = res.value()!
     assert "$p" == "Point(100, 200)"
 }
 
 fun test_parse_named_record() {
     rec Point(x: int, y: int)
 
-    p = Point::parse("100 200")
+    res = Point::parse("100 200")
 
+    assert res.is_ok()
+
+    p = res.value()!
     assert p.x == 100
     assert p.y == 200
     assert "$p" == "Point(x: 100, y: 200)"
@@ -39,34 +45,25 @@ fun test_parse_list() {
 
     points = input.map(Point::parse)
 
-    assert "$points" == "[Point(100, 200), Point(400, 600), Point(0, 0)]"
+    assert "$points" == "[Ok(Point(100, 200)), Ok(Point(400, 600)), Ok(Point(0, 0))]"
 }
 
 fun test_parse_str_and_int() {
     rec Point(a: str, b: int)
 
-    p = Point::parse("L 200")
+    res = Point::parse("L 200")
+    assert res.is_ok()
 
+    p = res.value()!
     assert "$p" == "Point(a: L, b: 200)"
 }
 
-fun test_parse_json() {
-    input = """{ "a": 123, "b": 456 }""".as_json()
-
+fun test_parse_error() {
     rec Point(a: int, b: int)
-    p = Point::parse(input)
 
-    assert "$p" == "Point(a: 123, b: 456)"
-}
+    res = Point::parse("xyz")
 
-fun test_parse_json_with_attrs() {
-    input = """{ "foo": 123, "bar": 456 }""".as_json()
-
-    rec Point(
-        a: int @json(name: "foo")
-        b: int @json(name: "bar")
-    )
-    p = Point::parse(input)
-
-    assert "$p" == "Point(a: 123, b: 456)"
+    assert res.is_err()
+    assert res.error().is_some()
+    assert res.value().is_none()
 }

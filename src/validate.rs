@@ -11,7 +11,7 @@ use crate::{
         MatchPattern, Statement,
     },
     script_type::{FunctionType, ScriptType, TupleItemType, TupleType},
-    stdlib,
+    stdlib::{self, parse::ParseFunc},
     type_scope::{TypeDefinition, TypeScope, eval_params, eval_type_expr},
 };
 
@@ -107,13 +107,12 @@ pub struct Validator {
 }
 
 impl Validator {
-    pub(crate) fn with_functions(self, functions: HashMap<Ident, NativeFunctionRef>) -> Self {
+    pub(crate) fn with_globals<T>(self, iter: T) -> Self
+    where
+        T: IntoIterator<Item = (Ident, ScriptType)>,
+    {
         let mut globals = self.globals;
-        globals.extend(
-            functions
-                .into_iter()
-                .map(|(name, f)| (name, ScriptType::NativeFunction(f))),
-        );
+        globals.extend(iter);
         Self { globals, ..self }
     }
 
@@ -132,8 +131,8 @@ impl Validator {
             ScriptType::RecInstance(_) => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
             ScriptType::Tuple(_) => global::TUPLE.into(),
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
+            ScriptType::Opt(_) => global::OPT.into(),
             ScriptType::Fallible(_, _) => global::FALLIBLE.into(),
-            ScriptType::Opt(_) => return None,
             ScriptType::Ext(ext) => return ext.get_method(name),
             _ => todo!("NS for {subject}"),
         };
@@ -245,7 +244,7 @@ impl Validator {
                     let opt_typ = self.validate_expr(value, &scope)?;
                     let ScriptType::Opt(typ) = opt_typ else {
                         return Err(
-                            TypeError::new(TypeErrorKind::InvalidOptional(opt_typ)).at(value.loc)
+                            TypeError::new(TypeErrorKind::InvalidQuestion(opt_typ)).at(value.loc)
                         );
                     };
 
@@ -396,10 +395,10 @@ impl Validator {
                     // TODO Associated methods like Record::foo()
                     match name.as_str() {
                         "parse" => {
-                            let ret = ScriptType::RecInstance(Arc::clone(rec));
-                            let params =
-                                TupleType::new(vec![TupleItemType::unnamed(ScriptType::Str)]);
-                            Ok(ScriptType::Function(FunctionType::new(params, ret)))
+                            // XXX Add to globals somehow
+                            let func =
+                                NativeFunctionRef::new(Arc::new(ParseFunc::new(Arc::clone(rec))));
+                            Ok(ScriptType::NativeFunction(func))
                         }
                         _ => Err(TypeError::new(TypeErrorKind::UndefinedMethod {
                             type_name: rec.name.clone(),
@@ -562,24 +561,17 @@ impl Validator {
             Expression::Multiplication(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Division(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
             Expression::Modulo(lhs, rhs) => self.validate_arithmetic(lhs, rhs, scope),
-            Expression::Try(inner) => {
-                if scope.ret.as_ref().is_none_or(|r| !r.is_optional()) {
-                    return Err(TypeError::new(TypeErrorKind::TryNotAllowed).at(expr.loc));
-                }
-                let inner_typ = self.validate_expr(inner, scope)?;
-                match inner_typ {
-                    ScriptType::Opt(inner) => Ok(*inner),
-                    _ => {
-                        Err(TypeError::new(TypeErrorKind::InvalidOptional(inner_typ)).at(inner.loc))
-                    }
-                }
+            Expression::Try(expr) => {
+                let expr_type = self.validate_expr(expr, scope)?;
+                eval_question(expr_type, scope)
             }
-            Expression::AssertSome(inner) => {
+            Expression::Unwrap(inner) => {
                 let inner_typ = self.validate_expr(inner, scope)?;
                 match inner_typ {
                     ScriptType::Opt(inner) => Ok(*inner),
+                    ScriptType::Fallible(inner, _) => Ok(*inner),
                     _ => {
-                        Err(TypeError::new(TypeErrorKind::InvalidOptional(inner_typ)).at(inner.loc))
+                        Err(TypeError::new(TypeErrorKind::InvalidQuestion(inner_typ)).at(inner.loc))
                     }
                 }
             }
@@ -597,49 +589,11 @@ impl Validator {
                         }
                         Ok(rhs_typ)
                     }
-                    _ => Err(TypeError::new(TypeErrorKind::InvalidOptional(lhs_typ)).at(lhs.loc)),
+                    _ => Err(TypeError::new(TypeErrorKind::InvalidQuestion(lhs_typ)).at(lhs.loc)),
                 }
             }
             Expression::Call { subject, arguments } => {
-                let subject = self.eval_expr(subject, scope)?;
-                let params = subject.as_callable_params()?;
-
-                // XXX Change this to return arguments as a resolved TupleType, and remove all the
-                // "infer by index" stuff
-                let found_types = self.validate_arguments(&params, arguments, scope)?;
-
-                // XXX We're kind-of doing duplicate work here now:
-                // - First apply_inferred_types_tuple infers types using the Infer(n) mechanism
-                // - Then we require the ext function to do it "manually"
-                //
-                // Options:
-                // - Keep this redundancy, but pass 'found_types' to ext, making it a little bit easier
-                // - Go all-in with the extensions, and having them validate args also
-                //
-                // If we want generic script functions, having Infer<n> is good.
-                // Can't just remove 'apply_inferred_types_tuple', because it's used to infer one
-                // argument based on a previous `scan(T, fun(T))`. It's not very flexible, and we
-                // don't support variadic etc. Could just pass Validator to ext, and let it do
-                // whatever it wants.
-
-                let (arguments_inferred, complete) =
-                    apply_inferred_types_tuple(&params, &found_types)?;
-                let ret = subject.as_callable_ret(&arguments_inferred)?;
-
-                // XXX Fixes "bad" extensions returning Infer from return_type
-                // let (ret, _) = apply_inferred_types(&ret, &found_types)?;
-
-                if complete {
-                    Ok(ret)
-                } else {
-                    if let CallExpression::Inline(args) = arguments.as_ref() {
-                        let as_tuple = self.eval_tuple(args, scope)?;
-                        eprintln!(
-                            "Looked for {params} using {as_tuple}, and found: {found_types:?}"
-                        );
-                    }
-                    Err(TypeError::new(TypeErrorKind::TypeNotInferred))
-                }
+                self.eval_call_expr(subject, arguments, scope)
             }
             Expression::Match {
                 expr: match_expr,
@@ -793,7 +747,7 @@ impl Validator {
                 let opt_typ = self.validate_expr(value, scope)?;
                 let ScriptType::Opt(typ) = opt_typ else {
                     return Err(
-                        TypeError::new(TypeErrorKind::InvalidOptional(opt_typ)).at(value.loc)
+                        TypeError::new(TypeErrorKind::InvalidQuestion(opt_typ)).at(value.loc)
                     );
                 };
 
@@ -826,6 +780,50 @@ impl Validator {
         };
 
         Ok(typ)
+    }
+
+    fn eval_call_expr(
+        &self,
+        subject: &Src<Expression>,
+        arguments: &CallExpression,
+        scope: &Scope,
+    ) -> Result<ScriptType> {
+        let subject = self.eval_expr(subject, scope)?;
+        let params = subject.as_callable_params()?;
+
+        // XXX Change this to return arguments as a resolved TupleType, and remove all the
+        // "infer by index" stuff
+        let found_types = self.validate_arguments(&params, arguments, scope)?;
+
+        // XXX We're kind-of doing duplicate work here now:
+        // - First apply_inferred_types_tuple infers types using the Infer(n) mechanism
+        // - Then we require the ext function to do it "manually"
+        //
+        // Options:
+        // - Keep this redundancy, but pass 'found_types' to ext, making it a little bit easier
+        // - Go all-in with the extensions, and having them validate args also
+        //
+        // If we want generic script functions, having Infer<n> is good.
+        // Can't just remove 'apply_inferred_types_tuple', because it's used to infer one
+        // argument based on a previous `scan(T, fun(T))`. It's not very flexible, and we
+        // don't support variadic etc. Could just pass Validator to ext, and let it do
+        // whatever it wants.
+
+        let (arguments_inferred, complete) = apply_inferred_types_tuple(&params, &found_types)?;
+        let ret = subject.as_callable_ret(&arguments_inferred)?;
+
+        // XXX Fixes "bad" extensions returning Infer from return_type
+        // let (ret, _) = apply_inferred_types(&ret, &found_types)?;
+
+        if complete {
+            Ok(ret)
+        } else {
+            if let CallExpression::Inline(args) = arguments {
+                let as_tuple = self.eval_tuple(args, scope)?;
+                eprintln!("Looked for {params} using {as_tuple}, and found: {found_types:?}");
+            }
+            Err(TypeError::new(TypeErrorKind::TypeNotInferred))
+        }
     }
 
     fn validate_arithmetic(
@@ -1155,6 +1153,33 @@ impl Validator {
     }
 }
 
+fn eval_question(expr_type: ScriptType, scope: &Scope) -> Result<ScriptType> {
+    match expr_type {
+        ScriptType::Opt(inner) => {
+            if let Some(ScriptType::Opt(_)) = &scope.ret {
+                Ok(*inner)
+            } else {
+                Err(TypeError::new(TypeErrorKind::TryNotAllowed))
+            }
+        }
+        ScriptType::Fallible(inner_value, inner_error) => {
+            if let Some(ScriptType::Fallible(_, exp)) = &scope.ret {
+                if exp.accepts(&inner_error) {
+                    Ok(*inner_value)
+                } else {
+                    Err(TypeError::expected_type(
+                        ScriptType::clone(exp),
+                        ScriptType::clone(&inner_error),
+                    ))?
+                }
+            } else {
+                Err(TypeError::new(TypeErrorKind::TryNotAllowed))
+            }
+        }
+        _ => Err(TypeError::new(TypeErrorKind::InvalidQuestion(expr_type))),
+    }
+}
+
 fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptType> {
     let mut found = HashMap::new();
 
@@ -1210,6 +1235,18 @@ fn apply_inferred_types(
             } else {
                 (t.clone(), false)
             }
+        }
+        ScriptType::Opt(inner) => {
+            let (inner, complete) = apply_inferred_types(inner, found_types)?;
+            (ScriptType::opt_of(inner), complete)
+        }
+        ScriptType::Fallible(inner_value, inner_error) => {
+            let (inner_value, value_complete) = apply_inferred_types(inner_value, found_types)?;
+            let (inner_error, error_complete) = apply_inferred_types(inner_error, found_types)?;
+            (
+                ScriptType::fallible_of(inner_value, inner_error),
+                value_complete && error_complete,
+            )
         }
         ScriptType::Tuple(tuple) => {
             let (tuple, complete) = apply_inferred_types_tuple(tuple, found_types)?;

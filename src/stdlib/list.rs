@@ -171,7 +171,7 @@ impl ListMethod for ListAt {
             .ok_or_else(ScriptError::expected_argument)?
             .as_int()?;
         let opt_val = list.items().get(val as usize);
-        Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
+        Ok(ScriptValue::opt(opt_val.cloned()))
     }
 }
 
@@ -248,7 +248,7 @@ impl ListMethod for ListFind {
             .next_positional()
             .ok_or_else(ScriptError::expected_argument)?;
         let opt_val = list.items().iter().find(|v| ScriptValue::eq(v, &val));
-        Ok(opt_val.cloned().unwrap_or(ScriptValue::None))
+        Ok(ScriptValue::opt(opt_val.cloned()))
     }
 }
 
@@ -301,11 +301,12 @@ impl ListMethod for ListFindIndex {
             .iter_args()
             .next_positional()
             .ok_or_else(ScriptError::expected_argument)?;
-        let opt_idx = list.items().iter().position(|v| ScriptValue::eq(v, &val));
-        Ok(match opt_idx {
-            Some(idx) => ScriptValue::Int(idx as i64),
-            None => ScriptValue::None,
-        })
+        let opt_idx = list
+            .items()
+            .iter()
+            .position(|v| ScriptValue::eq(v, &val))
+            .map(|i| ScriptValue::Int(i as i64));
+        Ok(ScriptValue::opt(opt_idx))
     }
 }
 
@@ -569,11 +570,11 @@ impl ListMethod for ListSum {
                 .map(|val| val.as_int())
                 .collect::<Result<Vec<_>, ScriptError>>()?;
 
-            let value = match numbers.into_iter().reduce(|n, a| n + a) {
-                Some(sum) => ScriptValue::Int(sum),
-                None => ScriptValue::None,
-            };
-            Ok(value)
+            let val = numbers
+                .into_iter()
+                .reduce(|n, a| n + a)
+                .map(ScriptValue::Int);
+            Ok(ScriptValue::opt(val))
         }
     }
 
@@ -609,11 +610,8 @@ impl ListMethod for ListMax {
                 .map(|val| val.as_int())
                 .collect::<Result<Vec<_>, ScriptError>>()?;
 
-            let value = match numbers.into_iter().max() {
-                Some(max) => ScriptValue::Int(max),
-                None => ScriptValue::None,
-            };
-            Ok(value)
+            let val = numbers.into_iter().max().map(ScriptValue::Int);
+            Ok(ScriptValue::opt(val))
         }
     }
 

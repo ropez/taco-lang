@@ -12,7 +12,7 @@ use crate::{
     lexer::Src,
     parser::{Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, Statement},
     script_type::{ScriptType, TupleType},
-    script_value::{ScriptFunction, ScriptValue, Tuple, TupleItem},
+    script_value::{Fallible, ScriptFunction, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseFunc},
     type_scope::{TypeDefinition, TypeScope, eval_function},
 };
@@ -75,11 +75,12 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
-    pub(crate) fn with_functions(self, functions: HashMap<Ident, NativeFunctionRef>) -> Self {
+    pub(crate) fn with_globals<T>(self, iter: T) -> Self
+    where
+        T: IntoIterator<Item = (Ident, ScriptValue)>,
+    {
         let mut globals = self.globals;
-        for (name, f) in functions {
-            globals.insert(name, ScriptValue::NativeFunction(f));
-        }
+        globals.extend(iter);
         Self { globals, ..self }
     }
 
@@ -98,6 +99,7 @@ impl Interpreter {
             ScriptValue::List(_) => global::LIST.into(),
             ScriptValue::Tuple(_) => global::TUPLE.into(),
             ScriptValue::Rec { .. } => global::REC.into(),
+            ScriptValue::Opt(_) => global::OPT.into(),
             ScriptValue::Fallible(_) => global::FALLIBLE.into(),
             ScriptValue::Ext(typ, _) => return typ.get_method(name),
             _ => todo!("NS for {subject}"),
@@ -109,9 +111,7 @@ impl Interpreter {
         let mut scope = Scope::default();
 
         // During evaluation, we don't really care about type inferrence.
-        // Setting 'expected_type' to Infer, is like an "identity function", it always infers to
-        // Infer.
-        scope.types = scope.types.with_expected(ScriptType::Infer(0));
+        scope.types = scope.types.with_expected(ScriptType::Unknown);
 
         scope.locals.extend(self.globals.clone());
         let end = self.execute_block(ast, scope)?;
@@ -209,12 +209,16 @@ impl Interpreter {
                 } => {
                     let val = self.eval_expr(value, &scope)?;
 
-                    let (branch, scope) = if let ScriptValue::None = val {
-                        (else_body.as_ref(), scope.clone())
-                    } else {
+                    let ScriptValue::Opt(opt) = val else {
+                        Err(ScriptError::panic("Expected option"))?
+                    };
+
+                    let (branch, scope) = if let Some(val) = opt {
                         let mut inner_scope = scope.clone();
                         eval_assignment(assignee, &val, &mut inner_scope);
                         (Some(body), inner_scope)
+                    } else {
+                        (else_body.as_ref(), scope.clone())
                     };
 
                     if let Some(branch) = branch {
@@ -282,7 +286,7 @@ impl Interpreter {
                         let val = self.eval_expr(expr, &scope)?;
                         return Ok(Completion::ExplicitReturn(val));
                     } else {
-                        return Ok(Completion::ExplicitReturn(ScriptValue::None));
+                        return Ok(Completion::ExplicitReturn(ScriptValue::opt(None)));
                     }
                 }
                 Statement::Assert(expr) => {
@@ -491,29 +495,56 @@ impl Interpreter {
             }
             Expression::Try(inner) => {
                 let val = self.eval_expr(inner, scope)?;
-                if let ScriptValue::None = val {
-                    return Err(ScriptError::no_value());
+                match val {
+                    ScriptValue::Opt(opt) => {
+                        if let Some(inner) = opt {
+                            ScriptValue::clone(&inner)
+                        } else {
+                            return Err(ScriptError::no_value());
+                        }
+                    }
+                    ScriptValue::Fallible(f) => match f {
+                        Fallible::Ok(inner) => ScriptValue::clone(&inner),
+                        Fallible::Err(err) => Err(ScriptError::error(*err))?,
+                    },
+                    _ => return Err(ScriptError::panic("Invalid question operator").at(expr.loc)),
                 }
-                val
             }
-            Expression::AssertSome(inner) => {
+            Expression::Unwrap(inner) => {
                 let val = self.eval_expr(inner, scope)?;
-                if let ScriptValue::None = val {
-                    return Err(ScriptError::panic("No value in assertion").at(expr.loc));
+                match val {
+                    ScriptValue::Opt(opt) => {
+                        if let Some(inner) = opt {
+                            ScriptValue::clone(&inner)
+                        } else {
+                            return Err(ScriptError::panic("No value in assertion").at(expr.loc));
+                        }
+                    }
+                    ScriptValue::Fallible(f) => match f {
+                        Fallible::Ok(inner) => ScriptValue::clone(&inner),
+                        Fallible::Err(err) => todo!(),
+                    },
+                    _ => return Err(ScriptError::panic("Invalid question operator")),
                 }
-                val
             }
             Expression::Coalesce(lhs, rhs) => {
                 let val = self.eval_expr(lhs, scope)?;
                 match val {
-                    ScriptValue::None => self.eval_expr(rhs, scope)?,
-                    val => val,
+                    ScriptValue::Opt(opt) => {
+                        if let Some(inner) = opt {
+                            ScriptValue::clone(&inner)
+                        } else {
+                            self.eval_expr(rhs, scope)?
+                        }
+                    }
+                    _ => return Err(ScriptError::panic("Invalid coalescion operator")),
                 }
             }
             Expression::Call { subject, arguments } => {
                 let subject = self.eval_expr(subject, scope)?;
                 let arguments = self.eval_args(arguments, scope)?;
-                try_save(self.eval_callable(subject, &arguments)).map_err(|err| err.at(expr.loc))?
+                self.eval_callable(subject, &arguments)
+                    .map_err(|err| err.at(expr.loc))?
             }
             Expression::Match { expr, arms, is_opt } => {
                 self.eval_match(expr, arms, *is_opt, scope)?
@@ -638,12 +669,16 @@ impl Interpreter {
                 }
                 inner_scope.arguments = Arc::new(values);
 
-                match self.execute_block(&f.source.body, inner_scope)? {
-                    Completion::EndOfBlock(_) => ScriptValue::None,
-                    Completion::ExplicitReturn(v) => v,
-                    Completion::ImpliedReturn(v) => v,
-                    _ => panic!("Script function ended with break/continue"),
-                }
+                let ret = self
+                    .execute_block(&f.source.body, inner_scope)
+                    .map(|ret| match ret {
+                        Completion::EndOfBlock(_) => ScriptValue::opt(None),
+                        Completion::ExplicitReturn(v) => v,
+                        Completion::ImpliedReturn(v) => v,
+                        _ => panic!("Script function ended with break/continue"),
+                    });
+
+                try_save(ret, &f.function.ret)?
             }
             ScriptValue::Record(rec) => {
                 let values = transform_args(&rec.params, arguments);
@@ -713,12 +748,16 @@ impl Interpreter {
         for arm in arms {
             if let Some(locals) = self.eval_match_pattern(&arm.pattern, &value, scope)? {
                 let ret = self.eval_expr(&arm.expr, &scope.with_locals(locals))?;
-                return Ok(ret);
+                return Ok(if is_opt {
+                    ScriptValue::opt(Some(ret))
+                } else {
+                    ret
+                });
             }
         }
 
         if is_opt {
-            Ok(ScriptValue::None)
+            Ok(ScriptValue::opt(None))
         } else {
             Err(ScriptError::panic("No match found"))
         }
@@ -831,7 +870,7 @@ fn transform_args(params: &TupleType, arguments: &Tuple) -> Tuple {
             let val = transform_value(&par.value, &arg);
             items.push(TupleItem::new(par.name.clone(), val));
         } else if par.is_optional() {
-            items.push(TupleItem::new(par.name.clone(), ScriptValue::None));
+            items.push(TupleItem::new(par.name.clone(), ScriptValue::opt(None)));
         } else {
             panic!("Missing argument");
         }
@@ -847,6 +886,7 @@ fn transform_args(params: &TupleType, arguments: &Tuple) -> Tuple {
                 let applied = transform_args(t, values);
                 ScriptValue::Tuple(Arc::new(applied))
             }
+            (ScriptType::Opt(_), val) if !val.is_opt() => ScriptValue::opt(Some(val.clone())),
             _ => value.clone(),
         }
     }
@@ -878,11 +918,25 @@ fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
     }
 }
 
-pub(crate) fn try_save(res: Result<ScriptValue>) -> Result<ScriptValue> {
-    match res {
-        Ok(v) => Ok(v),
+// Catches cases where the ? operator is used inside a function (possibly nested blocks),
+// on a value that was either None or Err, and makes the function return the variant.
+fn try_save(ret: Result<ScriptValue>, expected: &ScriptType) -> Result<ScriptValue> {
+    match ret {
+        Ok(ret) => {
+            // Automatically wrap value with Ok/Some.
+            // I'm honestly not sure about this feature...
+            // Explicit is better than implicit.
+            if expected.is_optional() && !ret.is_opt() {
+                Ok(ScriptValue::opt(Some(ret)))
+            } else if expected.is_fallible() && !ret.is_fallible() {
+                Ok(ScriptValue::ok(ret))
+            } else {
+                Ok(ret)
+            }
+        }
         Err(err) => match err.kind {
-            ScriptErrorKind::NoValue => Ok(ScriptValue::None),
+            ScriptErrorKind::NoValue => Ok(ScriptValue::opt(None)),
+            ScriptErrorKind::Error(val) => Ok(ScriptValue::err(val)),
             _ => Err(err),
         },
     }

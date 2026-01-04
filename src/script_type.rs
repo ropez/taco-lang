@@ -38,6 +38,11 @@ pub enum ScriptType {
     // Function ( params: (Infer(1)), ret: List<Infer(1)> }
     Infer(u16),
 
+    // User internally to represent when a type is not yet known. E.g. an expression that yields an
+    // error of type "E" can have a type of Fallible<Unknown, E>. The type must eventually be
+    // resolved to a known type, otherwise it's an error.
+    Unknown,
+
     Ext(Arc<dyn ExternalType + Send + Sync>),
 }
 
@@ -63,7 +68,7 @@ impl ScriptType {
         match (self, other) {
             (ScriptType::Ext(_), _) => false,
             (ScriptType::Infer(_), _) => true,
-            (_, ScriptType::Infer(_)) => true, // XXX This is questionable
+            (ScriptType::Unknown, _) => true,
             (ScriptType::Int, ScriptType::Int) => true,
             (ScriptType::Str, ScriptType::Str) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
@@ -91,6 +96,19 @@ impl ScriptType {
             // You can't have a situation where an expression like "if x in opt" sets 'x' to
             // another opt!
             (ScriptType::Opt(l), r) => l.accepts(r.flatten()),
+            (ScriptType::Fallible(vl, el), ScriptType::Fallible(vr, er)) => {
+                vl.accepts(vr) && el.accepts(er)
+            }
+
+            // Allows returning the value directly from a fallible function without wrapping in Ok()
+            (ScriptType::Fallible(vl, _), r) => vl.accepts(r),
+
+            // This is somewhat questionable, but I haven't found another solution.
+            // An unknown type can be passed to anything. Consider making this more limited,
+            // i.e. only allowing (Opt(_), Opt(Unknown)) etc
+            (_, ScriptType::Infer(_)) => true,
+            (_, ScriptType::Unknown) => true,
+
             _ => false,
         }
     }
@@ -105,6 +123,10 @@ impl ScriptType {
 
     pub fn is_optional(&self) -> bool {
         matches!(self, ScriptType::Opt(_))
+    }
+
+    pub fn is_fallible(&self) -> bool {
+        matches!(self, ScriptType::Fallible(_, _))
     }
 
     pub(crate) fn is_exhausted_by(&self, patterns: &[&Src<MatchPattern>]) -> bool {
@@ -247,10 +269,12 @@ impl fmt::Display for ScriptType {
             Self::EmptyList => write!(f, "[]"),
             Self::List(inner) => write!(f, "[{inner}]"),
             Self::Opt(inner) => write!(f, "{inner}?"),
+            Self::Fallible(v, e) => write!(f, "{v} ~ {e}"),
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::RecInstance(rec) => write!(f, "{}{}", rec.name, rec.params),
             Self::Function(fun) => write!(f, "fun{}: {}", fun.params, fun.ret),
             Self::Infer(n) => write!(f, "<{n}>"),
+            Self::Unknown => write!(f, "{{unknown}}"),
             Self::Ext(e) => write!(f, "{{{}}}", e.name()),
             _ => write!(f, "{:?}", self),
         }

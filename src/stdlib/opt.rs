@@ -1,45 +1,71 @@
 use crate::{
     Builder,
-    error::ScriptError,
-    ext::NativeFunction,
+    error::{ScriptError, TypeError},
+    ext::{NativeFunction, NativeMethod},
+    ident::global,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
 };
 
 pub(crate) fn build(builder: &mut Builder) {
-    builder.add_function("Opt::is_none", IsNoneFunc);
-    builder.add_function("Opt::is_some", IsSomeFunc);
+    builder.add_global(
+        "None",
+        ScriptType::opt_of(ScriptType::Unknown),
+        ScriptValue::opt(None),
+    );
+    builder.add_function("Some", SomeFunction);
+
+    builder.add_method(global::OPT, "is_none", IsNoneMethod);
+    builder.add_method(global::OPT, "is_some", IsSomeMethod);
 }
 
-pub(crate) struct IsNoneFunc;
-impl NativeFunction for IsNoneFunc {
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Bool
+struct SomeFunction;
+impl NativeFunction for SomeFunction {
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(0))
+    fn return_type(&self, _arguments: &TupleType) -> ScriptType {
+        ScriptType::opt_of(ScriptType::Infer(1))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?;
-        Ok(ScriptValue::Boolean(arg.is_none()))
+        let val = arguments.single()?;
+        Ok(ScriptValue::opt(Some(val.clone())))
     }
 }
 
-pub(crate) struct IsSomeFunc;
-impl NativeFunction for IsSomeFunc {
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Bool
+struct IsNoneMethod;
+impl NativeMethod for IsNoneMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Bool)
     }
 
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(0))
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        _: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let v = subject.as_opt()?.is_none();
+        Ok(ScriptValue::Boolean(v))
+    }
+}
+
+struct IsSomeMethod;
+impl NativeMethod for IsSomeMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Bool)
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?;
-        Ok(ScriptValue::Boolean(!arg.is_none()))
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        _: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let v = subject.as_opt()?.is_some();
+        Ok(ScriptValue::Boolean(v))
     }
 }

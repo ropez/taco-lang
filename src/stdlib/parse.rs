@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt, sync::Arc};
 
 use crate::{
     Builder,
@@ -26,27 +26,60 @@ impl ParseFunc {
 }
 
 impl NativeFunction for ParseFunc {
+    fn arguments_type(&self) -> TupleType {
+        TupleType::from_single(ScriptType::Str)
+    }
+
+    fn return_type(&self, _: &TupleType) -> ScriptType {
+        // XXX How to programmatically create a custom error type, or include Taco snippets in stdlib?
+        let error_typ = ScriptType::Str;
+        let value_typ = ScriptType::RecInstance(Arc::clone(&self.def));
+
+        ScriptType::fallible_of(value_typ, error_typ)
+    }
+
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
         let (input, content_type) = arguments.single()?.as_string_and_type()?;
 
-        let value = match content_type {
-            ContentType::Undefined => parse_default(&self.def, &input)?,
+        let parse_result = match content_type {
+            ContentType::Undefined => parse_default(&self.def, &input),
 
             #[cfg(feature = "json")]
-            ContentType::Json => stdlib::json::parse_json(&self.def, &input)?,
+            ContentType::Json => stdlib::json::parse_json(&self.def, &input),
 
             #[allow(unreachable_patterns)]
             _ => Err(ScriptError::panic("Parser not found"))?,
         };
 
-        Ok(ScriptValue::Rec {
-            def: Arc::clone(&self.def),
-            value: Arc::new(value),
+        Ok(match parse_result {
+            Ok(val) => ScriptValue::ok(ScriptValue::Rec {
+                def: Arc::clone(&self.def),
+                value: Arc::new(val),
+            }),
+            Err(err) => ScriptValue::err(ScriptValue::string(err.msg)),
         })
     }
 }
 
-fn parse_default(rec: &RecType, input: &str) -> Result<Tuple, ScriptError> {
+pub struct ParseError {
+    msg: String,
+}
+
+impl ParseError {
+    pub fn new(msg: impl fmt::Display) -> Self {
+        Self {
+            msg: msg.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for ParseError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.msg)
+    }
+}
+
+fn parse_default(rec: &RecType, input: &str) -> Result<Tuple, ParseError> {
     let mut values = Vec::new();
     let mut tokens = input.split_ascii_whitespace();
     for d in rec.params.items() {
@@ -56,16 +89,16 @@ fn parse_default(rec: &RecType, input: &str) -> Result<Tuple, ScriptError> {
                 ScriptType::Int => ScriptValue::Int(
                     tokens
                         .next()
-                        .ok_or_else(|| ScriptError::panic("Expected token"))?
+                        .ok_or_else(|| ParseError::new("Expected token"))?
                         .parse::<i64>()
-                        .map_err(ScriptError::panic)?,
+                        .map_err(ParseError::new)?,
                 ),
                 ScriptType::Str => ScriptValue::string(
                     tokens
                         .next()
-                        .ok_or_else(|| ScriptError::panic("Expected token"))?,
+                        .ok_or_else(|| ParseError::new("Expected token"))?,
                 ),
-                o => Err(ScriptError::panic(format!("Don't know how to parse {o:?}")))?,
+                o => Err(ParseError::new(format!("Don't know how to parse {o:?}")))?,
             },
         ));
     }

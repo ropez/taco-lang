@@ -23,7 +23,7 @@ fun day1_secret_entrance() {
     turns = sample.trim()
         .lines()
         .map(normalize_input)
-        .map(Turn::parse)
+        .map(fun(s) { Turn::parse(s)! })
 
     seq = turns.scan(
         fun(last: int, turn: Turn) {

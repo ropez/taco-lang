@@ -4,8 +4,9 @@ fun try_open_missing_file() {
 
     assert res.is_ok() == false
     assert res.is_err() == true
-    assert Opt::is_none(res.value())
-    assert Opt::is_some(res.error())
+    assert res.value().is_none()
+    assert res.error().is_some()
+
     assert res.error()! == "File not found"
 }
 
@@ -14,8 +15,8 @@ fun try_open_this_file() {
 
     assert res.is_ok() == true
     assert res.is_err() == false
-    assert Opt::is_some(res.value())
-    assert Opt::is_none(res.error())
+    assert res.value().is_some()
+    assert res.error().is_none()
 
     assert res.value()!.trim().split(" ").at(0) == "fun"
 }

@@ -27,9 +27,8 @@ pub enum ScriptValue {
 
     NaN,
 
-    // The "opt" type is only checked in validation. During evaluation, it's equvalent to it's
-    // inner value, or the special 'None' value.
-    None,
+    // Like Rust 'Option' type.
+    Opt(Option<Box<ScriptValue>>),
 
     // Like Rust 'Result' type.
     Fallible(Fallible),
@@ -94,12 +93,24 @@ impl ScriptValue {
         Self::Fallible(Fallible::Err(error.into()))
     }
 
+    pub fn opt(val: Option<ScriptValue>) -> Self {
+        Self::Opt(val.map(Box::new))
+    }
+
     pub fn is_nan(&self) -> bool {
         matches!(self, Self::NaN)
     }
 
+    pub(crate) fn is_opt(&self) -> bool {
+        matches!(self, Self::Opt(_))
+    }
+
     pub fn is_none(&self) -> bool {
-        matches!(self, Self::None)
+        matches!(self, Self::Opt(None))
+    }
+
+    pub(crate) fn is_fallible(&self) -> bool {
+        matches!(self, Self::Fallible(_))
     }
 
     pub fn as_int(&self) -> Result<i64> {
@@ -157,7 +168,17 @@ impl ScriptValue {
         if let Self::Fallible(v) = self {
             Ok(v)
         } else {
-            Err(ScriptError::panic("Expected fallible, found {self}"))
+            Err(ScriptError::panic(format!(
+                "Expected fallible, found {self}"
+            )))
+        }
+    }
+
+    pub(crate) fn as_opt(&self) -> Result<Option<&ScriptValue>> {
+        if let Self::Opt(v) = self {
+            Ok(v.as_ref().map(|v| v.as_ref()))
+        } else {
+            Err(ScriptError::panic(format!("Expected option, found {self}")))
         }
     }
 
@@ -211,8 +232,8 @@ impl PartialEq for ScriptValue {
             (Self::Rec { def: ld, value: lv }, Self::Rec { def: rd, value: rv }) => {
                 Arc::ptr_eq(ld, rd) && *lv == *rv
             }
-            (Self::None, Self::None) => true,
-            (Self::None, _) | (_, Self::None) => false,
+            (Self::Opt(l), Self::Opt(r)) => l == r,
+            (Self::Opt(Some(l)), r) | (r, Self::Opt(Some(l))) => *l.as_ref() == *r,
             _ => todo!("Equality for {self:?} and {other:?}"),
         }
     }
@@ -221,7 +242,10 @@ impl PartialEq for ScriptValue {
 impl fmt::Display for ScriptValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            ScriptValue::None => write!(f, "<no value>"),
+            ScriptValue::Opt(v) => match v {
+                None => write!(f, "<no value>"),
+                Some(v) => write!(f, "{v}"),
+            },
             ScriptValue::String { content, .. } => write!(f, "{content}"),
             ScriptValue::Int(n) => write!(f, "{n}"),
             ScriptValue::Boolean(b) => match b {

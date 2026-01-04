@@ -211,7 +211,7 @@ fun test_find_an_item() {
 fun test_sum_of_numbers() {
     numbers = [16, 27, 3, 32, 11, 17, 34]
 
-    assert Opt::is_none([].sum())
+    assert [].sum().is_none()
     assert numbers.sum()! == 140
 }
 

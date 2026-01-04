@@ -96,7 +96,7 @@ pub enum Expression {
     // An expression followed by the '?' operator
     Try(Box<Src<Expression>>),
     // An expression followed by the '!' operator
-    AssertSome(Box<Src<Expression>>),
+    Unwrap(Box<Src<Expression>>),
     // An opt expression with a fallback (e.g. find() ?? 0)
     Coalesce(Box<Src<Expression>>, Box<Src<Expression>>),
 
@@ -162,6 +162,7 @@ pub enum TypeExpression {
     List(Box<Src<TypeExpression>>),
     Tuple(Vec<ParamExpression>),
     Opt(Box<Src<TypeExpression>>),
+    Fallible(Box<Src<TypeExpression>>, Box<Src<TypeExpression>>),
     TypeName(Ident),
     Infer,
 }
@@ -698,7 +699,7 @@ impl<'a> Parser<'a> {
                         let t = self.expect_token()?;
 
                         let loc = wrap_locations(lhs.loc, t.loc);
-                        let expr = Src::new(Expression::AssertSome(Box::new(lhs)), loc);
+                        let expr = Src::new(Expression::Unwrap(Box::new(lhs)), loc);
                         self.parse_continuation(expr, bp)?
                     }
                 }
@@ -1058,6 +1059,11 @@ impl<'a> Parser<'a> {
         if let Some(t) = self.next_if_kind(&TokenKind::Question) {
             let loc = wrap_locations(expr.loc, t.loc);
             let expr = Src::new(TypeExpression::Opt(expr.into()), loc);
+            Ok(expr)
+        } else if self.next_if_kind(&TokenKind::Tilde).is_some() {
+            let err = self.parse_type_expr()?;
+            let loc = wrap_locations(expr.loc, err.loc);
+            let expr = Src::new(TypeExpression::Fallible(expr.into(), err.into()), loc);
             Ok(expr)
         } else {
             Ok(expr)

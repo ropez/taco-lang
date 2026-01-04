@@ -163,7 +163,12 @@ pub(crate) fn eval_type_expr(
         }
         TypeExpression::Opt(inner) => {
             let inner = eval_type_expr(inner.as_ref(), scope)?;
-            Ok(ScriptType::Opt(inner.into()))
+            Ok(ScriptType::opt_of(inner))
+        }
+        TypeExpression::Fallible(val, err) => {
+            let inner_value = eval_type_expr(val.as_ref(), scope)?;
+            let inner_error = eval_type_expr(err.as_ref(), scope)?;
+            Ok(ScriptType::fallible_of(inner_value, inner_error))
         }
         TypeExpression::TypeName(ident) => match scope.get(ident) {
             Some(TypeDefinition::RecDefinition(rec)) => {

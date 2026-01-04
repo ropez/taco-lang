@@ -9,7 +9,7 @@ use crate::{
     interpreter::Interpreter,
     script_type::{RecType, ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
-    stdlib::list::List,
+    stdlib::{list::List, parse::ParseError},
 };
 
 pub fn build(builder: &mut Builder) {
@@ -21,7 +21,7 @@ pub fn build(builder: &mut Builder) {
 struct JsonFunc;
 impl NativeFunction for JsonFunc {
     fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(0))
+        TupleType::from_single(ScriptType::Unknown)
     }
 
     fn return_type(&self, _: &TupleType) -> ScriptType {
@@ -37,17 +37,17 @@ impl NativeFunction for JsonFunc {
     }
 }
 
-pub(crate) fn parse_json(rec: &RecType, input: &str) -> Result<Tuple, ScriptError> {
-    let json: JsonValue = input.parse().map_err(ScriptError::panic)?;
+pub(crate) fn parse_json(rec: &RecType, input: &str) -> Result<Tuple, ParseError> {
+    let json: JsonValue = input.parse().map_err(ParseError::new)?;
     let obj: &HashMap<_, _> = json
         .get()
-        .ok_or_else(|| ScriptError::panic("Expected a JSON object"))?;
+        .ok_or_else(|| ParseError::new("Expected a JSON object"))?;
     let mut values = Vec::new();
     for (i, d) in rec.params.items().iter().enumerate() {
-        let name = get_json_name(i, d)?;
+        let name = get_json_name(i, d).map_err(|_| ParseError::new("Invalid JSON attribute"))?;
         let val = obj
             .get(name.as_str())
-            .ok_or_else(|| ScriptError::panic(format!("Attribute '{name}' not found")))?;
+            .ok_or_else(|| ParseError::new(format!("Attribute '{name}' not found")))?;
         values.push(TupleItem::new(
             d.name.clone(),
             from_json_value(&d.value, val)?,
@@ -60,47 +60,48 @@ pub(crate) fn parse_json(rec: &RecType, input: &str) -> Result<Tuple, ScriptErro
 pub(crate) fn from_json_value(
     type_expr: &ScriptType,
     val: &JsonValue,
-) -> Result<ScriptValue, ScriptError> {
+) -> Result<ScriptValue, ParseError> {
     let value = match type_expr {
         ScriptType::Int => {
             let n: &f64 = val
                 .get()
-                .ok_or_else(|| ScriptError::panic(format!("Expected number, found {val:?}")))?;
+                .ok_or_else(|| ParseError::new(format!("Expected number, found {val:?}")))?;
             ScriptValue::Int(*n as i64)
         }
         ScriptType::Bool => {
             let n: &bool = val
                 .get()
-                .ok_or_else(|| ScriptError::panic(format!("Expected number, found {val:?}")))?;
+                .ok_or_else(|| ParseError::new(format!("Expected number, found {val:?}")))?;
             ScriptValue::Boolean(*n)
         }
         ScriptType::Str => {
             let s: &String = val
                 .get()
-                .ok_or_else(|| ScriptError::panic("Expected string"))?;
+                .ok_or_else(|| ParseError::new("Expected string"))?;
             ScriptValue::string(s.clone())
         }
         ScriptType::List(inner) => {
             let val: &Vec<_> = val
                 .get()
-                .ok_or_else(|| ScriptError::panic(format!("Expected array, found {val:?}")))?;
+                .ok_or_else(|| ParseError::new(format!("Expected array, found {val:?}")))?;
             let items = val
                 .iter()
                 .map(|v| from_json_value(inner, v))
-                .collect::<Result<Vec<_>, ScriptError>>()?;
+                .collect::<Result<Vec<_>, ParseError>>()?;
             let list = List::new(items);
             ScriptValue::List(Arc::new(list))
         }
         ScriptType::RecInstance(rec) => {
             let obj: &HashMap<_, _> = val
                 .get()
-                .ok_or_else(|| ScriptError::panic("Expected a JSON object"))?;
+                .ok_or_else(|| ParseError::new("Expected a JSON object"))?;
             let mut values = Vec::new();
             for (i, d) in rec.params.items().iter().enumerate() {
-                let name = get_json_name(i, d)?;
+                let name =
+                    get_json_name(i, d).map_err(|_| ParseError::new("Invalid JSON attribute"))?;
                 let val = obj
                     .get(name.as_str())
-                    .ok_or_else(|| ScriptError::panic(format!("Attribute '{name}' not found")))?;
+                    .ok_or_else(|| ParseError::new(format!("Attribute '{name}' not found")))?;
                 values.push(TupleItem::new(
                     d.name.clone(),
                     from_json_value(&d.value, val)?,
@@ -115,16 +116,14 @@ pub(crate) fn from_json_value(
         ScriptType::EnumInstance(e) => {
             let s: &String = val
                 .get()
-                .ok_or_else(|| ScriptError::panic("Expected string"))?;
+                .ok_or_else(|| ParseError::new("Expected string"))?;
 
             let (i, var) = e
                 .find_variant(&s.as_str().into())
-                .ok_or_else(|| ScriptError::panic("Variant not found"))?;
+                .ok_or_else(|| ParseError::new("Variant not found"))?;
 
             if var.params.is_some() {
-                Err(ScriptError::panic(
-                    "Don't know how to parse enum with params",
-                ))?;
+                Err(ParseError::new("Don't know how to parse enum with params"))?;
             }
 
             ScriptValue::Enum {

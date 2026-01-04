@@ -1,0 +1,79 @@
+
+fun test_explicit_fallable() {
+    fun test(ok: bool): str ~ str {
+        if ok {
+            return Ok("ok")
+        } else {
+            return Err("error")
+        }
+    }
+
+    assert test(true).is_ok()
+    assert test(false).is_err()
+}
+
+fun test_implicit_fallable_return() {
+    fun test(ok: bool): str ~ str {
+        if ok {
+            return "ok"
+        } else {
+            return Err("error")
+        }
+    }
+
+    assert test(true).is_ok()
+    assert test(false).is_err()
+}
+
+fun test_implicit_fallible_decl() {
+    fun inner(ok: bool): str ~ str {
+        if ok {
+            return Ok("ok")
+        } else {
+            return Err("error")
+        }
+    }
+
+    fun test(ok: bool) {
+        inner(ok)
+    }
+
+    assert test(true).is_ok()
+    assert test(false).is_err()
+}
+
+fun test_question_operator() {
+    fun inner(ok: bool): str ~ str {
+        if ok {
+            return Ok("ok")
+        } else {
+            return Err("error")
+        }
+    }
+
+    fun test(ok: bool): str ~ str {
+        msg = inner(ok)?
+        return "msg: $msg"
+    }
+
+    assert test(true).is_ok()
+    assert test(false).is_err()
+
+    assert test(true).value()! == "msg: ok"
+    assert test(false).error()! == "error"
+}
+
+fun test_unwrap_operator() {
+    fun test(ok: bool): str ~ str {
+        if ok {
+            return Ok("ok")
+        } else {
+            return Err("error")
+        }
+    }
+
+    assert test(true).is_ok()
+    assert test(true)! == "ok"
+
+    # XXX Can't test ! on err, because it panics
+}

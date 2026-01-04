@@ -35,29 +35,36 @@ fun test_conditional_return() {
         }
     }
 
-    if s in foo(true) {
-        assert s == "ok"
-    }
+    assert foo(true).is_some()
+    assert foo(false).is_none()
 
-    if s in foo(false) {
-        assert false
-    } else {
-        assert true
-    }
+    assert foo(true)! == "ok"
 }
 
-fun test_explicit_return_nothing() {
+fun test_explicit_return_some() {
     fun foo(condition: bool): str? {
-        if !condition { return }
+        if condition {
+            return Some("ok")
+        }
+    }
+
+    assert foo(true).is_some()
+    assert foo(false).is_none()
+
+    assert foo(true)! == "ok"
+}
+
+fun test_explicit_return_none() {
+    fun foo(condition: bool): str? {
+        if !condition {
+            return None
+        }
 
         return "ok"
     }
 
-    if s in foo(true) {
-        assert s == "ok"
-    }
-
-    assert Opt::is_none(foo(false))
+    assert foo(true).is_some()
+    assert foo(false).is_none()
 }
 
 fun test_tuple_destructuring() {
@@ -97,7 +104,7 @@ fun test_nested_opt() {
         assert false
     }
 
-    assert Opt::is_none(bar(true, false))
+    assert bar(true, false).is_none()
 }
 
 fun test_nested_opt_trick_with_tuple() {
@@ -164,7 +171,7 @@ fun test_question_operator() {
         assert false
     }
 
-    assert Opt::is_none(try_buy("pineapple", 36))
+    assert try_buy("pineapple", 36).is_none()
 }
 
 fun test_question_operator_nested_calls() {
@@ -193,7 +200,7 @@ fun test_question_operator_nested_calls() {
         assert false
     }
 
-    assert Opt::is_none(try_buy("x", 36))
+    assert try_buy("x", 36).is_none()
 }
 
 fun test_call_after_question() {
@@ -210,7 +217,7 @@ fun test_call_after_question() {
         assert false
     }
 
-    assert Opt::is_none(foo("poop"))
+    assert foo("poop").is_none()
 }
 
 fun test_multiple_question() {
@@ -220,5 +227,5 @@ fun test_multiple_question() {
     }
 
     assert foo(1, 2) == 125
-    assert Opt::is_none(foo(1, 4))
+    assert foo(1, 4).is_none()
 }
