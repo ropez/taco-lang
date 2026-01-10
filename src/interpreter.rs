@@ -584,6 +584,18 @@ impl Interpreter {
                     .at(expr.loc))
                 }
             }
+            Expression::LessThan(lhs, rhs) => self
+                .eval_assert_comparison(|a, b| a < b, "<", lhs, rhs, scope)
+                .map_err(|err| err.at(expr.loc)),
+            Expression::GreaterThan(lhs, rhs) => self
+                .eval_assert_comparison(|a, b| a > b, ">", lhs, rhs, scope)
+                .map_err(|err| err.at(expr.loc)),
+            Expression::LessOrEqual(lhs, rhs) => self
+                .eval_assert_comparison(|a, b| a <= b, "<=", lhs, rhs, scope)
+                .map_err(|err| err.at(expr.loc)),
+            Expression::GreaterOrEqual(lhs, rhs) => self
+                .eval_assert_comparison(|a, b| a >= b, ">=", lhs, rhs, scope)
+                .map_err(|err| err.at(expr.loc)),
             _ => {
                 let val = self.eval_expr(expr, scope)?;
                 if val.as_boolean()? {
@@ -651,6 +663,27 @@ impl Interpreter {
         let lhs = self.eval_expr(lhs, scope)?.as_boolean()?;
         let rhs = self.eval_expr(rhs, scope)?.as_boolean()?;
         Ok(ScriptValue::Boolean(op(lhs, rhs)))
+    }
+
+    fn eval_assert_comparison<F>(
+        &self,
+        op: F,
+        op_symb: &str,
+        lhs: &Src<Expression>,
+        rhs: &Src<Expression>,
+        scope: &Scope,
+    ) -> Result<()>
+    where
+        F: FnOnce(i64, i64) -> bool,
+    {
+        let lhs = self.eval_expr(lhs, scope)?;
+        let rhs = self.eval_expr(rhs, scope)?;
+        match (&lhs, &rhs) {
+            (ScriptValue::Int(lhs), ScriptValue::Int(rhs)) if op(*lhs, *rhs) => Ok(()),
+            _ => Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
+                "\n        + {lhs} {op_symb} {rhs}"
+            )))),
+        }
     }
 
     pub(crate) fn eval_callable(
