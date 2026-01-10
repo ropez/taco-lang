@@ -9,7 +9,7 @@ use crate::{
     ident::Ident,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleItemType, TupleType},
-    script_value::{ScriptValue, Tuple},
+    script_value::{ScriptValue, Tuple, TupleItem},
 };
 
 pub fn build(builder: &mut Builder) {
@@ -26,6 +26,7 @@ impl ExternalType for ScriptSocketType {
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
         match name.as_str() {
             "send_to" => Some(NativeMethodRef::new(Arc::new(SendToMethod))),
+            "recv_from" => Some(NativeMethodRef::new(Arc::new(RecvFromMethod))),
             _ => None,
         }
     }
@@ -122,6 +123,47 @@ impl NativeMethod for SendToMethod {
         smol::block_on(async move {
             match sock.0.send_to(content.as_bytes(), addr.as_ref()).await {
                 Ok(_) => Ok(ScriptValue::identity()),
+                Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
+            }
+        })
+    }
+}
+
+struct RecvFromMethod;
+impl NativeMethod for RecvFromMethod {
+    fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
+        Ok(TupleType::identity())
+    }
+
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+        // FIXME Should use a rec here
+        let tuple = ScriptType::Tuple(TupleType::new(vec![
+            TupleItemType::unnamed(ScriptType::Str),
+            TupleItemType::unnamed(ScriptType::Str),
+        ]));
+
+        Ok(ScriptType::fallible_of(tuple, ScriptType::Str))
+    }
+
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        _: &Tuple,
+    ) -> Result<ScriptValue, ScriptError> {
+        let sock = subject.downcast_ext::<ScriptSocket>()?;
+
+        smol::block_on(async move {
+            let mut buf = [0u8; 10000];
+            match sock.0.recv_from(&mut buf).await {
+                Ok((len, b)) => {
+                    let s = str::from_utf8(&buf[..len]).map_err(ScriptError::panic)?; // XXX
+                    let tuple = Arc::new(Tuple::new(vec![
+                        TupleItem::unnamed(ScriptValue::string(s)),
+                        TupleItem::unnamed(ScriptValue::string(b.to_string())),
+                    ]));
+                    Ok(ScriptValue::ok(ScriptValue::Tuple(tuple)))
+                }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
         })
