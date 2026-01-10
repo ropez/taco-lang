@@ -1073,7 +1073,39 @@ impl Validator {
             MatchPattern::Assignee(name) => {
                 inner_scope.set_local(name, expr_type.flatten().clone());
             }
-            MatchPattern::EnumVariant(_, name, Some(assignee)) => {
+            MatchPattern::Variant(prefix, name, Some(assignee)) if prefix.is_none() && name.as_str() == "Ok" => {
+                let Some(pattern) = &assignee.pattern else {
+                    todo!("Handle missing args for Ok");
+                };
+                if pattern.len() != 1 {
+                    todo!("Handle wrong args for Ok");
+                }
+                let arg = pattern.first().expect("we just checked");
+                if arg.pattern.is_some() {
+                    unimplemented!("Destructure Ok(): {:?}", assignee)
+                }
+                let (inner_value, _) = expr_type.as_fallible()?;
+                if let Some(name) = &arg.name {
+                    inner_scope.set_local(name, inner_value.clone());
+                }
+            }
+            MatchPattern::Variant(prefix, name, Some(assignee)) if prefix.is_none() && name.as_str() == "Err" => {
+                let Some(pattern) = &assignee.pattern else {
+                    todo!("Handle missing args for Err");
+                };
+                if pattern.len() != 1 {
+                    todo!("Handle wrong args for Err");
+                }
+                let arg = pattern.first().expect("we just checked");
+                if arg.pattern.is_some() {
+                    unimplemented!("Destructure Err(): {:?}", assignee)
+                }
+                let (_, inner_err) = expr_type.as_fallible()?;
+                if let Some(name) = &arg.name {
+                    inner_scope.set_local(name, inner_err.clone());
+                }
+            }
+            MatchPattern::Variant(_, name, Some(assignee)) => {
                 let var_typ = if let ScriptType::EnumInstance(e) = expr_type.flatten() {
                     e.find_variant(name)
                 } else {

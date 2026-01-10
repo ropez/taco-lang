@@ -810,7 +810,43 @@ impl Interpreter {
                     Ok(Some(locals))
                 }
             }
-            MatchPattern::EnumVariant(prefix, name, assignee) => {
+            MatchPattern::Variant(prefix, name, assignee)
+                if prefix.is_none() && name.as_str() == "Ok" =>
+            {
+                match val.as_fallible()? {
+                    Fallible::Ok(value) => {
+                        let mut locals = Scope::default();
+                        if let Some(name) = assignee
+                            .as_ref()
+                            .and_then(|a| a.pattern.as_ref())
+                            .and_then(|p| p.first())
+                        {
+                            eval_assignment(name, value, &mut locals);
+                        }
+                        Ok(Some(locals.locals))
+                    }
+                    Fallible::Err(_) => Ok(None),
+                }
+            }
+            MatchPattern::Variant(prefix, name, assignee)
+                if prefix.is_none() && name.as_str() == "Err" =>
+            {
+                match val.as_fallible()? {
+                    Fallible::Ok(_) => Ok(None),
+                    Fallible::Err(value) => {
+                        let mut locals = Scope::default();
+                        if let Some(name) = assignee
+                            .as_ref()
+                            .and_then(|a| a.pattern.as_ref())
+                            .and_then(|p| p.first())
+                        {
+                            eval_assignment(name, value, &mut locals);
+                        }
+                        Ok(Some(locals.locals))
+                    }
+                }
+            }
+            MatchPattern::Variant(prefix, name, assignee) => {
                 if let ScriptValue::Enum { def, index, .. } = val {
                     let def = {
                         if let Some(ident) = prefix {

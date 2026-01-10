@@ -250,7 +250,10 @@ pub enum MatchPattern {
     Discard,
     Assignee(Ident),
     Literal(Literal),
-    EnumVariant(Option<Ident>, Ident, Option<Src<Assignee>>),
+
+    // XXX Nested structures should also be MatchPattern.
+    // E.g. Ok(Some(Point(_, _)))
+    Variant(Option<Ident>, Ident, Option<Src<Assignee>>),
 }
 
 impl MatchPattern {
@@ -906,17 +909,25 @@ impl<'a> Parser<'a> {
                 token.loc,
             ),
             TokenKind::Identifier(s) => {
-                self.handle_identifier_match_pattern(s.clone(), token.loc)?
+                // XXX Hard-coded parsing of Ok/Err
+                match s.as_str() {
+                    "Ok" | "Err" => {
+                        let pattern = self.parse_destructuring_pattern(None)?;
+                        let loc = wrap_locations(token.loc, pattern.loc);
+                        Src::new(MatchPattern::Variant(None, s.clone(), Some(pattern)), loc)
+                    }
+                    _ => self.handle_identifier_match_pattern(s.clone(), token.loc)?,
+                }
             }
             TokenKind::DoubleColon => {
                 let (ident, e) = self.expect_ident()?;
                 if let Some(TokenKind::LeftParen) = self.peek_kind() {
                     let pattern = self.parse_destructuring_pattern(None)?;
                     let loc = wrap_locations(token.loc, pattern.loc);
-                    Src::new(MatchPattern::EnumVariant(None, ident, Some(pattern)), loc)
+                    Src::new(MatchPattern::Variant(None, ident, Some(pattern)), loc)
                 } else {
                     let loc = wrap_locations(token.loc, e);
-                    Src::new(MatchPattern::EnumVariant(None, ident, None), loc)
+                    Src::new(MatchPattern::Variant(None, ident, None), loc)
                 }
             }
             _ => todo!("Invalid pattern"),
@@ -937,13 +948,10 @@ impl<'a> Parser<'a> {
             let expr = if let Some(TokenKind::LeftParen) = self.peek_kind() {
                 let pattern = self.parse_destructuring_pattern(None)?;
                 let loc = wrap_locations(loc, pattern.loc);
-                Src::new(
-                    MatchPattern::EnumVariant(Some(ident), name, Some(pattern)),
-                    loc,
-                )
+                Src::new(MatchPattern::Variant(Some(ident), name, Some(pattern)), loc)
             } else {
                 let loc = wrap_locations(loc, l);
-                Src::new(MatchPattern::EnumVariant(Some(ident), name, None), loc)
+                Src::new(MatchPattern::Variant(Some(ident), name, None), loc)
             };
             Ok(expr)
         } else {

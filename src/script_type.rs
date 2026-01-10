@@ -151,6 +151,14 @@ impl ScriptType {
                     return true;
                 }
             }
+            Self::Fallible(_, _) => {
+                // This is obviously not a general solution, but it's sufficient as long as we're
+                // not supporting pattern-matching on inner values, and we're preventing duplicates
+                // and illegal patterns.
+                if patterns.len() == 2 {
+                    return true;
+                }
+            }
             Self::EnumInstance(def) => {
                 // This is obviously not a general solution, but it's sufficient as long as we're
                 // not supporting pattern-matching on inner values, and we're preventing duplicates
@@ -194,6 +202,14 @@ impl ScriptType {
             ext.as_writable()
         } else {
             todo!("Called as_writable on {self}, expected an extension type")
+        }
+    }
+
+    pub fn as_fallible(&self) -> Result<(&Self, &Self)> {
+        if let Self::Fallible(inner_value, inner_type) = self {
+            Ok((&inner_value, &inner_type))
+        } else {
+            Err(TypeError::invalid_argument("fallible", self.clone()))
         }
     }
 

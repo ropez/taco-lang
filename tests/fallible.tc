@@ -77,3 +77,23 @@ fun test_unwrap_operator() {
 
     # XXX Can't test ! on err, because it panics
 }
+
+fun test_pattern_matching() {
+    fun test(ok: bool): str ~ str {
+        if ok {
+            return Ok("success")
+        } else {
+            return Err("error")
+        }
+    }
+
+    fun apply_match(res: str ~ str): str {
+        match res {
+            Ok(v) { "OK: $v" }
+            Err(e) { "ERR: $e" }
+        }
+    }
+
+    assert apply_match(test(true)) == "OK: success"
+    assert apply_match(test(false)) == "ERR: error"
+}
