@@ -7,9 +7,10 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["fs", "http", "process", "json"]
+default = ["fs", "net", "http", "process", "json"]
 fs = []
-http = ["url", "httparse", "rustls", "webpki-roots"]
+net = ["dep:smol"]
+http = ["dep:smol", "dep:url", "dep:httparse", "dep:rustls", "dep:webpki-roots"]
 process = ["pipe"]
 json = ["dep:tinyjson"]
 pipe = ["dep:smol"]

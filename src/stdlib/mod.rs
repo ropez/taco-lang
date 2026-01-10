@@ -22,6 +22,9 @@ pub(crate) mod pipe;
 #[cfg(feature = "fs")]
 pub(crate) mod fs;
 
+#[cfg(feature = "net")]
+pub(crate) mod net;
+
 #[cfg(feature = "http")]
 pub(crate) mod http;
 
@@ -55,6 +58,9 @@ where
 
     #[cfg(feature = "http")]
     http::build(builder);
+
+    #[cfg(feature = "net")]
+    net::build(builder);
 
     #[cfg(feature = "process")]
     process::build(builder, Arc::clone(&out));
