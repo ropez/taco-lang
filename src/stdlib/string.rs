@@ -83,16 +83,15 @@ impl NativeMethod for StringChars {
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let subject = subject.as_string()?;
-        let lines = subject
+        let chars = subject
             .chars()
-            .map(String::from)
-            .map(ScriptValue::string)
+            .map(ScriptValue::Char)
             .collect();
-        Ok(ScriptValue::List(Arc::new(List::new(lines))))
+        Ok(ScriptValue::List(Arc::new(List::new(chars))))
     }
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
-        Ok(ScriptType::list_of(ScriptType::Str))
+        Ok(ScriptType::list_of(ScriptType::Char))
     }
 }
 

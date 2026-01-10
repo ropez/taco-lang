@@ -317,6 +317,7 @@ impl Validator {
                 Literal::True => Ok(ScriptType::Bool),
                 Literal::False => Ok(ScriptType::Bool),
                 Literal::Int(_) => Ok(ScriptType::Int),
+                Literal::Char(_) => Ok(ScriptType::Char),
                 Literal::Str(_) => Ok(ScriptType::Str),
             },
             Expression::Arguments => Ok(ScriptType::Tuple(scope.arguments.clone())),

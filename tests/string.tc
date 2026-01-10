@@ -67,5 +67,9 @@ fun test_split_into_named_tuple() {
 }
 
 fun test_chars() {
-    assert "foo bar".chars() == ["f", "o", "o", " ", "b", "a", "r"]
+    assert "foo bar".chars() == ['f', 'o', 'o', ' ', 'b', 'a', 'r']
+}
+
+fun test_chars_unicode() {
+    assert "Юлія☃".chars() == ['Ю', 'л', 'і', 'я', '☃']
 }

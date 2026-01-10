@@ -21,6 +21,7 @@ pub enum ScriptValue {
         content_type: ContentType,
     },
     Int(i64),
+    Char(char),
     Range(i64, i64),
     List(Arc<List>),
     Tuple(Arc<Tuple>),
@@ -122,6 +123,15 @@ impl ScriptValue {
         }
     }
 
+    pub fn as_char(&self) -> Result<char> {
+        match self {
+            Self::Char(ch) => Ok(*ch),
+            _ => Err(ScriptError::panic(format!(
+                "Expected integer, found {self}"
+            ))),
+        }
+    }
+
     pub fn as_boolean(&self) -> Result<bool> {
         match self {
             Self::Boolean(b) => Ok(*b),
@@ -134,6 +144,7 @@ impl ScriptValue {
     pub fn as_string(&self) -> Result<Arc<str>> {
         match self {
             Self::String { content, .. } => Ok(Arc::clone(content)),
+            Self::Char(c) => Ok(c.to_string().into()),
             _ => Err(ScriptError::panic(format!("Expected string, found {self}"))),
         }
     }
@@ -214,6 +225,12 @@ impl PartialEq for ScriptValue {
             (Self::String { content: l, .. }, Self::String { content: r, .. }) => l == r,
             (Self::Boolean(l), Self::Boolean(r)) => l == r,
             (Self::Int(l), Self::Int(r)) => l == r,
+            (Self::Char(l), Self::Char(r)) => l == r,
+            (Self::Char(c), Self::String { content, .. })
+            | (Self::String { content, .. }, Self::Char(c)) => {
+                // Comparing by converting char to string might not be the most performant
+                content.as_ref() == c.to_string()
+            }
             (Self::Range(l1, l2), Self::Range(r1, r2)) => (l1, l2) == (r1, r2),
             (Self::Tuple(l), Self::Tuple(r)) => l == r,
             (
@@ -248,6 +265,7 @@ impl fmt::Display for ScriptValue {
             },
             ScriptValue::String { content, .. } => write!(f, "{content}"),
             ScriptValue::Int(n) => write!(f, "{n}"),
+            ScriptValue::Char(c) => write!(f, "{c}"),
             ScriptValue::Boolean(b) => match b {
                 true => write!(f, "true"),
                 false => write!(f, "false"),

@@ -225,6 +225,7 @@ fn try_static_eval(expr: &Src<Expression>) -> Result<ScriptValue> {
             Literal::True => ScriptValue::Boolean(true),
             Literal::False => ScriptValue::Boolean(false),
             Literal::Int(n) => ScriptValue::Int(*n),
+            Literal::Char(c) => ScriptValue::Char(*c),
         },
         Expression::String(parts) => {
             let mut builder = String::new();

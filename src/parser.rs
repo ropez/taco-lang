@@ -123,6 +123,7 @@ pub enum Literal {
     True,
     False,
     Int(i64),
+    Char(char),
     Str(Arc<str>),
 }
 
@@ -506,6 +507,10 @@ impl<'a> Parser<'a> {
             TokenKind::String(s) => {
                 let expr = self.parse_string(s, token.loc)?;
                 self.parse_continuation(expr, bp)?
+            }
+            TokenKind::Char(c) => {
+                let e = Src::new(Expression::Literal(Literal::Char(*c)), token.loc);
+                self.parse_continuation(e, bp)?
             }
             TokenKind::Number(n) => {
                 let e = Src::new(Expression::Literal(Literal::Int(*n)), token.loc);

@@ -16,6 +16,7 @@ type Result<T> = result::Result<T, TypeError>;
 pub enum ScriptType {
     Bool,
     Int,
+    Char,
     Range,
     Str,
     EmptyList,
@@ -70,7 +71,9 @@ impl ScriptType {
             (ScriptType::Infer(_), _) => true,
             (ScriptType::Unknown, _) => true,
             (ScriptType::Int, ScriptType::Int) => true,
+            (ScriptType::Char, ScriptType::Char) => true,
             (ScriptType::Str, ScriptType::Str) => true,
+            (ScriptType::Str, ScriptType::Char) => true,
             (ScriptType::Bool, ScriptType::Bool) => true,
             (ScriptType::Range, ScriptType::Range) => true,
             (ScriptType::List(_), ScriptType::EmptyList) => true,
@@ -278,6 +281,7 @@ impl fmt::Display for ScriptType {
             Self::Bool => write!(f, "bool"),
             Self::Int => write!(f, "int"),
             Self::Str => write!(f, "str"),
+            Self::Char => write!(f, "char"),
             Self::EnumInstance(typ) => write!(f, "{}", typ.name),
             Self::EnumVariant { def, params } => {
                 write!(f, "fun{params}: {}", def.name)

@@ -323,6 +323,7 @@ impl Interpreter {
                 Literal::True => ScriptValue::Boolean(true),
                 Literal::False => ScriptValue::Boolean(false),
                 Literal::Int(n) => ScriptValue::Int(*n),
+                Literal::Char(c) => ScriptValue::Char(*c),
                 Literal::Str(s) => ScriptValue::string(Arc::clone(s)),
             },
             Expression::Arguments => ScriptValue::Tuple(Arc::clone(&scope.arguments)),
@@ -825,6 +826,13 @@ impl Interpreter {
                 }
                 Literal::Int(n) => {
                     if *n == val.as_int()? {
+                        Ok(Some(HashMap::new()))
+                    } else {
+                        Ok(None)
+                    }
+                }
+                Literal::Char(n) => {
+                    if *n == val.as_char()? {
                         Ok(Some(HashMap::new()))
                     } else {
                         Ok(None)

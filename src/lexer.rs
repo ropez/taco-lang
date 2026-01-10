@@ -113,6 +113,7 @@ pub enum TokenKind {
     Identifier(Ident),
     String(Arc<str>),
     Number(i64),
+    Char(char),
     NewLine,
     Comment(Arc<str>),
 
@@ -242,6 +243,10 @@ impl<'a> Tokenizer<'a> {
                     let s = self.find_str()?;
                     Some(self.produce(TokenKind::String(s)))
                 }
+                '\'' => {
+                    let s = self.find_char()?;
+                    Some(self.produce(TokenKind::Char(s)))
+                }
                 '0'..='9' => {
                     self.untake();
                     let s = self.find_number()?;
@@ -355,6 +360,19 @@ impl<'a> Tokenizer<'a> {
         } else {
             Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
         }
+    }
+
+    fn find_char(&mut self) -> Result<char> {
+        let Some(c) = self.read_char() else {
+            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
+        };
+        let Some(t) = self.read_char() else {
+            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
+        };
+        if t != '\'' {
+            return Err(ParseError::new(ParseErrorKind::UnexpectedToken).at(self.loc))
+        }
+        Ok(c)
     }
 
     fn find_ident(&mut self) -> Ident {
