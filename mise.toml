@@ -1,0 +1,15 @@
+[tools]
+rust = "latest"
+
+[tasks.check]
+run = [
+    "cargo check",
+    "cargo check --no-default-features",
+    "cargo check --no-default-features --features fs",
+    "cargo check --no-default-features --features net",
+    "cargo check --no-default-features --features http",
+    "cargo check --no-default-features --features process",
+    "cargo check --no-default-features --features json",
+    "cargo check --all-features",
+]
+

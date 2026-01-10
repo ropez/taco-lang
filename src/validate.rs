@@ -1073,7 +1073,9 @@ impl Validator {
             MatchPattern::Assignee(name) => {
                 inner_scope.set_local(name, expr_type.flatten().clone());
             }
-            MatchPattern::Variant(prefix, name, Some(assignee)) if prefix.is_none() && name.as_str() == "Ok" => {
+            MatchPattern::Variant(prefix, name, Some(assignee))
+                if prefix.is_none() && name.as_str() == "Ok" =>
+            {
                 let Some(pattern) = &assignee.pattern else {
                     todo!("Handle missing args for Ok");
                 };
@@ -1089,7 +1091,9 @@ impl Validator {
                     inner_scope.set_local(name, inner_value.clone());
                 }
             }
-            MatchPattern::Variant(prefix, name, Some(assignee)) if prefix.is_none() && name.as_str() == "Err" => {
+            MatchPattern::Variant(prefix, name, Some(assignee))
+                if prefix.is_none() && name.as_str() == "Err" =>
+            {
                 let Some(pattern) = &assignee.pattern else {
                     todo!("Handle missing args for Err");
                 };

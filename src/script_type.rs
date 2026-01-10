@@ -207,7 +207,7 @@ impl ScriptType {
 
     pub fn as_fallible(&self) -> Result<(&Self, &Self)> {
         if let Self::Fallible(inner_value, inner_type) = self {
-            Ok((&inner_value, &inner_type))
+            Ok((inner_value, inner_type))
         } else {
             Err(TypeError::invalid_argument("fallible", self.clone()))
         }
@@ -406,7 +406,7 @@ impl TupleItemType {
 pub struct TypeAttribute {
     pub(crate) name: Ident,
 
-    // Refers to Tuple, which is a 'value' (not a type), Because these expressions are
+    // Refers to Tuple, which is a *value* (not a type), Because these expressions are
     // evaluated statically, and the result of evaluation (value) becomes part of the type.
     pub(crate) args: Option<Tuple>,
 }

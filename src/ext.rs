@@ -177,6 +177,7 @@ impl PartialEq for NativeMethodRef {
     }
 }
 
+#[cfg(feature = "pipe")]
 pub(crate) trait ReadableExt {
     fn blocking_read_next(
         &self,

@@ -7,7 +7,7 @@ use std::{
 
 use crate::{
     error::{ScriptError, ScriptErrorKind},
-    ext::{NativeFunctionRef, NativeMethodRef, ReadableExt},
+    ext::{NativeFunctionRef, NativeMethodRef},
     ident::{Ident, global},
     lexer::Src,
     parser::{Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, Statement},
@@ -18,7 +18,10 @@ use crate::{
 };
 
 #[cfg(feature = "pipe")]
-use crate::stdlib::pipe::{PipeImpl, PipeType, Tracker, exec_pipe};
+use crate::{
+    ext::ReadableExt,
+    stdlib::pipe::{PipeImpl, PipeType, Tracker, exec_pipe},
+};
 
 #[derive(Debug)]
 enum Completion {
@@ -150,9 +153,8 @@ impl Interpreter {
                     iterable,
                     body,
                 } => {
-                    let loc = iterable.loc;
-                    let iterable = self.eval_expr(iterable, &scope)?;
-                    match iterable {
+                    let value = self.eval_expr(iterable, &scope)?;
+                    match value {
                         ScriptValue::List(ref list) => {
                             for item in list.items() {
                                 let mut scope = scope.clone();
@@ -184,7 +186,7 @@ impl Interpreter {
                             if let Some(readable) = val.as_readable() {
                                 while let Some(v) = readable
                                     .blocking_read_next(self)
-                                    .map_err(|err| err.at(loc))?
+                                    .map_err(|err| err.at(iterable.loc))?
                                 {
                                     let mut scope = scope.clone();
                                     scope.set_local(ident, v);
@@ -195,10 +197,12 @@ impl Interpreter {
                                     }
                                 }
                             } else {
-                                return Err(ScriptError::panic("Expected iterable").at(loc));
+                                return Err(
+                                    ScriptError::panic("Expected iterable").at(iterable.loc)
+                                );
                             }
                         }
-                        _ => panic!("Expected iterable, found: {iterable}"),
+                        _ => panic!("Expected iterable, found: {value}"),
                     }
                 }
                 Statement::IfIn {
@@ -475,7 +479,7 @@ impl Interpreter {
                 )
             }
             #[cfg(not(feature = "pipe"))]
-            Expression::Pipe(lhs, rhs) => {
+            Expression::Pipe(_lhs, _rhs) => {
                 // XXX Fix error
                 panic!("pipes are not enabled");
             }
@@ -513,18 +517,18 @@ impl Interpreter {
             Expression::Unwrap(inner) => {
                 let val = self.eval_expr(inner, scope)?;
                 match val {
-                    ScriptValue::Opt(opt) => {
-                        if let Some(inner) = opt {
-                            ScriptValue::clone(&inner)
-                        } else {
-                            return Err(ScriptError::panic("No value in assertion").at(expr.loc));
-                        }
-                    }
+                    ScriptValue::Opt(opt) => match opt {
+                        Some(inner) => ScriptValue::clone(&inner),
+                        None => Err(ScriptError::panic("No value in assertion").at(expr.loc))?,
+                    },
                     ScriptValue::Fallible(f) => match f {
                         Fallible::Ok(inner) => ScriptValue::clone(&inner),
-                        Fallible::Err(err) => todo!(),
+                        Fallible::Err(err) => Err(ScriptError::panic(format!(
+                            "Unwrap operator (!) on error: {err}"
+                        ))
+                        .at(expr.loc))?,
                     },
-                    _ => return Err(ScriptError::panic("Invalid question operator")),
+                    _ => Err(ScriptError::panic("Invalid question operator"))?,
                 }
             }
             Expression::Coalesce(lhs, rhs) => {
