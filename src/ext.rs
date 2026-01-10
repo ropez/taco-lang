@@ -71,9 +71,9 @@ pub trait NativeFunction {
         TupleType::identity()
     }
 
-    fn return_type(&self, arguments: &TupleType) -> ScriptType {
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
         let _ = arguments;
-        ScriptType::identity()
+        Ok(ScriptType::identity())
     }
 }
 

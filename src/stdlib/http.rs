@@ -80,8 +80,8 @@ impl NativeFunction for FetchFunc {
         TupleType::new(args)
     }
 
-    fn return_type(&self, _arguments: &TupleType) -> ScriptType {
-        ScriptType::Ext(Arc::new(ResponseType))
+    fn return_type(&self, _arguments: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Ext(Arc::new(ResponseType)))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {

@@ -237,9 +237,9 @@ impl ScriptType {
         match &self {
             ScriptType::Function(fun) => Ok(ScriptType::clone(&fun.ret)),
             ScriptType::EnumVariant { def, .. } => Ok(ScriptType::EnumInstance(Arc::clone(def))),
-            ScriptType::NativeFunction(func) => Ok(func.return_type(arguments)),
+            ScriptType::NativeFunction(func) => func.return_type(arguments),
             ScriptType::NativeMethodBound(method, subject_typ) => {
-                Ok(method.return_type(subject_typ, arguments)?)
+                method.return_type(subject_typ, arguments)
             }
             _ => Err(TypeError::new(TypeErrorKind::InvalidCallable(self.clone()))),
         }

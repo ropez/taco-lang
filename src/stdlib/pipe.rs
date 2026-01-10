@@ -6,7 +6,7 @@ use smol::channel;
 
 use crate::{
     Builder,
-    error::ScriptError,
+    error::{ScriptError, TypeError},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
     interpreter::Interpreter,
@@ -127,25 +127,25 @@ impl NativeFunction for ActorFunc {
         )))
     }
 
-    fn return_type(&self, arguments: &TupleType) -> ScriptType {
-        let arg = arguments.single().unwrap();
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+        let arg = arguments.single().cloned()?;
         if let ScriptType::Function(fun) = arg {
             let lhs = fun.params.single().cloned().unwrap();
 
             // Not really a pipe, but the type works here
             let pipe = PipeType::new(Some(lhs.clone()), Some(fun.ret.clone()));
 
-            ScriptType::Ext(Arc::new(pipe))
+            Ok(ScriptType::Ext(Arc::new(pipe)))
         } else {
-            todo!("error")
+            Err(TypeError::invalid_argument("function", arg))
         }
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let callable = arguments.single()?;
+        let callable = arguments.single().cloned()?;
 
         let t = Arc::new(ActorType(ScriptType::Infer(1), ScriptType::Infer(2))); // Dummy arguments, not used
-        let v = Actor::new(callable.clone());
+        let v = Actor::new(callable);
         Ok(ScriptValue::Ext(t, Arc::new(v)))
     }
 }

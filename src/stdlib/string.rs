@@ -83,10 +83,7 @@ impl NativeMethod for StringChars {
         _arguments: &Tuple,
     ) -> Result<ScriptValue, ScriptError> {
         let subject = subject.as_string()?;
-        let chars = subject
-            .chars()
-            .map(ScriptValue::Char)
-            .collect();
+        let chars = subject.chars().map(ScriptValue::Char).collect();
         Ok(ScriptValue::List(Arc::new(List::new(chars))))
     }
 

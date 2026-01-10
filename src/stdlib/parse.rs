@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     Builder,
-    error::ScriptError,
+    error::{ScriptError, TypeError},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{RecType, ScriptType, TupleType},
@@ -30,12 +30,12 @@ impl NativeFunction for ParseFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
         // XXX How to programmatically create a custom error type, or include Taco snippets in stdlib?
         let error_typ = ScriptType::Str;
         let value_typ = ScriptType::RecInstance(Arc::clone(&self.def));
 
-        ScriptType::fallible_of(value_typ, error_typ)
+        Ok(ScriptType::fallible_of(value_typ, error_typ))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
@@ -120,8 +120,8 @@ impl NativeFunction for ParseIntFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Int
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Int)
     }
 }
 
@@ -145,7 +145,7 @@ impl NativeFunction for ParseRangeFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Range
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Range)
     }
 }

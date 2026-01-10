@@ -364,13 +364,13 @@ impl<'a> Tokenizer<'a> {
 
     fn find_char(&mut self) -> Result<char> {
         let Some(c) = self.read_char() else {
-            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
+            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
         };
         let Some(t) = self.read_char() else {
-            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
+            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
         };
         if t != '\'' {
-            return Err(ParseError::new(ParseErrorKind::UnexpectedToken).at(self.loc))
+            return Err(ParseError::new(ParseErrorKind::UnexpectedToken).at(self.loc));
         }
         Ok(c)
     }

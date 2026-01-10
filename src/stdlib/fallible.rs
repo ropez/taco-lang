@@ -20,27 +20,29 @@ pub(crate) fn build(builder: &mut Builder) {
 struct OkFunction;
 impl NativeFunction for OkFunction {
     fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(1))
+        TupleType::from_single(ScriptType::Unknown)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::fallible_of(ScriptType::Infer(1), ScriptType::Unknown)
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+        let arg = arguments.single().cloned()?;
+        Ok(ScriptType::fallible_of(arg, ScriptType::Unknown))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
-        let arg = arguments.single()?;
-        Ok(ScriptValue::ok(arg.clone()))
+        let arg = arguments.single().cloned()?;
+        Ok(ScriptValue::ok(arg))
     }
 }
 
 struct ErrFunction;
 impl NativeFunction for ErrFunction {
     fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(1))
+        TupleType::from_single(ScriptType::Unknown)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::fallible_of(ScriptType::Unknown, ScriptType::Infer(1))
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+        let arg = arguments.single().cloned()?;
+        Ok(ScriptType::fallible_of(ScriptType::Unknown, arg))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {

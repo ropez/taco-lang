@@ -2,7 +2,7 @@ use std::{fs, io::ErrorKind};
 
 use crate::{
     Builder,
-    error::ScriptError,
+    error::{ScriptError, TypeError},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -20,9 +20,9 @@ impl NativeFunction for ReadFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
         // XXX Need to define custom error types like "IO::Error"
-        ScriptType::fallible_of(ScriptType::Str, ScriptType::Str)
+        Ok(ScriptType::fallible_of(ScriptType::Str, ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {

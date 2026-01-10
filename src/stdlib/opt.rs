@@ -26,8 +26,9 @@ impl NativeFunction for SomeFunction {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self, _arguments: &TupleType) -> ScriptType {
-        ScriptType::opt_of(ScriptType::Infer(1))
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+        let arg = arguments.single().cloned()?;
+        Ok(ScriptType::opt_of(arg))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {

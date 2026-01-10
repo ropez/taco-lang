@@ -962,7 +962,7 @@ impl Validator {
             })
             .at(actual.loc));
         }
-        found_types.extend(infer_types(&expected, actual));
+        found_types.extend(infer_types(&expected, actual)?);
         Ok(())
     }
 
@@ -1217,7 +1217,7 @@ fn eval_question(expr_type: ScriptType, scope: &Scope) -> Result<ScriptType> {
     }
 }
 
-fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptType> {
+fn infer_types(formal: &ScriptType, actual: &ScriptType) -> Result<HashMap<u16, ScriptType>> {
     let mut found = HashMap::new();
 
     match (formal, actual) {
@@ -1225,40 +1225,40 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> HashMap<u16, ScriptT
             found.insert(*n, actual.clone());
         }
         (ScriptType::List(formal), ScriptType::List(inner)) => {
-            found.extend(infer_types(formal, inner));
+            found.extend(infer_types(formal, inner)?);
         }
         (ScriptType::List(formal), ScriptType::Range) => {
-            found.extend(infer_types(formal, &ScriptType::Int));
+            found.extend(infer_types(formal, &ScriptType::Int)?);
         }
         (ScriptType::Function(formal), ScriptType::Function(actual)) => {
-            found.extend(infer_tuple_types(&formal.params, &actual.params));
-            found.extend(infer_types(&formal.ret, &actual.ret));
+            found.extend(infer_tuple_types(&formal.params, &actual.params)?);
+            found.extend(infer_types(&formal.ret, &actual.ret)?);
         }
         (ScriptType::Function(formal), ScriptType::NativeFunction(fun)) => {
             let arguments = TupleType::identity(); // How to get actual args here?
-            found.extend(infer_types(&formal.ret, &fun.return_type(&arguments)));
+            found.extend(infer_types(&formal.ret, &fun.return_type(&arguments)?)?);
         }
         (ScriptType::Function(formal), ScriptType::EnumVariant { def, .. }) => {
             found.extend(infer_types(
                 &formal.ret,
                 &ScriptType::EnumInstance(Arc::clone(def)),
-            ));
+            )?);
         }
         (ScriptType::Tuple(formal), ScriptType::Tuple(actual)) => {
-            found.extend(infer_tuple_types(formal, actual));
+            found.extend(infer_tuple_types(formal, actual)?);
         }
         _ => (),
     }
 
-    found
+    Ok(found)
 }
 
-fn infer_tuple_types(formal: &TupleType, actual: &TupleType) -> HashMap<u16, ScriptType> {
+fn infer_tuple_types(formal: &TupleType, actual: &TupleType) -> Result<HashMap<u16, ScriptType>> {
     let mut found = HashMap::new();
     for (f, g) in formal.items().iter().zip(actual.items()) {
-        found.extend(infer_types(&f.value, &g.value));
+        found.extend(infer_types(&f.value, &g.value)?);
     }
-    found
+    Ok(found)
 }
 
 fn apply_inferred_types(
@@ -1304,7 +1304,7 @@ fn apply_inferred_types(
         ScriptType::NativeFunction(f) => {
             let (params, params_complete) =
                 apply_inferred_types_tuple(&f.arguments_type(), found_types)?;
-            let (ret, ret_complete) = apply_inferred_types(&f.return_type(&params), found_types)?;
+            let (ret, ret_complete) = apply_inferred_types(&f.return_type(&params)?, found_types)?;
             (
                 ScriptType::Function(FunctionType::new(params, ret)),
                 params_complete && ret_complete,

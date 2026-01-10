@@ -65,9 +65,9 @@ impl NativeFunction for UdpBind {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
         let ext = ScriptType::Ext(Arc::new(ScriptSocketType));
-        ScriptType::fallible_of(ext, ScriptType::Str)
+        Ok(ScriptType::fallible_of(ext, ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {

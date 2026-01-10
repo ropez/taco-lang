@@ -4,7 +4,7 @@ use tinyjson::JsonValue;
 
 use crate::{
     Builder,
-    error::ScriptError,
+    error::{ScriptError, TypeError},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{RecType, ScriptType, TupleItemType, TupleType},
@@ -24,8 +24,8 @@ impl NativeFunction for JsonFunc {
         TupleType::from_single(ScriptType::Unknown)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Str
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Str)
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {

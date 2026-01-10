@@ -2,7 +2,7 @@ use std::fmt::{self, Write};
 
 use crate::{
     Builder,
-    error::ScriptError,
+    error::{ScriptError, TypeError},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -25,8 +25,8 @@ impl NativeFunction for TypeOfFunc {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Str
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Str)
     }
 }
 

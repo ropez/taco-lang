@@ -194,8 +194,8 @@ impl NativeFunction for ExecFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> ScriptType {
-        ScriptType::Ext(self.get_type())
+    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+        Ok(ScriptType::Ext(self.get_type()))
     }
 }
 

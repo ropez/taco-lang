@@ -439,12 +439,12 @@ impl NativeFunction for ListZip {
         TupleType::new(args)
     }
 
-    fn return_type(&self, arguments: &TupleType) -> ScriptType {
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
         let args = vec![
             TupleItemType::unnamed(inner_type(arguments.at_pos(0).unwrap())),
             TupleItemType::unnamed(inner_type(arguments.at_pos(1).unwrap())),
         ];
-        ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
+        Ok(ScriptType::list_of(ScriptType::Tuple(TupleType::new(args))))
     }
 }
 
@@ -490,14 +490,14 @@ impl NativeFunction for ListZip4 {
         TupleType::new(args)
     }
 
-    fn return_type(&self, arguments: &TupleType) -> ScriptType {
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
         let args = vec![
             TupleItemType::unnamed(inner_type(arguments.at_pos(0).unwrap())),
             TupleItemType::unnamed(inner_type(arguments.at_pos(1).unwrap())),
             TupleItemType::unnamed(inner_type(arguments.at_pos(2).unwrap())),
             TupleItemType::unnamed(inner_type(arguments.at_pos(3).unwrap())),
         ];
-        ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
+        Ok(ScriptType::list_of(ScriptType::Tuple(TupleType::new(args))))
     }
 }
 
@@ -544,12 +544,12 @@ impl NativeFunction for ListCartesian {
         TupleType::new(args)
     }
 
-    fn return_type(&self, arguments: &TupleType) -> ScriptType {
+    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
         let args = vec![
             TupleItemType::unnamed(inner_type(arguments.at_pos(0).unwrap())),
             TupleItemType::unnamed(inner_type(arguments.at_pos(1).unwrap())),
         ];
-        ScriptType::list_of(ScriptType::Tuple(TupleType::new(args)))
+        Ok(ScriptType::list_of(ScriptType::Tuple(TupleType::new(args))))
     }
 }
 
