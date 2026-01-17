@@ -366,6 +366,18 @@ impl<'a> Tokenizer<'a> {
         let Some(c) = self.read_char() else {
             return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
         };
+
+        let c = if c == '\\' {
+            match self.read_char() {
+                Some('\\') => '\\',
+                Some('n') => '\n',
+                Some('r') => '\r',
+                _ => return Err(ParseError::unexpected_token().at(self.loc)),
+            }
+        } else {
+            c
+        };
+
         let Some(t) = self.read_char() else {
             return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
         };

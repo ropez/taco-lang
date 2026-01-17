@@ -29,6 +29,23 @@ fn test_returns_string_with_dollar_signs() {
 }
 
 #[test]
+fn test_returns_string_with_escapes() {
+    let res = tokenise_string(r#"\\foo\r\nbar\r\n"#);
+
+    assert_eq!(
+        res,
+        vec![
+            StringToken::string("\\foo", 0),
+            StringToken::string("\r", 5),
+            StringToken::string("\n", 7),
+            StringToken::string("bar", 9),
+            StringToken::string("\r", 12),
+            StringToken::string("\n", 14),
+        ]
+    );
+}
+
+#[test]
 fn test_returns_single_expression() {
     let res = tokenise_string("$foobar");
 

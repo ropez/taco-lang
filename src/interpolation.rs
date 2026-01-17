@@ -74,7 +74,7 @@ pub fn tokenise_string<'a>(src: &'a str) -> Vec<StringToken<'a>> {
                     }
                 }
                 Some('$') => {
-                    if let Some(p) = cur[1..].find('$') {
+                    if let Some(p) = cur[1..].find(['$', '\\']) {
                         tokens.push(StringToken::string(&cur[..p + 1], pos - 1));
                         pos += p + 1
                     } else {
@@ -83,6 +83,35 @@ pub fn tokenise_string<'a>(src: &'a str) -> Vec<StringToken<'a>> {
                     }
                 }
                 Some(_) => panic!("Unexpected character after $"),
+            }
+        } else if let Some(p) = cur.find('\\') {
+            if p > 0 {
+                tokens.push(StringToken::string(&cur[..p], pos));
+            }
+
+            pos += p + 1;
+            let cur = &cur[p + 1..];
+
+            match cur.chars().next() {
+                None => panic!("Unexpected end of string"),
+                Some('\\') => {
+                    if let Some(p) = cur[1..].find(['$', '\\']) {
+                        tokens.push(StringToken::string(&cur[..p + 1], pos - 1));
+                        pos += p + 1
+                    } else {
+                        tokens.push(StringToken::string(cur, pos - 1));
+                        break;
+                    }
+                }
+                Some('n') => {
+                    tokens.push(StringToken::string("\n", pos - 1));
+                    pos += 1
+                }
+                Some('r') => {
+                    tokens.push(StringToken::string("\r", pos - 1));
+                    pos += 1
+                }
+                Some(_) => panic!("Unexpected character after \\"),
             }
         } else {
             tokens.push(StringToken::string(cur, pos));
