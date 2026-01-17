@@ -4,7 +4,7 @@ use async_lock::Mutex;
 
 use crate::{
     Builder,
-    error::ScriptError,
+    error::ScriptResult,
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -48,7 +48,7 @@ where
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let arg = arguments.single()?;
 
         #[cfg(target_arch = "wasm32")]

@@ -4,7 +4,7 @@ use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
@@ -69,8 +69,8 @@ impl StateValue {
 
     fn update(
         &self,
-        f: impl FnOnce(&ScriptValue) -> Result<ScriptValue, ScriptError>,
-    ) -> Result<(), ScriptError> {
+        f: impl FnOnce(&ScriptValue) -> ScriptResult<ScriptValue>,
+    ) -> ScriptResult<()> {
         let mut val = self.lock_write();
         *val = f(&val)?;
         Ok(())
@@ -114,13 +114,13 @@ impl NativeFunction for MakeState {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         let arg = arguments.single().cloned()?;
         let typ = StateType::new(arg);
         Ok(ScriptType::Ext(Arc::new(typ)))
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let value = arguments.single().cloned()?;
         Ok(ScriptValue::Ext(
             self.get_type(), // Dummy type, not used here, only for get_methods
@@ -131,7 +131,7 @@ impl NativeFunction for MakeState {
 
 pub(crate) struct StateGet;
 impl NativeMethod for StateGet {
-    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         let state = subject.as_state()?;
         Ok(state.inner.clone())
     }
@@ -141,19 +141,19 @@ impl NativeMethod for StateGet {
         _: &Interpreter,
         subject: ScriptValue,
         _arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         Ok(subject.as_state()?.get())
     }
 }
 
 pub(crate) struct StateSet;
 impl NativeMethod for StateSet {
-    fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, subject: &ScriptType) -> TypeResult<TupleType> {
         let state = subject.as_state()?;
         Ok(TupleType::from_single(state.inner.clone()))
     }
 
-    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         let state = subject.as_state()?;
         Ok(state.inner.clone())
     }
@@ -163,7 +163,7 @@ impl NativeMethod for StateSet {
         _: &Interpreter,
         subject: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let val = arguments.single().cloned()?;
         let state = subject.as_state()?;
         state.set(val);
@@ -173,7 +173,7 @@ impl NativeMethod for StateSet {
 
 pub(crate) struct StateUpdate;
 impl NativeMethod for StateUpdate {
-    fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, subject: &ScriptType) -> TypeResult<TupleType> {
         let state = subject.as_state()?;
         Ok(TupleType::from_single(ScriptType::Function(
             FunctionType::new(
@@ -183,7 +183,7 @@ impl NativeMethod for StateUpdate {
         )))
     }
 
-    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         let state = subject.as_state()?;
         Ok(state.inner.clone())
     }
@@ -193,7 +193,7 @@ impl NativeMethod for StateUpdate {
         interpreter: &Interpreter,
         subject: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let callable = arguments.single().cloned()?; // XXX Maybe we can have owned args here
         let state = subject.as_state()?;
         state.update(|v| interpreter.eval_callable(callable, &v.to_single_argument()))?;
@@ -202,13 +202,13 @@ impl NativeMethod for StateUpdate {
 }
 
 impl ScriptType {
-    fn as_state(&self) -> Result<&StateType, TypeError> {
+    fn as_state(&self) -> TypeResult<&StateType> {
         self.downcast_ext("State")
     }
 }
 
 impl ScriptValue {
-    fn as_state(&self) -> Result<&StateValue, ScriptError> {
+    fn as_state(&self) -> ScriptResult<&StateValue> {
         self.downcast_ext()
     }
 }

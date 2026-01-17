@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::NativeMethod,
     ident::global,
     interpreter::Interpreter,
@@ -28,13 +28,13 @@ impl NativeMethod for StringLength {
         _: &Interpreter,
         subject: ScriptValue,
         _arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let subject = subject.as_string()?;
         let len = subject.chars().count() as i64;
         Ok(ScriptValue::Int(len))
     }
 
-    fn return_type(&self, _subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Int)
     }
 }
@@ -46,13 +46,13 @@ impl NativeMethod for StringLines {
         _: &Interpreter,
         subject: ScriptValue,
         _arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let subject = subject.as_string()?;
         let lines = subject.lines().map(ScriptValue::string).collect();
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::list_of(ScriptType::Str))
     }
 }
@@ -64,12 +64,12 @@ impl NativeMethod for StringTrim {
         _: &Interpreter,
         subject: ScriptValue,
         _arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let (s, t) = subject.as_string_and_type()?;
         Ok(ScriptValue::string_with_type(s.trim(), t))
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Str)
     }
 }
@@ -81,13 +81,13 @@ impl NativeMethod for StringChars {
         _: &Interpreter,
         subject: ScriptValue,
         _arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let subject = subject.as_string()?;
         let chars = subject.chars().map(ScriptValue::Char).collect();
         Ok(ScriptValue::List(Arc::new(List::new(chars))))
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::list_of(ScriptType::Char))
     }
 }
@@ -99,7 +99,7 @@ impl NativeMethod for StringSplit {
         _: &Interpreter,
         subject: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let subject = subject.as_string()?;
         let mut args = arguments.iter_args();
         let arg = args
@@ -120,7 +120,7 @@ impl NativeMethod for StringSplit {
         Ok(ScriptValue::List(Arc::new(List::new(lines))))
     }
 
-    fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
         let items = vec![
             TupleItemType::unnamed(ScriptType::Str),
             TupleItemType::named("skip_empty", ScriptType::opt_of(ScriptType::Bool)),
@@ -128,7 +128,7 @@ impl NativeMethod for StringSplit {
         Ok(TupleType::new(items))
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::list_of(ScriptType::Str))
     }
 }
@@ -140,7 +140,7 @@ impl NativeMethod for StringSplitAt {
         _: &Interpreter,
         subject: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let subject = subject.as_string()?;
         let arg = arguments.single()?.as_int()?;
 
@@ -156,11 +156,11 @@ impl NativeMethod for StringSplitAt {
         Ok(ScriptValue::Tuple(Tuple::new(items).into()))
     }
 
-    fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
         Ok(TupleType::from_single(ScriptType::Int))
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         let items = vec![
             TupleItemType::unnamed(ScriptType::Str),
             TupleItemType::unnamed(ScriptType::Str),
@@ -171,16 +171,11 @@ impl NativeMethod for StringSplitAt {
 
 pub(crate) struct StringAsType(ContentType);
 impl NativeMethod for StringAsType {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Str)
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let s = subject.as_string()?;
         Ok(ScriptValue::string_with_type(s, self.0))
     }

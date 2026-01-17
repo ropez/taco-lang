@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fmt::Write, result, sync::Arc};
+use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 use crate::{
-    error::{TypeError, TypeErrorKind},
+    error::{TypeError, TypeErrorKind, TypeResult},
     ident::Ident,
     lexer::Src,
     parser::{
@@ -14,8 +14,6 @@ use crate::{
     },
     script_value::{ScriptValue, Tuple, TupleItem},
 };
-
-type Result<T> = result::Result<T, TypeError>;
 
 #[derive(Debug, Clone)]
 pub enum TypeDefinition {
@@ -46,7 +44,7 @@ impl TypeScope {
             .insert(name.into(), TypeDefinition::EnumDefinition(def));
     }
 
-    pub(crate) fn eval_rec(&mut self, rec: &Record) -> Result<()> {
+    pub(crate) fn eval_rec(&mut self, rec: &Record) -> TypeResult<()> {
         let rec_type = RecType::new(&rec.name, eval_params(&rec.params, self)?);
 
         self.types
@@ -55,7 +53,7 @@ impl TypeScope {
         Ok(())
     }
 
-    pub(crate) fn eval_enum(&mut self, def: &EnumExpression) -> Result<()> {
+    pub(crate) fn eval_enum(&mut self, def: &EnumExpression) -> TypeResult<()> {
         let enum_type = EnumType::new(
             &def.name,
             def.variants
@@ -68,7 +66,7 @@ impl TypeScope {
                         .transpose()?;
                     Ok(EnumVariantType::new(&v.name, params))
                 })
-                .collect::<Result<Vec<EnumVariantType>>>()?,
+                .collect::<TypeResult<Vec<EnumVariantType>>>()?,
         );
 
         self.add_enum(&def.name, enum_type);
@@ -77,7 +75,7 @@ impl TypeScope {
     }
 }
 
-pub(crate) fn eval_function(source: &Function, scope: &TypeScope) -> Result<Arc<FunctionType>> {
+pub(crate) fn eval_function(source: &Function, scope: &TypeScope) -> TypeResult<Arc<FunctionType>> {
     let params = eval_params(&source.params, scope)?;
     let ret = source
         .type_expr
@@ -91,7 +89,7 @@ pub(crate) fn eval_function(source: &Function, scope: &TypeScope) -> Result<Arc<
     Ok(function)
 }
 
-pub(crate) fn eval_params(params: &[ParamExpression], scope: &TypeScope) -> Result<TupleType> {
+pub(crate) fn eval_params(params: &[ParamExpression], scope: &TypeScope) -> TypeResult<TupleType> {
     let mut items = Vec::new();
 
     let expected_params = if let Some(ScriptType::Function(fun)) = &scope.expected_type {
@@ -147,7 +145,7 @@ pub(crate) fn eval_params(params: &[ParamExpression], scope: &TypeScope) -> Resu
 pub(crate) fn eval_type_expr(
     type_expr: &Src<TypeExpression>,
     scope: &TypeScope,
-) -> Result<ScriptType> {
+) -> TypeResult<ScriptType> {
     match type_expr.as_ref() {
         TypeExpression::Int => Ok(ScriptType::Int),
         TypeExpression::Str => Ok(ScriptType::Str),
@@ -191,7 +189,7 @@ pub(crate) fn eval_type_expr(
     }
 }
 
-fn eval_type_attrs(attrs: &[Src<AttributeExpression>]) -> Result<Vec<TypeAttribute>> {
+fn eval_type_attrs(attrs: &[Src<AttributeExpression>]) -> TypeResult<Vec<TypeAttribute>> {
     attrs
         .iter()
         .map(|expr| {
@@ -203,7 +201,7 @@ fn eval_type_attrs(attrs: &[Src<AttributeExpression>]) -> Result<Vec<TypeAttribu
                         .as_ref()
                         .iter()
                         .map(|a| Ok(TupleItem::new(a.name.clone(), try_static_eval(&a.expr)?)))
-                        .collect::<Result<Vec<_>>>()?;
+                        .collect::<TypeResult<Vec<_>>>()?;
                     Ok(Tuple::new(items))
                 })
                 .transpose()?;
@@ -213,10 +211,10 @@ fn eval_type_attrs(attrs: &[Src<AttributeExpression>]) -> Result<Vec<TypeAttribu
                 args,
             })
         })
-        .collect::<Result<Vec<_>>>()
+        .collect::<TypeResult<Vec<_>>>()
 }
 
-fn try_static_eval(expr: &Src<Expression>) -> Result<ScriptValue> {
+fn try_static_eval(expr: &Src<Expression>) -> TypeResult<ScriptValue> {
     let err_mapper = |_| TypeError::new(TypeErrorKind::InvalidStaticExpression).at(expr.loc);
 
     let opt = match expr.as_ref() {

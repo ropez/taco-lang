@@ -338,6 +338,9 @@ impl ScriptError {
     }
 }
 
+pub type TypeResult<T> = result::Result<T, TypeError>;
+pub type ScriptResult<T> = result::Result<T, ScriptError>;
+
 #[derive(Debug, Clone)]
 pub struct Error {
     pub message: String,

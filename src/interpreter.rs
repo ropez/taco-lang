@@ -1,12 +1,11 @@
 use std::{
     collections::HashMap,
     fmt::{self, Write as _},
-    result,
     sync::Arc,
 };
 
 use crate::{
-    error::{ScriptError, ScriptErrorKind},
+    error::{ScriptError, ScriptErrorKind, ScriptResult},
     ext::{NativeFunctionRef, NativeMethodRef},
     ident::{Ident, global},
     lexer::Src,
@@ -33,8 +32,6 @@ enum Completion {
     Break,
     Continue,
 }
-
-type Result<T> = result::Result<T, ScriptError>;
 
 #[derive(Default, Clone)]
 pub(crate) struct Scope {
@@ -110,7 +107,7 @@ impl Interpreter {
         self.methods.get(&(ns, name.clone())).cloned()
     }
 
-    pub fn execute(&self, ast: &[Statement]) -> Result<HashMap<Ident, ScriptValue>> {
+    pub fn execute(&self, ast: &[Statement]) -> ScriptResult<HashMap<Ident, ScriptValue>> {
         let mut scope = Scope::default();
 
         // During evaluation, we don't really care about type inferrence.
@@ -125,7 +122,7 @@ impl Interpreter {
         })
     }
 
-    fn execute_block(&self, ast: &[Statement], mut scope: Scope) -> Result<Completion> {
+    fn execute_block(&self, ast: &[Statement], mut scope: Scope) -> ScriptResult<Completion> {
         for node in ast {
             match node {
                 Statement::Assignment { assignee, value } => {
@@ -308,7 +305,7 @@ impl Interpreter {
         Ok(Completion::EndOfBlock(scope))
     }
 
-    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptValue> {
+    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> ScriptResult<ScriptValue> {
         let value = match expr.as_ref() {
             Expression::String(parts) => {
                 // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
@@ -331,7 +328,7 @@ impl Interpreter {
                 let values = s
                     .iter()
                     .map(|i| self.eval_expr(i, scope))
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<ScriptResult<Vec<_>>>()?;
                 ScriptValue::List(Arc::new(List::new(values)))
             }
             Expression::Tuple(s) => {
@@ -341,7 +338,7 @@ impl Interpreter {
                         let value = self.eval_expr(&arg.expr, scope)?;
                         Ok(TupleItem::new(arg.name.clone(), value))
                     })
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<ScriptResult<Vec<_>>>()?;
 
                 ScriptValue::Tuple(Arc::new(Tuple::new(items)))
             }
@@ -559,7 +556,7 @@ impl Interpreter {
         Ok(value)
     }
 
-    fn eval_assert_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<()> {
+    fn eval_assert_expr(&self, expr: &Src<Expression>, scope: &Scope) -> ScriptResult<()> {
         match expr.as_ref() {
             Expression::Equal(lhs, rhs) => {
                 let lhs = self.eval_expr(lhs, scope)?;
@@ -618,7 +615,7 @@ impl Interpreter {
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
         scope: &Scope,
-    ) -> Result<ScriptValue>
+    ) -> ScriptResult<ScriptValue>
     where
         F: FnOnce(i64, i64) -> Option<i64>,
     {
@@ -639,7 +636,7 @@ impl Interpreter {
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
         scope: &Scope,
-    ) -> Result<ScriptValue>
+    ) -> ScriptResult<ScriptValue>
     where
         F: FnOnce(i64, i64) -> bool,
     {
@@ -661,7 +658,7 @@ impl Interpreter {
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
         scope: &Scope,
-    ) -> Result<ScriptValue>
+    ) -> ScriptResult<ScriptValue>
     where
         F: FnOnce(bool, bool) -> bool,
     {
@@ -677,7 +674,7 @@ impl Interpreter {
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
         scope: &Scope,
-    ) -> Result<()>
+    ) -> ScriptResult<()>
     where
         F: FnOnce(i64, i64) -> bool,
     {
@@ -695,7 +692,7 @@ impl Interpreter {
         &self,
         callable: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue> {
+    ) -> ScriptResult<ScriptValue> {
         let return_value = match callable {
             ScriptValue::ScriptFunction(f) => {
                 let mut inner_scope = f.clone_captured_scope();
@@ -748,7 +745,7 @@ impl Interpreter {
         Ok(return_value)
     }
 
-    fn eval_args(&self, arguments: &CallExpression, scope: &Scope) -> Result<Arc<Tuple>> {
+    fn eval_args(&self, arguments: &CallExpression, scope: &Scope) -> ScriptResult<Arc<Tuple>> {
         let tuple = match arguments {
             CallExpression::Inline(arguments) => {
                 let items: Vec<_> = arguments
@@ -757,7 +754,7 @@ impl Interpreter {
                         let val = self.eval_expr(&a.expr, scope)?;
                         Ok(TupleItem::new(a.name.clone(), val))
                     })
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<ScriptResult<Vec<_>>>()?;
 
                 Arc::new(Tuple::new(items))
             }
@@ -781,7 +778,7 @@ impl Interpreter {
         arms: &Vec<MatchArm>,
         is_opt: bool,
         scope: &Scope,
-    ) -> Result<ScriptValue> {
+    ) -> ScriptResult<ScriptValue> {
         let value = self.eval_expr(expr, scope)?;
         for arm in arms {
             if let Some(locals) = self.eval_match_pattern(&arm.pattern, &value, scope)? {
@@ -806,7 +803,7 @@ impl Interpreter {
         pattern: &MatchPattern,
         val: &ScriptValue,
         scope: &Scope,
-    ) -> Result<Option<HashMap<Ident, ScriptValue>>> {
+    ) -> ScriptResult<Option<HashMap<Ident, ScriptValue>>> {
         match pattern {
             MatchPattern::Discard => Ok(Some(HashMap::new())),
             MatchPattern::Literal(lit) => match lit {
@@ -1001,7 +998,7 @@ fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
 
 // Catches cases where the ? operator is used inside a function (possibly nested blocks),
 // on a value that was either None or Err, and makes the function return the variant.
-fn try_save(ret: Result<ScriptValue>, expected: &ScriptType) -> Result<ScriptValue> {
+fn try_save(ret: ScriptResult<ScriptValue>, expected: &ScriptType) -> ScriptResult<ScriptValue> {
     match ret {
         Ok(ret) => {
             // Automatically wrap value with Ok/Some.

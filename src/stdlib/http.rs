@@ -9,7 +9,7 @@ use url::Url;
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
@@ -80,11 +80,11 @@ impl NativeFunction for FetchFunc {
         TupleType::new(args)
     }
 
-    fn return_type(&self, _arguments: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _arguments: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Ext(Arc::new(ResponseType)))
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let config = make_config();
 
         let mut args = arguments.iter_args();
@@ -189,7 +189,7 @@ impl NativeFunction for FetchFunc {
     }
 }
 
-fn parse_body(res: &Response<'_, '_>, buf: &[u8]) -> Result<Arc<str>, ScriptError> {
+fn parse_body(res: &Response<'_, '_>, buf: &[u8]) -> ScriptResult<Arc<str>> {
     if let Some(h) = res
         .headers
         .iter()
@@ -228,11 +228,11 @@ fn parse_body(res: &Response<'_, '_>, buf: &[u8]) -> Result<Arc<str>, ScriptErro
 
 struct StatusMethod;
 impl NativeMethod for StatusMethod {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Int)
     }
 
-    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let val = s.downcast_ext::<ResponseValue>()?;
         Ok(ScriptValue::Int(val.status_code as i64))
     }
@@ -240,12 +240,7 @@ impl NativeMethod for StatusMethod {
 
 struct BodyMethod;
 impl NativeMethod for BodyMethod {
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let val = subject.downcast_ext::<ResponseValue>()?;
 
         match &val.body {
@@ -257,7 +252,7 @@ impl NativeMethod for BodyMethod {
         }
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Str)
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeError, TypeResult},
     ext::NativeMethod,
     ident::global,
     interpreter::Interpreter,
@@ -19,14 +19,14 @@ impl NativeMethod for AbsMethod {
         _: &Interpreter,
         subject: ScriptValue,
         _arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         match subject {
             ScriptValue::Int(n) => Ok(ScriptValue::Int(n.abs())),
             _ => Err(ScriptError::panic("Not an int")),
         }
     }
 
-    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         match subject {
             ScriptType::Int => Ok(ScriptType::Int),
             _ => Err(TypeError::expected_number(subject.clone())),

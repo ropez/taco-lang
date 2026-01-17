@@ -1,7 +1,7 @@
-use std::{fmt, result, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use crate::{
-    error::ScriptError,
+    error::{ScriptError, ScriptResult},
     ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
@@ -10,8 +10,6 @@ use crate::{
     script_type::{EnumType, FunctionType, RecType},
     stdlib::list::List,
 };
-
-type Result<T> = result::Result<T, ScriptError>;
 
 #[derive(Debug, Clone)]
 pub enum ScriptValue {
@@ -114,7 +112,7 @@ impl ScriptValue {
         matches!(self, Self::Fallible(_))
     }
 
-    pub fn as_int(&self) -> Result<i64> {
+    pub fn as_int(&self) -> ScriptResult<i64> {
         match self {
             Self::Int(num) => Ok(*num),
             _ => Err(ScriptError::panic(format!(
@@ -123,7 +121,7 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_char(&self) -> Result<char> {
+    pub fn as_char(&self) -> ScriptResult<char> {
         match self {
             Self::Char(ch) => Ok(*ch),
             _ => Err(ScriptError::panic(format!(
@@ -132,7 +130,7 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_boolean(&self) -> Result<bool> {
+    pub fn as_boolean(&self) -> ScriptResult<bool> {
         match self {
             Self::Boolean(b) => Ok(*b),
             _ => Err(ScriptError::panic(format!(
@@ -141,7 +139,7 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_string(&self) -> Result<Arc<str>> {
+    pub fn as_string(&self) -> ScriptResult<Arc<str>> {
         match self {
             Self::String { content, .. } => Ok(Arc::clone(content)),
             Self::Char(c) => Ok(c.to_string().into()),
@@ -149,7 +147,7 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_string_and_type(&self) -> Result<(Arc<str>, ContentType)> {
+    pub fn as_string_and_type(&self) -> ScriptResult<(Arc<str>, ContentType)> {
         match self {
             Self::String {
                 content,
@@ -175,7 +173,7 @@ impl ScriptValue {
         }
     }
 
-    pub(crate) fn as_fallible(&self) -> Result<&Fallible> {
+    pub(crate) fn as_fallible(&self) -> ScriptResult<&Fallible> {
         if let Self::Fallible(v) = self {
             Ok(v)
         } else {
@@ -185,7 +183,7 @@ impl ScriptValue {
         }
     }
 
-    pub(crate) fn as_opt(&self) -> Result<Option<&ScriptValue>> {
+    pub(crate) fn as_opt(&self) -> ScriptResult<Option<&ScriptValue>> {
         if let Self::Opt(v) = self {
             Ok(v.as_ref().map(|v| v.as_ref()))
         } else {
@@ -193,7 +191,7 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_ext(&self) -> Result<Arc<dyn ExternalValue + Send + Sync>> {
+    pub fn as_ext(&self) -> ScriptResult<Arc<dyn ExternalValue + Send + Sync>> {
         match self {
             Self::Ext(_, ext) => Ok(Arc::clone(ext)),
             _ => Err(ScriptError::panic("Not readable")),
@@ -204,7 +202,7 @@ impl ScriptValue {
         Tuple(vec![TupleItem::unnamed(self.clone())])
     }
 
-    pub fn downcast_ext<T>(&self) -> Result<&T>
+    pub fn downcast_ext<T>(&self) -> ScriptResult<&T>
     where
         T: ExternalValue + 'static,
     {
@@ -383,7 +381,7 @@ impl Tuple {
             .map(|i| &i.value)
     }
 
-    pub fn single(&self) -> Result<&ScriptValue> {
+    pub fn single(&self) -> ScriptResult<&ScriptValue> {
         self.positional()
             .nth(0)
             .ok_or_else(|| ScriptError::panic("Expected argument"))

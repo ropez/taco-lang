@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{RecType, ScriptType, TupleType},
@@ -30,7 +30,7 @@ impl NativeFunction for ParseFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         // XXX How to programmatically create a custom error type, or include Taco snippets in stdlib?
         let error_typ = ScriptType::Str;
         let value_typ = ScriptType::RecInstance(Arc::clone(&self.def));
@@ -38,7 +38,7 @@ impl NativeFunction for ParseFunc {
         Ok(ScriptType::fallible_of(value_typ, error_typ))
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let (input, content_type) = arguments.single()?.as_string_and_type()?;
 
         let parse_result = match content_type {
@@ -108,7 +108,7 @@ fn parse_default(rec: &RecType, input: &str) -> Result<Tuple, ParseError> {
 
 struct ParseIntFunc;
 impl NativeFunction for ParseIntFunc {
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let input = arguments.single()?.as_string()?;
         let val = input
             .parse()
@@ -120,14 +120,14 @@ impl NativeFunction for ParseIntFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Int)
     }
 }
 
 struct ParseRangeFunc;
 impl NativeFunction for ParseRangeFunc {
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let input = arguments.single()?.as_string()?;
 
         if let Some(n) = input.find('-') {
@@ -145,7 +145,7 @@ impl NativeFunction for ParseRangeFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Range)
     }
 }

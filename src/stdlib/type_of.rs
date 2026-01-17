@@ -2,7 +2,7 @@ use std::fmt::{self, Write};
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -16,7 +16,7 @@ pub fn build(builder: &mut Builder) {
 struct TypeOfFunc;
 
 impl NativeFunction for TypeOfFunc {
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let arg = arguments.single()?;
         Ok(ScriptValue::string(arg.to_type()))
     }
@@ -25,7 +25,7 @@ impl NativeFunction for TypeOfFunc {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Str)
     }
 }

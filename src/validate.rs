@@ -1,7 +1,7 @@
-use std::{collections::HashMap, fmt::Display, result, sync::Arc};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use crate::{
-    error::{TypeError, TypeErrorKind},
+    error::{TypeError, TypeErrorKind, TypeResult},
     ext::{NativeFunctionRef, NativeMethodRef},
     fmt::fmt_tuple,
     ident::{Ident, global},
@@ -14,8 +14,6 @@ use crate::{
     stdlib::{self, parse::ParseFunc},
     type_scope::{TypeDefinition, TypeScope, eval_params, eval_type_expr},
 };
-
-type Result<T> = result::Result<T, TypeError>;
 
 #[derive(Debug, Clone)]
 pub struct ArgumentExpressionType {
@@ -139,12 +137,12 @@ impl Validator {
         self.methods.get(&(ns, name.clone())).cloned()
     }
 
-    pub fn validate(&self, ast: &[Statement]) -> Result<()> {
+    pub fn validate(&self, ast: &[Statement]) -> TypeResult<()> {
         self.validate_block(ast, Scope::with_globals(&self.globals))?;
         Ok(())
     }
 
-    fn validate_block(&self, ast: &[Statement], mut scope: Scope) -> Result<Scope> {
+    fn validate_block(&self, ast: &[Statement], mut scope: Scope) -> TypeResult<Scope> {
         for node in ast {
             match node {
                 Statement::Assignment { assignee, value } => {
@@ -306,12 +304,12 @@ impl Validator {
         Ok(scope)
     }
 
-    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<Src<ScriptType>> {
+    fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> TypeResult<Src<ScriptType>> {
         let typ = self.validate_expr(expr, scope)?;
         Ok(Src::new(typ, expr.loc))
     }
 
-    fn validate_expr(&self, expr: &Src<Expression>, scope: &Scope) -> Result<ScriptType> {
+    fn validate_expr(&self, expr: &Src<Expression>, scope: &Scope) -> TypeResult<ScriptType> {
         match expr.as_ref() {
             Expression::Literal(literal) => match literal {
                 Literal::True => Ok(ScriptType::Bool),
@@ -352,7 +350,7 @@ impl Validator {
                 let types = expressions
                     .iter()
                     .map(|i| self.eval_expr(i, scope))
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<TypeResult<Vec<_>>>()?;
 
                 if let Some(inner_type) = self.most_specific_type(&types)? {
                     Ok(ScriptType::list_of(inner_type.cloned()))
@@ -606,7 +604,7 @@ impl Validator {
                 let types = arms
                     .iter()
                     .map(|a| self.eval_match_arm(a, &expr_type, scope))
-                    .collect::<Result<Vec<_>>>()?;
+                    .collect::<TypeResult<Vec<_>>>()?;
 
                 // XXX TODO Check that patterns accept expr type
 
@@ -652,7 +650,7 @@ impl Validator {
         .map_err(|err| err.at(expr.loc))
     }
 
-    fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> Result<Arc<FunctionType>> {
+    fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> TypeResult<Arc<FunctionType>> {
         let params = eval_params(&fun.params, &scope.types)?;
         let declared_type = fun
             .type_expr
@@ -696,7 +694,7 @@ impl Validator {
         Ok(FunctionType::new(params, ret))
     }
 
-    fn eval_return_type(&self, ast: &[Statement], scope: &Scope) -> Result<Option<ReturnType>> {
+    fn eval_return_type(&self, ast: &[Statement], scope: &Scope) -> TypeResult<Option<ReturnType>> {
         let typ = match ast.last() {
             None => None,
             Some(Statement::Return(expr)) => {
@@ -788,7 +786,7 @@ impl Validator {
         subject: &Src<Expression>,
         arguments: &CallExpression,
         scope: &Scope,
-    ) -> Result<ScriptType> {
+    ) -> TypeResult<ScriptType> {
         let subject = self.eval_expr(subject, scope)?;
         let params = subject.as_callable_params()?;
 
@@ -832,7 +830,7 @@ impl Validator {
         lhs: &Src<Expression>,
         rhs: &Src<Expression>,
         scope: &Scope,
-    ) -> Result<ScriptType> {
+    ) -> TypeResult<ScriptType> {
         let l = self.validate_expr(lhs, scope)?;
         let r = self.validate_expr(rhs, scope)?;
 
@@ -850,14 +848,14 @@ impl Validator {
         &self,
         arguments: &Src<Vec<ArgumentExpression>>,
         scope: &Scope,
-    ) -> Result<TupleType> {
+    ) -> TypeResult<TupleType> {
         let items = arguments
             .iter()
             .map(|arg| {
                 let value = self.eval_expr(&arg.expr, scope)?;
                 Ok(TupleItemType::new(arg.name.clone(), value.into_inner()))
             })
-            .collect::<Result<Vec<_>>>()?;
+            .collect::<TypeResult<Vec<_>>>()?;
 
         Ok(TupleType::new(items))
     }
@@ -867,7 +865,7 @@ impl Validator {
         params: &TupleType,
         arguments: &CallExpression,
         scope: &Scope,
-    ) -> Result<HashMap<u16, ScriptType>> {
+    ) -> TypeResult<HashMap<u16, ScriptType>> {
         let found_types = match arguments {
             CallExpression::Inline(arguments) => {
                 self.validate_inline_args(params, arguments, scope)?
@@ -909,7 +907,7 @@ impl Validator {
         formal: &TupleType,
         arguments: &Src<Vec<ArgumentExpression>>,
         scope: &Scope,
-    ) -> Result<HashMap<u16, ScriptType>> {
+    ) -> TypeResult<HashMap<u16, ScriptType>> {
         // For each formal: If args contain named, take it, else take next unnamed
         let mut positional = arguments.iter().filter(|arg| arg.name.is_none());
         let mut found_types = HashMap::new();
@@ -953,7 +951,7 @@ impl Validator {
         formal: &ScriptType,
         actual: &Src<ScriptType>,
         found_types: &mut HashMap<u16, ScriptType>,
-    ) -> Result<()> {
+    ) -> TypeResult<()> {
         let (expected, _) = apply_inferred_types(formal, found_types)?;
         if !expected.accepts(actual) {
             return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
@@ -971,7 +969,7 @@ impl Validator {
     // the element type that such a list would have.
     // Locations are included for error formatting. The returned tuple contains
     // the location of the first found element with the returned type.
-    fn most_specific_type(&self, types: &[Src<ScriptType>]) -> Result<Option<Src<ScriptType>>> {
+    fn most_specific_type(&self, types: &[Src<ScriptType>]) -> TypeResult<Option<Src<ScriptType>>> {
         let mut iter = types.iter();
         if let Some(first) = iter.next() {
             let mut typ = first;
@@ -1000,7 +998,7 @@ impl Validator {
         lhs: &Src<Assignee>,
         other: &ScriptType,
         scope: &mut Scope,
-    ) -> Result<()> {
+    ) -> TypeResult<()> {
         match (&lhs.name, &lhs.pattern) {
             (None, None) => {}
             (Some(name), None) => scope.set_local(name, other.clone()),
@@ -1029,7 +1027,7 @@ impl Validator {
         loc: Loc,
         other: &TupleType,
         scope: &mut Scope,
-    ) -> Result<()> {
+    ) -> TypeResult<()> {
         let mut positional = other.positional();
 
         for assignee in lhs.iter() {
@@ -1067,7 +1065,7 @@ impl Validator {
         arm: &MatchArm,
         expr_type: &ScriptType,
         scope: &Scope,
-    ) -> Result<Src<ScriptType>> {
+    ) -> TypeResult<Src<ScriptType>> {
         let mut inner_scope = scope.clone();
 
         match arm.pattern.as_ref().as_ref() {
@@ -1130,7 +1128,7 @@ impl Validator {
         self.eval_expr(&arm.expr, &inner_scope)
     }
 
-    fn try_static_assert(&self, expr: &Src<Expression>, scope: &Scope) -> Result<()> {
+    fn try_static_assert(&self, expr: &Src<Expression>, scope: &Scope) -> TypeResult<()> {
         if let Expression::Equal(lhs, rhs) = expr.as_ref() {
             let rhs = self.try_static_eval(rhs.as_ref(), scope)?;
             let lhs = self.try_static_eval(lhs.as_ref(), scope)?;
@@ -1150,7 +1148,7 @@ impl Validator {
     }
 
     // XXX For general purpose, this should return ScriptValue instead of String
-    fn try_static_eval(&self, expr: &Expression, scope: &Scope) -> Result<Option<String>> {
+    fn try_static_eval(&self, expr: &Expression, scope: &Scope) -> TypeResult<Option<String>> {
         let opt = match expr {
             Expression::Literal(literal) => match literal {
                 Literal::Str(s) => Some(s.to_string()),
@@ -1190,7 +1188,7 @@ impl Validator {
     }
 }
 
-fn eval_question(expr_type: ScriptType, scope: &Scope) -> Result<ScriptType> {
+fn eval_question(expr_type: ScriptType, scope: &Scope) -> TypeResult<ScriptType> {
     match expr_type {
         ScriptType::Opt(inner) => {
             if let Some(ScriptType::Opt(_)) = &scope.ret {
@@ -1217,7 +1215,7 @@ fn eval_question(expr_type: ScriptType, scope: &Scope) -> Result<ScriptType> {
     }
 }
 
-fn infer_types(formal: &ScriptType, actual: &ScriptType) -> Result<HashMap<u16, ScriptType>> {
+fn infer_types(formal: &ScriptType, actual: &ScriptType) -> TypeResult<HashMap<u16, ScriptType>> {
     let mut found = HashMap::new();
 
     match (formal, actual) {
@@ -1253,7 +1251,10 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> Result<HashMap<u16, 
     Ok(found)
 }
 
-fn infer_tuple_types(formal: &TupleType, actual: &TupleType) -> Result<HashMap<u16, ScriptType>> {
+fn infer_tuple_types(
+    formal: &TupleType,
+    actual: &TupleType,
+) -> TypeResult<HashMap<u16, ScriptType>> {
     let mut found = HashMap::new();
     for (f, g) in formal.items().iter().zip(actual.items()) {
         found.extend(infer_types(&f.value, &g.value)?);
@@ -1264,7 +1265,7 @@ fn infer_tuple_types(formal: &TupleType, actual: &TupleType) -> Result<HashMap<u
 fn apply_inferred_types(
     t: &ScriptType,
     found_types: &HashMap<u16, ScriptType>,
-) -> Result<(ScriptType, bool)> {
+) -> TypeResult<(ScriptType, bool)> {
     let ret = match t {
         ScriptType::Infer(n) => {
             if let Some(ret) = found_types.get(n) {
@@ -1329,7 +1330,7 @@ fn apply_inferred_types(
 fn apply_inferred_types_tuple(
     tuple: &TupleType,
     found_types: &HashMap<u16, ScriptType>,
-) -> Result<(TupleType, bool)> {
+) -> TypeResult<(TupleType, bool)> {
     let items: Vec<_> = tuple
         .items()
         .iter()
@@ -1337,7 +1338,7 @@ fn apply_inferred_types_tuple(
             let (inferred, complete) = apply_inferred_types(&it.value, found_types)?;
             Ok((TupleItemType::new(it.name.clone(), inferred), complete))
         })
-        .collect::<Result<Vec<_>>>()?;
+        .collect::<TypeResult<Vec<_>>>()?;
 
     let all_complete = items.iter().all(|(_, complete)| *complete);
     let items = items.into_iter().map(|(t, _)| t).collect();

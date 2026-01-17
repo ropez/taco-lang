@@ -4,7 +4,7 @@ use tinyjson::JsonValue;
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{RecType, ScriptType, TupleItemType, TupleType},
@@ -24,11 +24,11 @@ impl NativeFunction for JsonFunc {
         TupleType::from_single(ScriptType::Unknown)
     }
 
-    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Str)
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let jv = JsonValue::try_from(arguments.single()?)?;
         match jv.stringify() {
             Ok(json) => Ok(ScriptValue::string_with_type(json, ContentType::Json)),
@@ -175,10 +175,7 @@ impl TryFrom<&ScriptValue> for JsonValue {
     }
 }
 
-fn transform_record(
-    def: &RecType,
-    value: &Tuple,
-) -> Result<HashMap<String, JsonValue>, ScriptError> {
+fn transform_record(def: &RecType, value: &Tuple) -> ScriptResult<HashMap<String, JsonValue>> {
     let mut items = HashMap::new();
 
     for (i, (item, d)) in value.items().iter().zip(def.params.items()).enumerate() {
@@ -189,7 +186,7 @@ fn transform_record(
     Ok(items)
 }
 
-fn get_json_name(i: usize, expr: &TupleItemType) -> Result<String, ScriptError> {
+fn get_json_name(i: usize, expr: &TupleItemType) -> ScriptResult<String> {
     let default_name = expr
         .name
         .as_ref()

@@ -1,6 +1,6 @@
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::{NativeFunction, NativeMethod},
     ident::global,
     interpreter::Interpreter,
@@ -26,7 +26,7 @@ impl NativeFunction for SomeFunction {
         TupleType::from_single(ScriptType::Infer(1))
     }
 
-    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         let arg = arguments.single().cloned()?;
         Ok(ScriptType::opt_of(arg))
     }
@@ -39,34 +39,24 @@ impl NativeFunction for SomeFunction {
 
 struct IsNoneMethod;
 impl NativeMethod for IsNoneMethod {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Bool)
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
-        let v = subject.as_opt()?.is_none();
-        Ok(ScriptValue::Boolean(v))
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let opt = subject.as_opt()?;
+        Ok(ScriptValue::Boolean(opt.is_none()))
     }
 }
 
 struct IsSomeMethod;
 impl NativeMethod for IsSomeMethod {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Bool)
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
-        let v = subject.as_opt()?.is_some();
-        Ok(ScriptValue::Boolean(v))
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let opt = subject.as_opt()?;
+        Ok(ScriptValue::Boolean(opt.is_some()))
     }
 }

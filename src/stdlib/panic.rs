@@ -1,6 +1,6 @@
 use crate::{
     Builder,
-    error::ScriptError,
+    error::{ScriptError, ScriptResult},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -17,7 +17,7 @@ impl NativeFunction for PanicFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let arg = arguments.single()?.as_string()?;
         Err(ScriptError::panic(arg))
     }

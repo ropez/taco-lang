@@ -4,7 +4,7 @@ use smol::{io, net::UdpSocket};
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
@@ -65,12 +65,12 @@ impl NativeFunction for UdpBind {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         let ext = ScriptType::Ext(Arc::new(ScriptSocketType));
         Ok(ScriptType::fallible_of(ext, ScriptType::Str))
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let addr = arguments.single()?.as_string()?;
         smol::block_on(async move {
             match ScriptSocket::bind(&addr).await {
@@ -86,7 +86,7 @@ impl NativeFunction for UdpBind {
 
 struct SendToMethod;
 impl NativeMethod for SendToMethod {
-    fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
         // TODO: We could be clever, and require only 'content' if socket is connected
         Ok(TupleType::new(vec![
             TupleItemType::named("addr", ScriptType::Str),
@@ -94,7 +94,7 @@ impl NativeMethod for SendToMethod {
         ]))
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         // XXX Need to define custom error types like "Net::Error"
         Ok(ScriptType::fallible_of(
             ScriptType::identity(),
@@ -107,7 +107,7 @@ impl NativeMethod for SendToMethod {
         _: &Interpreter,
         subject: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         let sock = subject.downcast_ext::<ScriptSocket>()?;
 
         let mut args = arguments.iter_args();
@@ -131,11 +131,11 @@ impl NativeMethod for SendToMethod {
 
 struct RecvFromMethod;
 impl NativeMethod for RecvFromMethod {
-    fn arguments_type(&self, _: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
         Ok(TupleType::identity())
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         // FIXME Should use a rec here
         let tuple = ScriptType::Tuple(TupleType::new(vec![
             TupleItemType::unnamed(ScriptType::Str),
@@ -145,12 +145,7 @@ impl NativeMethod for RecvFromMethod {
         Ok(ScriptType::fallible_of(tuple, ScriptType::Str))
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let sock = subject.downcast_ext::<ScriptSocket>()?;
 
         smol::block_on(async move {

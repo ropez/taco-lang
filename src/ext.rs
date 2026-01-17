@@ -3,7 +3,7 @@ use std::{any::Any, fmt, ops, sync::Arc};
 use async_trait::async_trait;
 
 use crate::{
-    error::{ScriptError, TypeError},
+    error::{ScriptResult, TypeResult},
     ident::Ident,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -49,29 +49,24 @@ impl fmt::Debug for dyn ExternalValue + Send + Sync {
 
 #[async_trait]
 pub trait Readable {
-    async fn read(&self, interpreter: &Interpreter) -> Result<Option<ScriptValue>, ScriptError>;
+    async fn read(&self, interpreter: &Interpreter) -> ScriptResult<Option<ScriptValue>>;
 }
 
 #[async_trait]
 pub trait Writable {
-    async fn write(&self, interpreter: &Interpreter, value: ScriptValue)
-    -> Result<(), ScriptError>;
+    async fn write(&self, interpreter: &Interpreter, value: ScriptValue) -> ScriptResult<()>;
 
-    async fn close(&self) -> Result<(), ScriptError>;
+    async fn close(&self) -> ScriptResult<()>;
 }
 
 pub trait NativeFunction {
-    fn call(
-        &self,
-        interpreter: &Interpreter,
-        arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError>;
+    fn call(&self, interpreter: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue>;
 
     fn arguments_type(&self) -> TupleType {
         TupleType::identity()
     }
 
-    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         let _ = arguments;
         Ok(ScriptType::identity())
     }
@@ -83,18 +78,14 @@ pub trait NativeMethod {
         interpreter: &Interpreter,
         subject: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError>;
+    ) -> ScriptResult<ScriptValue>;
 
-    fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, subject: &ScriptType) -> TypeResult<TupleType> {
         let _ = subject;
         Ok(TupleType::identity())
     }
 
-    fn return_type(
-        &self,
-        subject: &ScriptType,
-        arguments: &TupleType,
-    ) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, arguments: &TupleType) -> TypeResult<ScriptType> {
         let _ = subject;
         let _ = arguments;
         Ok(ScriptType::identity())
@@ -179,18 +170,12 @@ impl PartialEq for NativeMethodRef {
 
 #[cfg(feature = "pipe")]
 pub(crate) trait ReadableExt {
-    fn blocking_read_next(
-        &self,
-        interpreter: &Interpreter,
-    ) -> Result<Option<ScriptValue>, ScriptError>;
+    fn blocking_read_next(&self, interpreter: &Interpreter) -> ScriptResult<Option<ScriptValue>>;
 }
 
 #[cfg(feature = "pipe")]
 impl ReadableExt for &(dyn Readable + Send + Sync) {
-    fn blocking_read_next(
-        &self,
-        interpreter: &Interpreter,
-    ) -> Result<Option<ScriptValue>, ScriptError> {
+    fn blocking_read_next(&self, interpreter: &Interpreter) -> ScriptResult<Option<ScriptValue>> {
         let i = interpreter.clone();
         smol::block_on(async move {
             let r = self.read(&i).await?;

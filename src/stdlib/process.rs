@@ -14,7 +14,7 @@ use smol::{
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::{
         ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
         Writable,
@@ -80,7 +80,7 @@ impl Process {
         }
     }
 
-    async fn status(&self) -> Result<ExitStatus, ScriptError> {
+    async fn status(&self) -> ScriptResult<ExitStatus> {
         let mut child = self.child.lock().await;
         child.status().await.map_err(ScriptError::panic)
     }
@@ -102,7 +102,7 @@ impl ExternalValue for Process {
 
 #[async_trait]
 impl Readable for Process {
-    async fn read(&self, _: &Interpreter) -> Result<Option<ScriptValue>, ScriptError> {
+    async fn read(&self, _: &Interpreter) -> ScriptResult<Option<ScriptValue>> {
         let mut guard = self.stdout.lock().await;
         let stdout = guard
             .as_mut()
@@ -121,7 +121,7 @@ impl Readable for Process {
 
 #[async_trait]
 impl Writable for Process {
-    async fn write(&self, _: &Interpreter, value: ScriptValue) -> Result<(), ScriptError> {
+    async fn write(&self, _: &Interpreter, value: ScriptValue) -> ScriptResult<()> {
         let arg = value.as_string()?;
 
         let mut guard = self.stdin.lock().await;
@@ -137,7 +137,7 @@ impl Writable for Process {
         Ok(())
     }
 
-    async fn close(&self) -> Result<(), ScriptError> {
+    async fn close(&self) -> ScriptResult<()> {
         let mut child = self.stdin.lock().await;
 
         // Drops the value inside the option
@@ -156,7 +156,7 @@ impl ExecFunc {
 }
 
 impl NativeFunction for ExecFunc {
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let mut args = arguments.iter_args();
         let arg = args
             .get("command")
@@ -194,19 +194,14 @@ impl NativeFunction for ExecFunc {
         TupleType::from_single(ScriptType::Str)
     }
 
-    fn return_type(&self, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Ext(self.get_type()))
     }
 }
 
 struct OutputMethod;
 impl NativeMethod for OutputMethod {
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let p = subject.as_process()?;
 
         smol::block_on(async {
@@ -227,32 +222,27 @@ impl NativeMethod for OutputMethod {
         })
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Str)
     }
 }
 
 struct RunningMethod;
 impl NativeMethod for RunningMethod {
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let p = subject.as_process()?;
         let mut child = p.child.lock_blocking();
         let code = child.try_status().map_err(ScriptError::panic)?;
         Ok(ScriptValue::Boolean(code.is_none()))
     }
 
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Bool)
     }
 }
 
 impl ScriptValue {
-    fn as_process(&self) -> Result<&Process, ScriptError> {
+    fn as_process(&self) -> ScriptResult<&Process> {
         self.downcast_ext()
     }
 }

@@ -1,6 +1,6 @@
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptResult, TypeError, TypeResult},
     ext::{NativeFunction, NativeMethod},
     ident::global,
     interpreter::Interpreter,
@@ -23,12 +23,12 @@ impl NativeFunction for OkFunction {
         TupleType::from_single(ScriptType::Unknown)
     }
 
-    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         let arg = arguments.single().cloned()?;
         Ok(ScriptType::fallible_of(arg, ScriptType::Unknown))
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let arg = arguments.single().cloned()?;
         Ok(ScriptValue::ok(arg))
     }
@@ -40,12 +40,12 @@ impl NativeFunction for ErrFunction {
         TupleType::from_single(ScriptType::Unknown)
     }
 
-    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         let arg = arguments.single().cloned()?;
         Ok(ScriptType::fallible_of(ScriptType::Unknown, arg))
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let arg = arguments.single()?;
         Ok(ScriptValue::err(arg.clone()))
     }
@@ -53,16 +53,11 @@ impl NativeFunction for ErrFunction {
 
 struct IsOkMethod;
 impl NativeMethod for IsOkMethod {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Bool)
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let b = matches!(subject.as_fallible()?, Fallible::Ok(_));
         Ok(ScriptValue::Boolean(b))
     }
@@ -70,16 +65,11 @@ impl NativeMethod for IsOkMethod {
 
 struct IsErrMethod;
 impl NativeMethod for IsErrMethod {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::Bool)
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let b = matches!(subject.as_fallible()?, Fallible::Err(_));
         Ok(ScriptValue::Boolean(b))
     }
@@ -87,7 +77,7 @@ impl NativeMethod for IsErrMethod {
 
 struct ValueMethod;
 impl NativeMethod for ValueMethod {
-    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         if let ScriptType::Fallible(inner, _) = subject {
             Ok(ScriptType::opt_of(ScriptType::clone(inner)))
         } else {
@@ -95,12 +85,7 @@ impl NativeMethod for ValueMethod {
         }
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let val = match subject.as_fallible()? {
             Fallible::Ok(v) => Some(ScriptValue::clone(v)),
             _ => None,
@@ -112,7 +97,7 @@ impl NativeMethod for ValueMethod {
 
 struct ErrorMethod;
 impl NativeMethod for ErrorMethod {
-    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         if let ScriptType::Fallible(_, err) = subject {
             Ok(ScriptType::opt_of(ScriptType::clone(err)))
         } else {
@@ -120,12 +105,7 @@ impl NativeMethod for ErrorMethod {
         }
     }
 
-    fn call(
-        &self,
-        _: &Interpreter,
-        subject: ScriptValue,
-        _: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
         let err = match subject.as_fallible()? {
             Fallible::Err(v) => Some(ScriptValue::clone(v)),
             _ => None,

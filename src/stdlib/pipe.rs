@@ -6,7 +6,7 @@ use smol::channel;
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptError, ScriptResult, TypeError, TypeResult},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
     interpreter::Interpreter,
@@ -72,7 +72,7 @@ pub(crate) fn exec_pipe(
     interpreter: &Interpreter,
     lhs: Arc<dyn ExternalValue + Send + Sync>,
     rhs: Arc<dyn ExternalValue + Send + Sync>,
-) -> Result<(), ScriptError> {
+) -> ScriptResult<()> {
     // XXX Cloning the interpreter feels wrong
     let i = interpreter.clone();
 
@@ -127,7 +127,7 @@ impl NativeFunction for ActorFunc {
         )))
     }
 
-    fn return_type(&self, arguments: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         let arg = arguments.single().cloned()?;
         if let ScriptType::Function(fun) = arg {
             let lhs = fun.params.single().cloned().unwrap();
@@ -141,7 +141,7 @@ impl NativeFunction for ActorFunc {
         }
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> Result<ScriptValue, ScriptError> {
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let callable = arguments.single().cloned()?;
 
         let t = Arc::new(ActorType(ScriptType::Infer(1), ScriptType::Infer(2))); // Dummy arguments, not used
@@ -207,7 +207,7 @@ impl ExternalValue for Actor {
 
 #[async_trait]
 impl Readable for Actor {
-    async fn read(&self, interpreter: &Interpreter) -> Result<Option<ScriptValue>, ScriptError> {
+    async fn read(&self, interpreter: &Interpreter) -> ScriptResult<Option<ScriptValue>> {
         let value = self.receiver.recv().await.map_err(ScriptError::panic)?;
         if let Some(value) = value {
             let args = Tuple::new(vec![TupleItem::unnamed(value.clone())]);
@@ -221,7 +221,7 @@ impl Readable for Actor {
 
 #[async_trait]
 impl Writable for Actor {
-    async fn write(&self, _: &Interpreter, value: ScriptValue) -> Result<(), ScriptError> {
+    async fn write(&self, _: &Interpreter, value: ScriptValue) -> ScriptResult<()> {
         self.sender
             .send(Some(value.clone()))
             .await
@@ -229,7 +229,7 @@ impl Writable for Actor {
         Ok(())
     }
 
-    async fn close(&self) -> Result<(), ScriptError> {
+    async fn close(&self) -> ScriptResult<()> {
         self.sender.send(None).await.map_err(ScriptError::panic)?;
         Ok(())
     }

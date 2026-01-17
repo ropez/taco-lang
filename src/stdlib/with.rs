@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::{
     Builder,
-    error::{ScriptError, TypeError},
+    error::{ScriptResult, TypeResult},
     ext::NativeMethod,
     ident::global,
     interpreter::Interpreter,
@@ -23,7 +23,7 @@ impl NativeMethod for WithMethod {
         _: &Interpreter,
         subject: ScriptValue,
         arguments: &Tuple,
-    ) -> Result<ScriptValue, ScriptError> {
+    ) -> ScriptResult<ScriptValue> {
         match subject {
             ScriptValue::Tuple(mut value) => {
                 update_tuple(&mut value, arguments);
@@ -39,7 +39,7 @@ impl NativeMethod for WithMethod {
         }
     }
 
-    fn arguments_type(&self, subject: &ScriptType) -> Result<TupleType, TypeError> {
+    fn arguments_type(&self, subject: &ScriptType) -> TypeResult<TupleType> {
         let formal = match subject {
             ScriptType::Tuple(typ) => typ,
             ScriptType::RecInstance(rec) => &rec.params,
@@ -58,7 +58,7 @@ impl NativeMethod for WithMethod {
         Ok(TupleType::new(items))
     }
 
-    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> Result<ScriptType, TypeError> {
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(subject.clone())
     }
 }

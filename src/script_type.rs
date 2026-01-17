@@ -1,7 +1,7 @@
-use std::{fmt, result, sync::Arc};
+use std::{fmt, sync::Arc};
 
 use crate::{
-    error::{TypeError, TypeErrorKind},
+    error::{TypeError, TypeErrorKind, TypeResult},
     ext::{ExternalType, NativeFunctionRef, NativeMethodRef},
     fmt::fmt_tuple,
     ident::Ident,
@@ -9,8 +9,6 @@ use crate::{
     parser::{Literal, MatchPattern},
     script_value::Tuple,
 };
-
-type Result<T> = result::Result<T, TypeError>;
 
 #[derive(Debug, Clone)]
 pub enum ScriptType {
@@ -208,7 +206,7 @@ impl ScriptType {
         }
     }
 
-    pub fn as_fallible(&self) -> Result<(&Self, &Self)> {
+    pub fn as_fallible(&self) -> TypeResult<(&Self, &Self)> {
         if let Self::Fallible(inner_value, inner_type) = self {
             Ok((inner_value, inner_type))
         } else {
@@ -216,7 +214,7 @@ impl ScriptType {
         }
     }
 
-    pub fn as_callable_params(&self) -> Result<TupleType> {
+    pub fn as_callable_params(&self) -> TypeResult<TupleType> {
         // XXX Too much cloning
         match &self {
             ScriptType::Function(fun) => Ok(fun.params.clone()),
@@ -233,7 +231,7 @@ impl ScriptType {
         }
     }
 
-    pub fn as_callable_ret(&self, arguments: &TupleType) -> Result<ScriptType> {
+    pub fn as_callable_ret(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         match &self {
             ScriptType::Function(fun) => Ok(ScriptType::clone(&fun.ret)),
             ScriptType::EnumVariant { def, .. } => Ok(ScriptType::EnumInstance(Arc::clone(def))),
@@ -255,7 +253,7 @@ impl ScriptType {
         }
     }
 
-    pub fn downcast_ext<T>(&self, expexted: impl Into<String>) -> Result<&T>
+    pub fn downcast_ext<T>(&self, expexted: impl Into<String>) -> TypeResult<&T>
     where
         T: ExternalType + 'static,
     {
@@ -442,7 +440,7 @@ impl TupleType {
             .map(|it| &it.value)
     }
 
-    pub fn at_pos(&self, n: usize) -> Result<&ScriptType> {
+    pub fn at_pos(&self, n: usize) -> TypeResult<&ScriptType> {
         self.positional().nth(n).ok_or_else(|| {
             TypeError::new(TypeErrorKind::MissingArgument {
                 name: None,
@@ -452,7 +450,7 @@ impl TupleType {
         })
     }
 
-    pub fn single(&self) -> Result<&ScriptType> {
+    pub fn single(&self) -> TypeResult<&ScriptType> {
         self.at_pos(0)
     }
 
