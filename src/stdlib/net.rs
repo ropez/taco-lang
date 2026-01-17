@@ -61,8 +61,8 @@ impl ExternalValue for ScriptSocket {
 
 struct UdpBind;
 impl NativeFunction for UdpBind {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Str)
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
@@ -87,7 +87,6 @@ impl NativeFunction for UdpBind {
 struct SendToMethod;
 impl NativeMethod for SendToMethod {
     fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
-        // TODO: We could be clever, and require only 'content' if socket is connected
         Ok(TupleType::new(vec![
             TupleItemType::named("addr", ScriptType::Str),
             TupleItemType::named("content", ScriptType::Str),
@@ -122,7 +121,7 @@ impl NativeMethod for SendToMethod {
 
         smol::block_on(async move {
             match sock.0.send_to(content.as_bytes(), addr.as_ref()).await {
-                Ok(_) => Ok(ScriptValue::identity()),
+                Ok(_) => Ok(ScriptValue::ok(ScriptValue::identity())),
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
         })

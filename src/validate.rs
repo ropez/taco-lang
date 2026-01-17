@@ -797,40 +797,48 @@ impl Validator {
         scope: &Scope,
     ) -> TypeResult<ScriptType> {
         let subject = self.eval_expr(subject, scope)?;
-        let params = subject.as_callable_params()?;
 
-        // XXX Change this to return arguments as a resolved TupleType, and remove all the
-        // "infer by index" stuff
-        let found_types = self.validate_arguments(&params, arguments, scope)?;
+        if let ScriptType::NativeFunction(f) = subject.as_ref() {
+            // XXX Support destructure
+            let args = match arguments {
+                CallExpression::Inline(inline) => self.eval_tuple(inline, scope),
+                CallExpression::Destructure(src) => todo!(),
+                CallExpression::DestructureImplicit(loc) => todo!(),
+            }?;
 
-        // XXX We're kind-of doing duplicate work here now:
-        // - First apply_inferred_types_tuple infers types using the Infer(n) mechanism
-        // - Then we require the ext function to do it "manually"
-        //
-        // Options:
-        // - Keep this redundancy, but pass 'found_types' to ext, making it a little bit easier
-        // - Go all-in with the extensions, and having them validate args also
-        //
-        // If we want generic script functions, having Infer<n> is good.
-        // Can't just remove 'apply_inferred_types_tuple', because it's used to infer one
-        // argument based on a previous `scan(T, fun(T))`. It's not very flexible, and we
-        // don't support variadic etc. Could just pass Validator to ext, and let it do
-        // whatever it wants.
+            let params = subject.as_callable_params(&args)?;
 
-        let (arguments_inferred, complete) = apply_inferred_types_tuple(&params, &found_types)?;
-        let ret = subject.as_callable_ret(&arguments_inferred)?;
+            // Extensions can validate args, or just return expected args, for validation here
+            self.validate_arguments(&params, arguments, scope)?;
 
-        // XXX Fixes "bad" extensions returning Infer from return_type
-        // let (ret, _) = apply_inferred_types(&ret, &found_types)?;
+            // XXX If extension always validated, we would only need this call
+            let ret = subject.as_callable_ret(&args)?;
 
-        if complete {
             Ok(ret)
         } else {
-            if let CallExpression::Inline(args) = arguments {
-                let as_tuple = self.eval_tuple(args, scope)?;
-                eprintln!("Looked for {params} using {as_tuple}, and found: {found_types:?}");
+            // XXX For script functions, all validation must be done here
+            // XXX Is the infer stuff really even needed for script?
+            let params = subject.as_callable_params(&TupleType::identity())?;
+
+            // XXX Change this to return arguments as a resolved TupleType, and remove all the
+            // "infer by index" stuff
+            let found_types = self.validate_arguments(&params, arguments, scope)?;
+
+            let (arguments_inferred, complete) = apply_inferred_types_tuple(&params, &found_types)?;
+            let ret = subject.as_callable_ret(&arguments_inferred)?;
+
+            // XXX Fixes "bad" extensions returning Infer from return_type
+            // let (ret, _) = apply_inferred_types(&ret, &found_types)?;
+
+            if complete {
+                Ok(ret)
+            } else {
+                // if let CallExpression::Inline(args) = arguments {
+                //     let as_tuple = self.eval_tuple(args, scope)?;
+                //     eprintln!("Looked for {params} using {as_tuple}, and found: {found_types:?}");
+                // }
+                Err(TypeError::new(TypeErrorKind::TypeNotInferred))
             }
-            Err(TypeError::new(TypeErrorKind::TypeNotInferred))
         }
     }
 
@@ -1312,8 +1320,9 @@ fn apply_inferred_types(
             )
         }
         ScriptType::NativeFunction(f) => {
-            let (params, params_complete) =
-                apply_inferred_types_tuple(&f.arguments_type(), found_types)?;
+            // XXX Assuming no arguments here might be an issue
+            let args = f.arguments_type(&TupleType::identity())?;
+            let (params, params_complete) = apply_inferred_types_tuple(&args, found_types)?;
             let (ret, ret_complete) = apply_inferred_types(&f.return_type(&params)?, found_types)?;
             (
                 ScriptType::Function(FunctionType::new(params, ret)),

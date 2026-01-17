@@ -20,8 +20,9 @@ pub fn build(builder: &mut Builder) {
 
 struct JsonFunc;
 impl NativeFunction for JsonFunc {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Unknown)
+    fn arguments_type(&self, arguments: &TupleType) -> TypeResult<TupleType> {
+        let arg = arguments.single().cloned()?;
+        Ok(TupleType::from_single(arg))
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {

@@ -21,8 +21,8 @@ impl NativeFunction for TypeOfFunc {
         Ok(ScriptValue::string(arg.to_type()))
     }
 
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(1))
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Unknown))
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {

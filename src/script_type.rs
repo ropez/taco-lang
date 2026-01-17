@@ -83,7 +83,7 @@ impl ScriptType {
             (ScriptType::EnumInstance(_), ScriptType::EnumVariant { .. }) => false,
             (ScriptType::RecInstance(l), ScriptType::RecInstance(r)) => Arc::ptr_eq(l, r),
             (ScriptType::Function(l), rhs) => {
-                if let Ok(rp) = rhs.as_callable_params()
+                if let Ok(rp) = rhs.as_callable_params(&l.params)
                     && let Ok(rr) = rhs.as_callable_ret(&l.params)
                 {
                     rp.accepts(&l.params) && l.ret.accepts(&rr)
@@ -214,18 +214,16 @@ impl ScriptType {
         }
     }
 
-    pub fn as_callable_params(&self) -> TypeResult<TupleType> {
+    pub fn as_callable_params(&self, given_args: &TupleType) -> TypeResult<TupleType> {
         // XXX Too much cloning
         match &self {
             ScriptType::Function(fun) => Ok(fun.params.clone()),
             ScriptType::EnumVariant { params, .. } => Ok(params.clone()),
             ScriptType::NativeFunction(func) => {
-                let params = func.arguments_type();
-                Ok(params.clone())
+                func.arguments_type(given_args)
             }
             ScriptType::NativeMethodBound(method, subject_typ) => {
-                let params = method.arguments_type(subject_typ)?;
-                Ok(params.clone())
+                method.arguments_type(subject_typ)
             }
             _ => Err(TypeError::new(TypeErrorKind::InvalidCallable(self.clone()))),
         }

@@ -98,7 +98,7 @@ impl FetchFunc {
 }
 
 impl NativeFunction for FetchFunc {
-    fn arguments_type(&self) -> TupleType {
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
         let header_tuple = ScriptType::Tuple(TupleType::new(vec![
             TupleItemType::named("name", ScriptType::Str),
             TupleItemType::named("value", ScriptType::Str),
@@ -110,7 +110,7 @@ impl NativeFunction for FetchFunc {
             TupleItemType::optional("headers", ScriptType::list_of(header_tuple)),
         ];
 
-        TupleType::new(args)
+        Ok(TupleType::new(args))
     }
 
     fn return_type(&self, _arguments: &TupleType) -> TypeResult<ScriptType> {
@@ -175,7 +175,7 @@ impl NativeFunction for FetchFunc {
 
         let sock_addr = (hostname, port)
             .to_socket_addrs()
-            .map_err(|e| self.fail("UrlError"))?
+            .map_err(|err| self.fail("UrlError"))?
             .next()
             .ok_or_else(|| self.fail("UrlError"))?;
 

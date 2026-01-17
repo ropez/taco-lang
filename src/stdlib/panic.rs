@@ -1,6 +1,6 @@
 use crate::{
     Builder,
-    error::{ScriptError, ScriptResult},
+    error::{ScriptError, ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -13,8 +13,8 @@ pub(crate) fn build(builder: &mut Builder) {
 
 pub(crate) struct PanicFunc;
 impl NativeFunction for PanicFunc {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Str)
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {

@@ -62,8 +62,12 @@ pub trait Writable {
 pub trait NativeFunction {
     fn call(&self, interpreter: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue>;
 
-    fn arguments_type(&self) -> TupleType {
-        TupleType::identity()
+    // Implementation can return required arguments.
+    // Alternatively, return None, and validate arguments in return_type.
+    // Default implementation forbids arguments.
+    fn arguments_type(&self, arguments: &TupleType) -> TypeResult<TupleType> {
+        let _ = arguments;
+        Ok(TupleType::identity())
     }
 
     fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {

@@ -22,8 +22,9 @@ pub(crate) fn build(builder: &mut Builder) {
 
 struct SomeFunction;
 impl NativeFunction for SomeFunction {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(1))
+    fn arguments_type(&self, arguments: &TupleType) -> TypeResult<TupleType> {
+        let arg = arguments.single().cloned()?;
+        Ok(TupleType::from_single(arg))
     }
 
     fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {

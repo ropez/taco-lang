@@ -224,7 +224,15 @@ fun test_sort_numbers() {
     assert numbers == [16, 27, 3, 32, 11, 17, 34] # not affected
 }
 
-fun test_cartesian() {
+fun test_cartesian_1() {
+    letters = ["a", "b", "c"]
+
+    cart = List::cartesian(letters)
+
+    assert cart == [("a"), ("b"), ("c")]
+}
+
+fun test_cartesian_2() {
     letters = ["a", "b"]
     numbers = [1, 2, 3]
 
@@ -237,6 +245,21 @@ fun test_cartesian() {
         ("b", 1)
         ("b", 2)
         ("b", 3)
+    ]
+}
+
+fun test_cartesian_3() {
+    cart = List::cartesian([1, 2], ['a', 'b'], [true, false])
+
+    assert cart == [
+        (1, 'a', true)
+        (1, 'a', false)
+        (1, 'b', true)
+        (1, 'b', false)
+        (2, 'a', true)
+        (2, 'a', false)
+        (2, 'b', true)
+        (2, 'b', false)
     ]
 }
 

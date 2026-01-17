@@ -4,7 +4,7 @@ use async_lock::Mutex;
 
 use crate::{
     Builder,
-    error::ScriptResult,
+    error::{ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
@@ -44,8 +44,9 @@ impl<O> NativeFunction for PrintFunc<O>
 where
     O: io::Write + Send + Sync + 'static,
 {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Str)
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+        // XXX Remove restriction
+        Ok(TupleType::from_single(ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {

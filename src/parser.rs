@@ -1072,7 +1072,7 @@ impl<'a> Parser<'a> {
         if let Some(t) = self.next_if_kind(&TokenKind::Question) {
             let loc = wrap_locations(expr.loc, t.loc);
             let expr = Src::new(TypeExpression::Opt(expr.into()), loc);
-            Ok(expr)
+            self.parse_type_suffix(expr)
         } else if self.next_if_kind(&TokenKind::Tilde).is_some() {
             let err = self.parse_type_expr()?;
             let loc = wrap_locations(expr.loc, err.loc);

@@ -307,7 +307,7 @@ fun day6_trash_compactor__zip4() {
     input = sample.trim().lines().map(fun(l) { l.split(" ", skip_empty: true) })
     assert input.len() == 4
 
-    input = List::zip4(
+    input = List::zip(
         input.at(0)!.map(int::parse)
         input.at(1)!.map(int::parse)
         input.at(2)!.map(int::parse)

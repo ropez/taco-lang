@@ -16,8 +16,8 @@ pub fn build(builder: &mut Builder) {
 struct ReadFunc;
 
 impl NativeFunction for ReadFunc {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Str)
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {

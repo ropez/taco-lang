@@ -120,10 +120,12 @@ impl ExternalValue for PipeImpl {
 
 struct ActorFunc;
 impl NativeFunction for ActorFunc {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Function(FunctionType::new(
-            TupleType::from_single(ScriptType::Infer(1)),
-            ScriptType::Infer(2),
+    fn arguments_type(&self, arguments: &TupleType) -> TypeResult<TupleType> {
+        let arg = arguments.single()?;
+        let params = arg.as_callable_params(&TupleType::from_single(ScriptType::Unknown))?;
+        let ret = arg.as_callable_ret(&params)?;
+        Ok(TupleType::from_single(ScriptType::Function(
+            FunctionType::new(params, ret),
         )))
     }
 

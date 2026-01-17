@@ -4,7 +4,7 @@ use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 use crate::{
     Builder,
-    error::{ScriptError, ScriptResult, TypeResult},
+    error::{ScriptResult, TypeResult},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
@@ -13,10 +13,7 @@ use crate::{
 };
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function(
-        "State",
-        MakeState(Arc::new(StateType::new(ScriptType::Infer(1)))),
-    );
+    builder.add_function("State", MakeState);
 }
 
 struct StateType {
@@ -101,17 +98,12 @@ impl ExternalValue for StateValue {
     }
 }
 
-struct MakeState(Arc<dyn ExternalType + Sync + Send>);
-
-impl MakeState {
-    fn get_type(&self) -> Arc<dyn ExternalType + Sync + Send> {
-        Arc::clone(&self.0)
-    }
-}
+struct MakeState;
 
 impl NativeFunction for MakeState {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Infer(1))
+    fn arguments_type(&self, arguments: &TupleType) -> TypeResult<TupleType> {
+        let arg = arguments.single().cloned()?;
+        Ok(TupleType::from_single(arg))
     }
 
     fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
@@ -123,7 +115,8 @@ impl NativeFunction for MakeState {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let value = arguments.single().cloned()?;
         Ok(ScriptValue::Ext(
-            self.get_type(), // Dummy type, not used here, only for get_methods
+            // Dummy type, not used here, only for get_methods
+            Arc::new(StateType::new(ScriptType::Unknown)),
             Arc::new(StateValue::new(value)),
         ))
     }

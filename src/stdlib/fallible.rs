@@ -19,8 +19,9 @@ pub(crate) fn build(builder: &mut Builder) {
 
 struct OkFunction;
 impl NativeFunction for OkFunction {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Unknown)
+    fn arguments_type(&self, arguments: &TupleType) -> TypeResult<TupleType> {
+        let arg = arguments.single().cloned()?;
+        Ok(TupleType::from_single(arg))
     }
 
     fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
@@ -36,8 +37,9 @@ impl NativeFunction for OkFunction {
 
 struct ErrFunction;
 impl NativeFunction for ErrFunction {
-    fn arguments_type(&self) -> TupleType {
-        TupleType::from_single(ScriptType::Unknown)
+    fn arguments_type(&self, arguments: &TupleType) -> TypeResult<TupleType> {
+        let arg = arguments.single().cloned()?;
+        Ok(TupleType::from_single(arg))
     }
 
     fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
