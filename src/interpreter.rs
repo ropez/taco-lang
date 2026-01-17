@@ -159,8 +159,8 @@ impl Interpreter {
                 Statement::Rec(rec) => {
                     scope.types.eval_rec(rec).map_err(ScriptError::panic)?;
                 }
-                Statement::Enum(def) => {
-                    scope.types.eval_enum(def).map_err(ScriptError::panic)?;
+                Statement::Union(def) => {
+                    scope.types.eval_union(def).map_err(ScriptError::panic)?;
                 }
                 Statement::Iteration {
                     ident,
@@ -377,24 +377,24 @@ impl Interpreter {
                         }
                         _ => panic!("Unexpected expression {prefix}::{name}"),
                     },
-                    Some(TypeDefinition::EnumDefinition(v)) => {
+                    Some(TypeDefinition::UnionDefinition(v)) => {
                         if let Some((index, variant)) =
                             v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
                         {
                             if variant.params.is_none() {
-                                ScriptValue::Enum {
+                                ScriptValue::Union {
                                     def: Arc::clone(v),
                                     index,
                                     value: Arc::new(Tuple::identity()),
                                 }
                             } else {
-                                ScriptValue::EnumVariant {
+                                ScriptValue::UnionVariant {
                                     def: Arc::clone(v),
                                     index,
                                 }
                             }
                         } else {
-                            panic!("Enum variant not found: {name} in {prefix}");
+                            panic!("Union variant not found: {name} in {prefix}");
                         }
                     }
                     _ => {
@@ -403,7 +403,7 @@ impl Interpreter {
                         if let Some(value) = scope.locals.get(&full_ident) {
                             value.clone()
                         } else {
-                            panic!("Enum not found: {prefix}")
+                            panic!("Union not found: {prefix}")
                         }
                     }
                 }
@@ -739,12 +739,12 @@ impl Interpreter {
                     value: Arc::new(values),
                 }
             }
-            ScriptValue::EnumVariant { def, index } => {
+            ScriptValue::UnionVariant { def, index } => {
                 let variant = &def.variants[index];
                 // XXX Shouldn't be an option at this point
                 let params = variant.params.as_ref().unwrap();
                 let values = transform_args(params, arguments);
-                ScriptValue::Enum {
+                ScriptValue::Union {
                     def: Arc::clone(&def),
                     index,
                     value: Arc::new(values),
@@ -906,12 +906,12 @@ impl Interpreter {
                 }
             }
             MatchPattern::Variant(prefix, name, assignee) => {
-                if let ScriptValue::Enum { def, index, .. } = val {
+                if let ScriptValue::Union { def, index, .. } = val {
                     let def = {
                         if let Some(ident) = prefix {
                             match scope.types.get(ident) {
-                                Some(TypeDefinition::EnumDefinition(e)) => Ok(e),
-                                _ => Err(ScriptError::panic(format!("Enum not found: {ident}"))),
+                                Some(TypeDefinition::UnionDefinition(e)) => Ok(e),
+                                _ => Err(ScriptError::panic(format!("Union not found: {ident}"))),
                             }
                         } else {
                             Ok(def)
@@ -932,12 +932,12 @@ impl Interpreter {
                         }
                     } else {
                         Err(ScriptError::panic(format!(
-                            "Enum variant not found: {name} in {}",
+                            "Union variant not found: {name} in {}",
                             def.name
                         )))
                     }
                 } else {
-                    Err(ScriptError::panic("Not an enum"))
+                    Err(ScriptError::panic("Not a union"))
                 }
             }
         }
@@ -1002,7 +1002,7 @@ fn eval_assignment(
         (_, Some(pattern)) => match rhs {
             ScriptValue::Tuple(value) => eval_destructure(pattern, value, scope),
             ScriptValue::Rec { value, .. } => eval_destructure(pattern, value, scope),
-            ScriptValue::Enum { value, .. } => eval_destructure(pattern, value, scope),
+            ScriptValue::Union { value, .. } => eval_destructure(pattern, value, scope),
             _ => panic!("Expected tuple, found: {rhs}"),
         },
     }

@@ -5,11 +5,11 @@ use crate::{
     ident::Ident,
     lexer::Src,
     parser::{
-        AttributeExpression, EnumExpression, Expression, Function, Literal, ParamExpression,
+        AttributeExpression, UnionExpression, Expression, Function, Literal, ParamExpression,
         Record, TypeExpression,
     },
     script_type::{
-        EnumType, EnumVariantType, FunctionType, RecType, ScriptType, TupleItemType, TupleType,
+        UnionType, UnionVariantType, FunctionType, RecType, ScriptType, TupleItemType, TupleType,
         TypeAttribute,
     },
     script_value::{ScriptValue, Tuple, TupleItem},
@@ -18,7 +18,7 @@ use crate::{
 #[derive(Debug, Clone)]
 pub enum TypeDefinition {
     RecDefinition(Arc<RecType>),
-    EnumDefinition(Arc<EnumType>),
+    UnionDefinition(Arc<UnionType>),
 }
 
 #[derive(Clone)]
@@ -46,9 +46,9 @@ impl TypeScope {
         self.types.get(name)
     }
 
-    pub(crate) fn add_enum(&mut self, name: impl Into<Ident>, def: Arc<EnumType>) {
+    pub(crate) fn add_union(&mut self, name: impl Into<Ident>, def: Arc<UnionType>) {
         self.types
-            .insert(name.into(), TypeDefinition::EnumDefinition(def));
+            .insert(name.into(), TypeDefinition::UnionDefinition(def));
     }
 
     pub(crate) fn eval_rec(&mut self, rec: &Record) -> TypeResult<()> {
@@ -60,8 +60,8 @@ impl TypeScope {
         Ok(())
     }
 
-    pub(crate) fn eval_enum(&mut self, def: &EnumExpression) -> TypeResult<()> {
-        let enum_type = EnumType::new(
+    pub(crate) fn eval_union(&mut self, def: &UnionExpression) -> TypeResult<()> {
+        let union_type = UnionType::new(
             &def.name,
             def.variants
                 .iter()
@@ -71,12 +71,12 @@ impl TypeScope {
                         .as_ref()
                         .map(|p| eval_params(p, self))
                         .transpose()?;
-                    Ok(EnumVariantType::new(&v.name, params))
+                    Ok(UnionVariantType::new(&v.name, params))
                 })
-                .collect::<TypeResult<Vec<EnumVariantType>>>()?,
+                .collect::<TypeResult<Vec<UnionVariantType>>>()?,
         );
 
-        self.add_enum(&def.name, enum_type);
+        self.add_union(&def.name, union_type);
 
         Ok(())
     }
@@ -179,8 +179,8 @@ pub(crate) fn eval_type_expr(
             Some(TypeDefinition::RecDefinition(rec)) => {
                 Ok(ScriptType::RecInstance(Arc::clone(rec)))
             }
-            Some(TypeDefinition::EnumDefinition(def)) => {
-                Ok(ScriptType::EnumInstance(Arc::clone(def)))
+            Some(TypeDefinition::UnionDefinition(def)) => {
+                Ok(ScriptType::UnionInstance(Arc::clone(def)))
             }
             None => Err(
                 TypeError::new(TypeErrorKind::UndefinedReference(ident.clone())).at(type_expr.loc),

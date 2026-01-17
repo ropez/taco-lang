@@ -7,9 +7,9 @@ use crate::{
     interpreter::Interpreter,
     output_adapter::OutputAdapter,
     parser::Parser,
-    script_type::{EnumType, ScriptType},
-    script_value::{Fallible, ScriptValue, Tuple},
-    type_scope::{TypeDefinition, TypeScope},
+    script_type::{UnionType, ScriptType},
+    script_value::{ScriptValue, Tuple},
+    type_scope::{TypeDefinition},
     validate::Validator,
 };
 
@@ -237,9 +237,9 @@ impl Builder {
             .insert((ns.into(), name.into()), NativeMethodRef::from(method));
     }
 
-    pub fn add_enum(&mut self, name: impl Into<Ident>, def: Arc<EnumType>) {
+    pub fn add_union(&mut self, name: impl Into<Ident>, def: Arc<UnionType>) {
         self.types
-            .insert(name.into(), TypeDefinition::EnumDefinition(def));
+            .insert(name.into(), TypeDefinition::UnionDefinition(def));
     }
 
     fn build_validator(&self) -> Validator {

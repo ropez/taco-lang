@@ -55,7 +55,7 @@ pub enum Statement {
     },
 
     Rec(Arc<Record>),
-    Enum(Arc<EnumExpression>),
+    Union(Arc<UnionExpression>),
 
     Return(Option<Src<Expression>>),
     Assert(Src<Expression>),
@@ -207,7 +207,7 @@ pub struct AttributeExpression {
 }
 
 #[derive(Debug)]
-pub struct EnumExpression {
+pub struct UnionExpression {
     pub(crate) name: Ident,
     pub(crate) variants: Vec<VariantExpression>,
 }
@@ -472,14 +472,14 @@ impl<'a> Parser<'a> {
                     let rec = Arc::new(Record { name, params });
                     ast.push(Statement::Rec(rec));
                 }
-                TokenKind::Enum => {
-                    self.expect_kind(TokenKind::Enum)?;
+                TokenKind::Union => {
+                    self.expect_kind(TokenKind::Union)?;
                     let (name, _) = self.expect_ident()?;
                     let variants = self.parse_variants()?;
                     self.expect_end_of_line()?;
 
-                    let rec = Arc::new(EnumExpression { name, variants });
-                    ast.push(Statement::Enum(rec));
+                    let rec = Arc::new(UnionExpression { name, variants });
+                    ast.push(Statement::Union(rec));
                 }
 
                 // Everything else is an expression

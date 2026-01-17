@@ -101,7 +101,7 @@ mistakes such as trying to call a function with wrong arguments.
 ### Expressiveness
 
 String interpolation, native structures like list, set and dict. Record types,
-ranges, enums (like in Rust) and pattern matching.
+ranges, unions (like enums in Rust) and pattern matching.
 
 ### Batteries included
 
@@ -131,7 +131,7 @@ variety of existing programming languages and frameworks:
 - State primitives are similar to "reactivity" found in *React*, *Vue* and *Svelte*
 - Isolates and message passing in *Dart*
 - Restrictions on mutation is central in functional programming languages
-- Enum types including Option and Result (error handling) similar to *Rust*
+- Union types including Option and Result (error handling) similar to *Rust*
 
 ## Code drafts
 

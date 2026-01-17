@@ -7,7 +7,7 @@ use crate::{
     ident::Ident,
     interpreter::Scope,
     parser::Function,
-    script_type::{EnumType, FunctionType, RecType},
+    script_type::{UnionType, FunctionType, RecType},
     stdlib::list::List,
 };
 
@@ -38,8 +38,8 @@ pub enum ScriptValue {
         value: Arc<Tuple>,
     },
 
-    Enum {
-        def: Arc<EnumType>,
+    Union {
+        def: Arc<UnionType>,
         index: usize,
         value: Arc<Tuple>,
     },
@@ -47,8 +47,8 @@ pub enum ScriptValue {
     ScriptFunction(ScriptFunction),
 
     Record(Arc<RecType>),
-    EnumVariant {
-        def: Arc<EnumType>,
+    UnionVariant {
+        def: Arc<UnionType>,
         index: usize,
     },
 
@@ -96,12 +96,12 @@ impl ScriptValue {
         Self::Opt(val.map(Box::new))
     }
 
-    pub fn enum_variant(def: &Arc<EnumType>, name: &Ident) -> ScriptResult<Self> {
+    pub fn variant(def: &Arc<UnionType>, name: &Ident) -> ScriptResult<Self> {
         let (index, var) = def
             .find_variant(name)
             .ok_or_else(|| ScriptError::panic("Variant not found"))?;
 
-        Ok(ScriptValue::Enum {
+        Ok(ScriptValue::Union {
             def: Arc::clone(def),
             index,
             value: Tuple::identity().into(),
@@ -244,12 +244,12 @@ impl PartialEq for ScriptValue {
             (Self::Range(l1, l2), Self::Range(r1, r2)) => (l1, l2) == (r1, r2),
             (Self::Tuple(l), Self::Tuple(r)) => l == r,
             (
-                Self::Enum {
+                Self::Union {
                     def: dl,
                     index: il,
                     value: lv,
                 },
-                Self::Enum {
+                Self::Union {
                     def: dr,
                     index: ir,
                     value: rv,
@@ -288,7 +288,7 @@ impl fmt::Display for ScriptValue {
                 write!(f, "]")?;
                 Ok(())
             }
-            ScriptValue::Enum {
+            ScriptValue::Union {
                 def,
                 index,
                 value: values,

@@ -140,10 +140,10 @@ fn test_missing_argument_name_in_destruction() {
 }
 
 #[test]
-fn test_comparison_not_allowed_for_different_enums() {
+fn test_comparison_not_allowed_for_different_unions() {
     let src = r#"
-        enum Hero { Fred, Barney }
-        enum Villain { Vandercave, Butterbean }
+        union Hero { Fred, Barney }
+        union Villain { Vandercave, Butterbean }
 
         if Hero::Fred != Villain::Butterbean {
             print("poop")
@@ -162,13 +162,13 @@ fn test_comparison_not_allowed_for_different_enums() {
 #[test]
 fn fails_for_missing_value() {
     let src = r#"
-        enum City {
+        union City {
             Paris
             London
             Madrid
         }
 
-        enum VacationPlan {
+        union VacationPlan {
             StayAtHome
             TravelTo(City)
         }
@@ -192,13 +192,13 @@ fn fails_for_missing_value() {
 #[test]
 fn fails_for_unexpected_call() {
     let src = r#"
-        enum City {
+        union City {
             Paris
             London
             Madrid
         }
 
-        enum VacationPlan {
+        union VacationPlan {
             StayAtHome
             TravelTo(City)
         }

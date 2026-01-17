@@ -57,7 +57,7 @@ fun test_implied_return_with_implied_type() {
 }
 
 fun test_explicit_return_inside_if() {
-    enum Color { Green, Blue }
+    union Color { Green, Blue }
 
     fun select(col: Color): str {
         if col == Color::Green {
@@ -72,7 +72,7 @@ fun test_explicit_return_inside_if() {
 }
 
 fun test_implicit_return_with_explicit_function_type() {
-    enum Color { Green, Blue }
+    union Color { Green, Blue }
 
     fun select(col: Color): str {
         match col {
@@ -86,7 +86,7 @@ fun test_implicit_return_with_explicit_function_type() {
 }
 
 fun test_explicit_return_inside_list_iteration() {
-    enum Color { Green, Blue }
+    union Color { Green, Blue }
 
     fun search(colors: [Color]): str {
         for col in colors {
@@ -102,7 +102,7 @@ fun test_explicit_return_inside_list_iteration() {
 }
 
 fun test_explicit_return_inside_range_iteration() {
-        enum Color { Green, Blue }
+        union Color { Green, Blue }
 
         fun search(r: int): str {
             for i in 0..100 {

@@ -11,8 +11,8 @@ fun test_basic_pattern_mathing_bool() {
     assert test(false) == "bar"
 }
 
-fun test_pattern_mathing_enum() {
-    enum Sign { Rock, Paper, Scissors }
+fun test_pattern_mathing_union() {
+    union Sign { Rock, Paper, Scissors }
 
     fun test(sign: Sign) {
         match sign {
@@ -26,8 +26,8 @@ fun test_pattern_mathing_enum() {
     assert test(Sign::Scissors) == "Scissors beats Paper"
 }
 
-fun test_pattern_mathing_implicit_enum() {
-    enum Sign { Rock, Paper, Scissors }
+fun test_pattern_mathing_implicit_union() {
+    union Sign { Rock, Paper, Scissors }
 
     fun test(sign: Sign) {
         match sign {
@@ -68,20 +68,20 @@ fun test_pattern_mathing_variable() {
     assert test("x") == true
 }
 
-fun test_pattern_matching_destructure_enum() {
-    enum Country {
+fun test_pattern_matching_destructure_union() {
+    union Country {
         Spain
         France
         Italy
     }
 
-    enum City {
+    union City {
         Paris
         London
         Madrid
     }
 
-    enum VacationPlan {
+    union VacationPlan {
         StayAtHome
         TravelTo(Country, City)
     }

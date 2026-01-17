@@ -13,7 +13,7 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
-    script_type::{EnumType, EnumVariantType, ScriptType, TupleItemType, TupleType},
+    script_type::{UnionType, UnionVariantType, ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple},
     stdlib::http::tls_stream::TlsStream,
 };
@@ -21,16 +21,16 @@ use crate::{
 mod tls_stream;
 
 pub fn build(builder: &mut Builder) {
-    let http_error = EnumType::new(
+    let http_error = UnionType::new(
         "HttpError",
         vec![
-            EnumVariantType::new("UrlError", None),
-            EnumVariantType::new("TlsError", None),
-            EnumVariantType::new("NetworkUnreachable", None),
-            EnumVariantType::new("ConnectionRefused", None),
+            UnionVariantType::new("UrlError", None),
+            UnionVariantType::new("TlsError", None),
+            UnionVariantType::new("NetworkUnreachable", None),
+            UnionVariantType::new("ConnectionRefused", None),
         ],
     );
-    builder.add_enum("HttpError", Arc::clone(&http_error));
+    builder.add_union("HttpError", Arc::clone(&http_error));
 
     builder.add_function("Http::fetch", FetchFunc { http_error });
 }
@@ -75,12 +75,12 @@ impl ExternalValue for ResponseValue {
 }
 
 struct FetchFunc {
-    http_error: Arc<EnumType>,
+    http_error: Arc<UnionType>,
 }
 
 impl FetchFunc {
     fn fail(&self, variant: impl Into<Ident>) -> ScriptError {
-        let err = ScriptValue::enum_variant(&self.http_error, &variant.into());
+        let err = ScriptValue::variant(&self.http_error, &variant.into());
         match err {
             Ok(err) => ScriptError::error(err),
             Err(err) => err,
@@ -117,7 +117,7 @@ impl NativeFunction for FetchFunc {
         let res = ScriptType::Ext(Arc::new(ResponseType));
         Ok(ScriptType::fallible_of(
             res,
-            ScriptType::EnumInstance(Arc::clone(&self.http_error)),
+            ScriptType::UnionInstance(Arc::clone(&self.http_error)),
         ))
     }
 

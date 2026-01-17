@@ -175,7 +175,7 @@ fun test_question_operator() {
 }
 
 fun test_question_operator_nested_calls() {
-    enum Fruit {
+    union Fruit {
         Apple
         Orange
         Banana

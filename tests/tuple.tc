@@ -9,7 +9,7 @@ fun test_simple_tuple() {
 }
 
 fun test_tuple_type() {
-    enum Recipient {
+    union Recipient {
         Person(name: (str, valid: bool))
     }
     tuple = ("apple", (50, false), Recipient::Person)

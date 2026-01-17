@@ -114,7 +114,7 @@ pub(crate) fn from_json_value(
                 value: Arc::new(Tuple::new(values)),
             }
         }
-        ScriptType::EnumInstance(e) => {
+        ScriptType::UnionInstance(e) => {
             let s: &String = val
                 .get()
                 .ok_or_else(|| ParseError::new("Expected string"))?;
@@ -124,10 +124,10 @@ pub(crate) fn from_json_value(
                 .ok_or_else(|| ParseError::new("Variant not found"))?;
 
             if var.params.is_some() {
-                Err(ParseError::new("Don't know how to parse enum with params"))?;
+                Err(ParseError::new("Don't know how to parse union with params"))?;
             }
 
-            ScriptValue::Enum {
+            ScriptValue::Union {
                 def: Arc::clone(e),
                 index: i,
                 value: Arc::new(Tuple::identity()),
@@ -157,11 +157,11 @@ impl TryFrom<&ScriptValue> for JsonValue {
                 )?;
                 JsonValue::Array(items)
             }
-            ScriptValue::Enum { def, index, value } => {
+            ScriptValue::Union { def, index, value } => {
                 if value.is_empty() {
                     JsonValue::String(def.variants[*index].name.to_string())
                 } else {
-                    unimplemented!("Serialize enum with values");
+                    unimplemented!("Serialize union with values");
                 }
             }
 

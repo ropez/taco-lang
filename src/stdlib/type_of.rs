@@ -45,15 +45,15 @@ impl ScriptValue {
             }
             ScriptValue::Tuple(t) => tuple_to_type(t),
             ScriptValue::Rec { def, value } => format!("{}{}", def.name, tuple_to_type(value)),
-            ScriptValue::Enum { def, .. } => {
+            ScriptValue::Union { def, .. } => {
                 format!("{}", def.name)
             }
             ScriptValue::ScriptFunction(f) => {
                 format!("fun{}: {}", f.function.params, f.function.ret)
             }
-            ScriptValue::EnumVariant { def, index } => {
-                let variant = def.variants.get(*index).expect("enum variant exists");
-                let params = variant.params.as_ref().expect("enum variant has params");
+            ScriptValue::UnionVariant { def, index } => {
+                let variant = def.variants.get(*index).expect("union variant exists");
+                let params = variant.params.as_ref().expect("union variant has params");
                 format!("fun{}: {}", params, def.name)
             }
             _ => todo!("to_type for {self:?}"),

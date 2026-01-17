@@ -166,8 +166,8 @@ impl Validator {
                 Statement::Rec(rec) => {
                     scope.types.eval_rec(rec)?;
                 }
-                Statement::Enum(def) => {
-                    scope.types.eval_enum(def)?;
+                Statement::Union(def) => {
+                    scope.types.eval_union(def)?;
                 }
                 Statement::Iteration {
                     ident,
@@ -387,7 +387,7 @@ impl Validator {
                                 ret,
                             )))
                         }
-                        TypeDefinition::EnumDefinition(_) => {
+                        TypeDefinition::UnionDefinition(_) => {
                             Err(TypeError::new(TypeErrorKind::InvalidExpression).at(expr.loc))
                         }
                     }
@@ -415,15 +415,15 @@ impl Validator {
                         .at(expr.loc)),
                     }
                 }
-                Some(TypeDefinition::EnumDefinition(def)) => {
+                Some(TypeDefinition::UnionDefinition(def)) => {
                     if let Some((_, var)) = def.find_variant(name) {
                         if let Some(params) = &var.params {
-                            Ok(ScriptType::EnumVariant {
+                            Ok(ScriptType::UnionVariant {
                                 def: Arc::clone(def),
                                 params: params.clone(),
                             })
                         } else {
-                            Ok(ScriptType::EnumInstance(Arc::clone(def)))
+                            Ok(ScriptType::UnionInstance(Arc::clone(def)))
                         }
                     } else {
                         Err(TypeError::new(TypeErrorKind::UndefinedVariant {
@@ -1126,13 +1126,13 @@ impl Validator {
                 }
             }
             MatchPattern::Variant(_, name, Some(assignee)) => {
-                let var_typ = if let ScriptType::EnumInstance(e) = expr_type.flatten() {
+                let var_typ = if let ScriptType::UnionInstance(e) = expr_type.flatten() {
                     e.find_variant(name)
                 } else {
                     todo!("complex error pattern")
                 };
 
-                // Need to "fake" enum variant type to tuple type
+                // Need to "fake" variant type to tuple type
                 let var_params = var_typ.and_then(|(_, t)| t.params.as_ref());
                 if let Some(tuple) = var_params {
                     let as_type = ScriptType::Tuple(tuple.clone());
@@ -1253,10 +1253,10 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> TypeResult<HashMap<u
             let arguments = TupleType::identity(); // How to get actual args here?
             found.extend(infer_types(&formal.ret, &fun.return_type(&arguments)?)?);
         }
-        (ScriptType::Function(formal), ScriptType::EnumVariant { def, .. }) => {
+        (ScriptType::Function(formal), ScriptType::UnionVariant { def, .. }) => {
             found.extend(infer_types(
                 &formal.ret,
-                &ScriptType::EnumInstance(Arc::clone(def)),
+                &ScriptType::UnionInstance(Arc::clone(def)),
             )?);
         }
         (ScriptType::Tuple(formal), ScriptType::Tuple(actual)) => {

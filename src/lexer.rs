@@ -131,7 +131,7 @@ pub enum TokenKind {
     Continue,
     In,
     Rec,
-    Enum,
+    Union,
     Match,
     Assert,
 }
@@ -269,7 +269,7 @@ impl<'a> Tokenizer<'a> {
                         "continue" => Some(self.produce(TokenKind::Continue)),
                         "in" => Some(self.produce(TokenKind::In)),
                         "rec" => Some(self.produce(TokenKind::Rec)),
-                        "enum" => Some(self.produce(TokenKind::Enum)),
+                        "union" => Some(self.produce(TokenKind::Union)),
                         "match" => Some(self.produce(TokenKind::Match)),
                         "assert" => Some(self.produce(TokenKind::Assert)),
                         _ => Some(self.produce(TokenKind::Identifier(s))),

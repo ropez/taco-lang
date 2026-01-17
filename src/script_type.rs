@@ -23,10 +23,10 @@ pub enum ScriptType {
     List(Box<ScriptType>),
     Tuple(TupleType),
     RecInstance(Arc<RecType>),
-    EnumInstance(Arc<EnumType>),
-    EnumVariant {
+    UnionInstance(Arc<UnionType>),
+    UnionVariant {
         params: TupleType,
-        def: Arc<EnumType>,
+        def: Arc<UnionType>,
     },
     Function(Arc<FunctionType>),
 
@@ -79,8 +79,8 @@ impl ScriptType {
             (ScriptType::List(l), ScriptType::Range) => l.accepts(&ScriptType::Int),
             (ScriptType::Tuple(l), ScriptType::Tuple(r)) => l.accepts(r),
             (ScriptType::Tuple(l), ScriptType::RecInstance(rec)) => l.accepts(&rec.params),
-            (ScriptType::EnumInstance(l), ScriptType::EnumInstance(r)) => Arc::ptr_eq(l, r),
-            (ScriptType::EnumInstance(_), ScriptType::EnumVariant { .. }) => false,
+            (ScriptType::UnionInstance(l), ScriptType::UnionInstance(r)) => Arc::ptr_eq(l, r),
+            (ScriptType::UnionInstance(_), ScriptType::UnionVariant { .. }) => false,
             (ScriptType::RecInstance(l), ScriptType::RecInstance(r)) => Arc::ptr_eq(l, r),
             (ScriptType::Function(l), rhs) => {
                 if let Ok(rp) = rhs.as_callable_params(&l.params)
@@ -160,7 +160,7 @@ impl ScriptType {
                     return true;
                 }
             }
-            Self::EnumInstance(def) => {
+            Self::UnionInstance(def) => {
                 // This is obviously not a general solution, but it's sufficient as long as we're
                 // not supporting pattern-matching on inner values, and we're preventing duplicates
                 // and illegal patterns.
@@ -218,7 +218,7 @@ impl ScriptType {
         // XXX Too much cloning
         match &self {
             ScriptType::Function(fun) => Ok(fun.params.clone()),
-            ScriptType::EnumVariant { params, .. } => Ok(params.clone()),
+            ScriptType::UnionVariant { params, .. } => Ok(params.clone()),
             ScriptType::NativeFunction(func) => {
                 func.arguments_type(given_args)
             }
@@ -232,7 +232,7 @@ impl ScriptType {
     pub fn as_callable_ret(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         match &self {
             ScriptType::Function(fun) => Ok(ScriptType::clone(&fun.ret)),
-            ScriptType::EnumVariant { def, .. } => Ok(ScriptType::EnumInstance(Arc::clone(def))),
+            ScriptType::UnionVariant { def, .. } => Ok(ScriptType::UnionInstance(Arc::clone(def))),
             ScriptType::NativeFunction(func) => func.return_type(arguments),
             ScriptType::NativeMethodBound(method, subject_typ) => {
                 method.return_type(subject_typ, arguments)
@@ -278,8 +278,8 @@ impl fmt::Display for ScriptType {
             Self::Int => write!(f, "int"),
             Self::Str => write!(f, "str"),
             Self::Char => write!(f, "char"),
-            Self::EnumInstance(typ) => write!(f, "{}", typ.name),
-            Self::EnumVariant { def, params } => {
+            Self::UnionInstance(typ) => write!(f, "{}", typ.name),
+            Self::UnionVariant { def, params } => {
                 write!(f, "fun{params}: {}", def.name)
             }
             Self::EmptyList => write!(f, "[]"),
@@ -325,20 +325,20 @@ impl RecType {
 }
 
 #[derive(Debug)]
-pub struct EnumType {
+pub struct UnionType {
     pub(crate) name: Ident,
-    pub(crate) variants: Vec<EnumVariantType>,
+    pub(crate) variants: Vec<UnionVariantType>,
 }
 
-impl EnumType {
-    pub fn new(name: impl Into<Ident>, variants: impl Into<Vec<EnumVariantType>>) -> Arc<Self> {
+impl UnionType {
+    pub fn new(name: impl Into<Ident>, variants: impl Into<Vec<UnionVariantType>>) -> Arc<Self> {
         Arc::new(Self {
             name: name.into(),
             variants: variants.into(),
         })
     }
 
-    pub fn find_variant(&self, name: &Ident) -> Option<(usize, &EnumVariantType)> {
+    pub fn find_variant(&self, name: &Ident) -> Option<(usize, &UnionVariantType)> {
         self.variants
             .iter()
             .enumerate()
@@ -347,12 +347,12 @@ impl EnumType {
 }
 
 #[derive(Debug, Clone)]
-pub struct EnumVariantType {
+pub struct UnionVariantType {
     pub(crate) name: Ident,
     pub(crate) params: Option<TupleType>,
 }
 
-impl EnumVariantType {
+impl UnionVariantType {
     pub fn new(name: impl Into<Ident>, params: Option<TupleType>) -> Self {
         Self {
             name: name.into(),

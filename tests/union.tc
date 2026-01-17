@@ -1,6 +1,6 @@
 
-fun test_simple_enum() {
-    enum Hero {
+fun test_simple_union() {
+    union Hero {
         Fred
         Wilma
         Barney
@@ -13,7 +13,7 @@ fun test_simple_enum() {
 }
 
 fun test_comparison() {
-    enum Hero {
+    union Hero {
         Fred
         Wilma
         Barney
@@ -26,20 +26,20 @@ fun test_comparison() {
     assert Hero::Wilma != Hero::Barney
 }
 
-fun test_enum_with_value() {
-    enum Country {
+fun test_union_with_value() {
+    union Country {
         Spain
         France
         Italy
     }
 
-    enum City {
+    union City {
         Paris
         London
         Madrid
     }
 
-    enum VacationPlan {
+    union VacationPlan {
         StayAtHome
         TravelTo(Country, City)
     }
@@ -55,7 +55,7 @@ fun test_enum_with_value() {
 }
 
 fun test_apply_arguments_from_tuple() {
-    enum Receiver {
+    union Receiver {
         Person(name: str, age: int)
         Group(name: str)
     }
@@ -67,7 +67,7 @@ fun test_apply_arguments_from_tuple() {
 }
 
 fun test_pass_variant_as_function() {
-    enum Receiver {
+    union Receiver {
         Person(name: str, age: int)
         Group(name: str)
     }
@@ -86,20 +86,20 @@ fun test_pass_variant_as_function() {
 }
 
 fun test_apply_params() {
-    enum Enum {
+    union Union {
         Bar
         Foo(a: int, b: int, c: int, d: int)
     }
 
-    expected = Enum::Foo(1, 2, 3, 4)
-    assert Enum::Foo(1, 2, 3, 4) == expected
-    assert Enum::Foo(1, 2, 3, d: 4) == expected
-    assert Enum::Foo(1, 2, d: 4, c: 3) == expected
-    assert Enum::Foo(1, d: 4, c: 3, b: 2) == expected
-    assert Enum::Foo(c: 3, d: 4, a: 1, b: 2) == expected
-    assert Enum::Foo(b: 2, c: 3, d: 4, 1) == expected
-    assert Enum::Foo(b: 2, 1, c: 3, d: 4) == expected
-    assert Enum::Foo(d: 4, 1, c: 3, 2) == expected
-    assert Enum::Foo(1, d: 4, 2, 3) == expected
-    assert Enum::Foo(1, c: 3, 2, 4) == expected
+    expected = Union::Foo(1, 2, 3, 4)
+    assert Union::Foo(1, 2, 3, 4) == expected
+    assert Union::Foo(1, 2, 3, d: 4) == expected
+    assert Union::Foo(1, 2, d: 4, c: 3) == expected
+    assert Union::Foo(1, d: 4, c: 3, b: 2) == expected
+    assert Union::Foo(c: 3, d: 4, a: 1, b: 2) == expected
+    assert Union::Foo(b: 2, c: 3, d: 4, 1) == expected
+    assert Union::Foo(b: 2, 1, c: 3, d: 4) == expected
+    assert Union::Foo(d: 4, 1, c: 3, 2) == expected
+    assert Union::Foo(1, d: 4, 2, 3) == expected
+    assert Union::Foo(1, c: 3, 2, 4) == expected
 }
