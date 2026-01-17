@@ -22,6 +22,7 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "count", ListCount);
     builder.add_method(global::LIST, "unzip", ListUnzip);
     builder.add_method(global::LIST, "sum", ListSum);
+    builder.add_method(global::LIST, "join", ListJoin);
     builder.add_method(global::LIST, "max", ListMax);
     builder.add_method(global::LIST, "sort", ListSort);
     builder.add_method(global::LIST, "map", ListMap);
@@ -520,6 +521,45 @@ impl ListMethod for ListSum {
     fn empty_list_return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         Ok(ScriptType::opt_of(ScriptType::Int))
     }
+}
+
+pub(crate) struct ListJoin;
+impl ListMethod for ListJoin {
+    fn list_arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        match inner {
+            ScriptType::Str => Ok(ScriptType::opt_of(ScriptType::Str)),
+            _ => Err(TypeError::expected_type(
+                ScriptType::list_of(ScriptType::Str),
+                ScriptType::list_of(inner.clone()),
+            )),
+        }
+    }
+
+    fn empty_list_return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Str)
+    }
+
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        subject: Arc<List>,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
+        let sep = arguments.single()?.as_string()?;
+        let items = subject
+            .items()
+            .iter()
+            .map(|val| val.as_string())
+            .collect::<ScriptResult<Vec<_>>>()?;
+
+        let val = items.join(sep.as_ref());
+        Ok(ScriptValue::string(val))
+    }
+
 }
 
 pub(crate) struct ListMax;

@@ -208,6 +208,17 @@ fun test_find_an_item() {
     assert fruits.find("banana") == "banana" # XXX maybe shouldn't work
 }
 
+fun test_join_strings() {
+    fruits = [
+        "apple"
+        "orange"
+        "banana"
+    ]
+
+    assert [].join(", ") == ""
+    assert fruits.join(", ") == "apple, orange, banana"
+}
+
 fun test_sum_of_numbers() {
     numbers = [16, 27, 3, 32, 11, 17, 34]
 
