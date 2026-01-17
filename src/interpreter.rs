@@ -33,7 +33,7 @@ enum Completion {
     Continue,
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 pub(crate) struct Scope {
     locals: HashMap<Ident, ScriptValue>,
 
@@ -43,6 +43,14 @@ pub(crate) struct Scope {
 }
 
 impl Scope {
+    fn new(types: HashMap<Ident, TypeDefinition>, globals: HashMap<Ident, ScriptValue>) -> Self {
+        Self {
+            locals: globals,
+            types: TypeScope::new(types),
+            arguments: Default::default(),
+        }
+    }
+
     fn set_local(&mut self, name: impl Into<Ident>, value: ScriptValue) {
         // Make sure we never assign a value to '_'
         let key = name.into();
@@ -66,6 +74,7 @@ impl fmt::Debug for Scope {
 
 #[derive(Clone, Default)]
 pub struct Interpreter {
+    types: HashMap<Ident, TypeDefinition>,
     globals: HashMap<Ident, ScriptValue>,
 
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
@@ -75,6 +84,15 @@ pub struct Interpreter {
 }
 
 impl Interpreter {
+    pub(crate) fn with_types<T>(self, iter: T) -> Self
+    where
+        T: IntoIterator<Item = (Ident, TypeDefinition)>,
+    {
+        let mut types = self.types;
+        types.extend(iter);
+        Self { types, ..self }
+    }
+
     pub(crate) fn with_globals<T>(self, iter: T) -> Self
     where
         T: IntoIterator<Item = (Ident, ScriptValue)>,
@@ -108,12 +126,11 @@ impl Interpreter {
     }
 
     pub fn execute(&self, ast: &[Statement]) -> ScriptResult<HashMap<Ident, ScriptValue>> {
-        let mut scope = Scope::default();
+        let mut scope = Scope::new(self.types.clone(), self.globals.clone());
 
         // During evaluation, we don't really care about type inferrence.
         scope.types = scope.types.with_expected(ScriptType::Unknown);
 
-        scope.locals.extend(self.globals.clone());
         let end = self.execute_block(ast, scope)?;
 
         Ok(match end {
@@ -127,7 +144,7 @@ impl Interpreter {
             match node {
                 Statement::Assignment { assignee, value } => {
                     let rhs = self.eval_expr(value, &scope)?;
-                    eval_assignment(assignee, &rhs, &mut scope);
+                    eval_assignment(assignee, &rhs, &mut scope.locals);
                 }
                 Statement::Function { name, fun, .. } => {
                     let function = eval_function(fun, &scope.types).map_err(ScriptError::panic)?;
@@ -216,7 +233,7 @@ impl Interpreter {
 
                     let (branch, scope) = if let Some(val) = opt {
                         let mut inner_scope = scope.clone();
-                        eval_assignment(assignee, &val, &mut inner_scope);
+                        eval_assignment(assignee, &val, &mut inner_scope.locals);
                         (Some(body), inner_scope)
                     } else {
                         (else_body.as_ref(), scope.clone())
@@ -713,7 +730,7 @@ impl Interpreter {
                         _ => panic!("Script function ended with break/continue"),
                     });
 
-                try_save(ret, &f.function.ret)?
+                try_wrap_err(wrap_retval(ret, &f.function.ret))?
             }
             ScriptValue::Record(rec) => {
                 let values = transform_args(&rec.params, arguments);
@@ -735,9 +752,9 @@ impl Interpreter {
             }
             // Arguments aren't "transformed" for native calls, but passed as-is!
             // Native callables must use `iter_args()` to extract positional/named arguments.
-            ScriptValue::NativeFunction(func) => func.call(self, arguments)?,
+            ScriptValue::NativeFunction(func) => try_wrap_err(func.call(self, arguments))?,
             ScriptValue::NativeMethodBound(method, subject) => {
-                method.call(self, *subject, arguments)?
+                try_wrap_err(method.call(self, *subject, arguments))?
             }
             _ => panic!("Expected a callable, got: {callable:?}"),
         };
@@ -857,7 +874,7 @@ impl Interpreter {
             {
                 match val.as_fallible()? {
                     Fallible::Ok(value) => {
-                        let mut locals = Scope::default();
+                        let mut locals = HashMap::new();
                         if let Some(name) = assignee
                             .as_ref()
                             .and_then(|a| a.pattern.as_ref())
@@ -865,7 +882,7 @@ impl Interpreter {
                         {
                             eval_assignment(name, value, &mut locals);
                         }
-                        Ok(Some(locals.locals))
+                        Ok(Some(locals))
                     }
                     Fallible::Err(_) => Ok(None),
                 }
@@ -876,7 +893,7 @@ impl Interpreter {
                 match val.as_fallible()? {
                     Fallible::Ok(_) => Ok(None),
                     Fallible::Err(value) => {
-                        let mut locals = Scope::default();
+                        let mut locals = HashMap::new();
                         if let Some(name) = assignee
                             .as_ref()
                             .and_then(|a| a.pattern.as_ref())
@@ -884,7 +901,7 @@ impl Interpreter {
                         {
                             eval_assignment(name, value, &mut locals);
                         }
-                        Ok(Some(locals.locals))
+                        Ok(Some(locals))
                     }
                 }
             }
@@ -904,9 +921,9 @@ impl Interpreter {
                     if let Some((idx, _var)) = def.find_variant(name) {
                         if Arc::ptr_eq(def, def) && *index == idx {
                             if let Some(assignee) = assignee {
-                                let mut locals = Scope::default();
+                                let mut locals = HashMap::new();
                                 eval_assignment(assignee, val, &mut locals);
-                                Ok(Some(locals.locals))
+                                Ok(Some(locals))
                             } else {
                                 Ok(Some(HashMap::new()))
                             }
@@ -972,10 +989,16 @@ fn transform_args(params: &TupleType, arguments: &Tuple) -> Tuple {
     Tuple::new(items)
 }
 
-fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
+fn eval_assignment(
+    lhs: &Src<Assignee>,
+    rhs: &ScriptValue,
+    scope: &mut HashMap<Ident, ScriptValue>,
+) {
     match (&lhs.name, &lhs.pattern) {
         (None, None) => {}
-        (Some(name), None) => scope.set_local(name, rhs.clone()),
+        (Some(name), None) => {
+            scope.insert(name.clone(), rhs.clone());
+        }
         (_, Some(pattern)) => match rhs {
             ScriptValue::Tuple(value) => eval_destructure(pattern, value, scope),
             ScriptValue::Rec { value, .. } => eval_destructure(pattern, value, scope),
@@ -985,7 +1008,7 @@ fn eval_assignment(lhs: &Src<Assignee>, rhs: &ScriptValue, scope: &mut Scope) {
     }
 }
 
-fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
+fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut HashMap<Ident, ScriptValue>) {
     let mut args = rhs.iter_args();
     for par in lhs.iter() {
         if let Some(arg) = args.resolve(par.name.as_ref()) {
@@ -996,22 +1019,30 @@ fn eval_destructure(lhs: &[Src<Assignee>], rhs: &Tuple, scope: &mut Scope) {
     }
 }
 
+// Automatically wrap returned value with Ok/Some.
+// I'm honestly not sure about this feature...
+// Explicit is better than implicit.
+fn wrap_retval(ret: ScriptResult<ScriptValue>, expected: &ScriptType) -> ScriptResult<ScriptValue> {
+    ret.map(|ret| {
+        if expected.is_optional() && !ret.is_opt() {
+            ScriptValue::opt(Some(ret))
+        } else if expected.is_fallible() && !ret.is_fallible() {
+            ScriptValue::ok(ret)
+        } else {
+            ret
+        }
+    })
+}
+
 // Catches cases where the ? operator is used inside a function (possibly nested blocks),
 // on a value that was either None or Err, and makes the function return the variant.
-fn try_save(ret: ScriptResult<ScriptValue>, expected: &ScriptType) -> ScriptResult<ScriptValue> {
+//
+// Native functions can also return Err(NoValue) or Err(Error), and it's automatically
+// converted to Ok(None) or Ok(Fallible::Err) here. This effectively makes the Rust ?
+// operator behave like the ? operator inside a Taco script function.
+fn try_wrap_err(ret: ScriptResult<ScriptValue>) -> ScriptResult<ScriptValue> {
     match ret {
-        Ok(ret) => {
-            // Automatically wrap value with Ok/Some.
-            // I'm honestly not sure about this feature...
-            // Explicit is better than implicit.
-            if expected.is_optional() && !ret.is_opt() {
-                Ok(ScriptValue::opt(Some(ret)))
-            } else if expected.is_fallible() && !ret.is_fallible() {
-                Ok(ScriptValue::ok(ret))
-            } else {
-                Ok(ret)
-            }
-        }
+        Ok(v) => Ok(v),
         Err(err) => match err.kind {
             ScriptErrorKind::NoValue => Ok(ScriptValue::opt(None)),
             ScriptErrorKind::Error(val) => Ok(ScriptValue::err(val)),

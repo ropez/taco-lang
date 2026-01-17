@@ -21,13 +21,20 @@ pub enum TypeDefinition {
     EnumDefinition(Arc<EnumType>),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub(crate) struct TypeScope {
     types: HashMap<Ident, TypeDefinition>,
     expected_type: Option<ScriptType>,
 }
 
 impl TypeScope {
+    pub(crate) fn new(types: HashMap<Ident, TypeDefinition>) -> Self {
+        Self {
+            types,
+            expected_type: None,
+        }
+    }
+
     pub(crate) fn with_expected(&self, exp: impl Into<Option<ScriptType>>) -> Self {
         Self {
             types: self.types.clone(),

@@ -27,7 +27,7 @@ impl Display for Src<Vec<ArgumentExpressionType>> {
     }
 }
 
-#[derive(Default, Clone)]
+#[derive(Clone)]
 struct Scope {
     locals: HashMap<Ident, ScriptType>,
     types: TypeScope,
@@ -36,11 +36,10 @@ struct Scope {
 }
 
 impl Scope {
-    fn with_globals(globals: &HashMap<Ident, ScriptType>) -> Self {
-        let locals = globals.clone();
+    fn new(types: HashMap<Ident, TypeDefinition>, globals: HashMap<Ident, ScriptType>) -> Self {
         Self {
-            locals,
-            types: Default::default(),
+            locals: globals,
+            types: TypeScope::new(types),
             ret: None,
             arguments: TupleType::identity(),
         }
@@ -100,11 +99,21 @@ impl ReturnType {
 
 #[derive(Default)]
 pub struct Validator {
+    types: HashMap<Ident, TypeDefinition>,
     globals: HashMap<Ident, ScriptType>,
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
 }
 
 impl Validator {
+    pub(crate) fn with_types<T>(self, iter: T) -> Self
+    where
+        T: IntoIterator<Item = (Ident, TypeDefinition)>,
+    {
+        let mut types = self.types;
+        types.extend(iter);
+        Self { types, ..self }
+    }
+
     pub(crate) fn with_globals<T>(self, iter: T) -> Self
     where
         T: IntoIterator<Item = (Ident, ScriptType)>,
@@ -138,7 +147,7 @@ impl Validator {
     }
 
     pub fn validate(&self, ast: &[Statement]) -> TypeResult<()> {
-        self.validate_block(ast, Scope::with_globals(&self.globals))?;
+        self.validate_block(ast, Scope::new(self.types.clone(), self.globals.clone()))?;
         Ok(())
     }
 

@@ -1,7 +1,7 @@
 use httparse::Response;
 use rustls::{ClientConnection, pki_types::ServerName};
 use smol::{
-    io::{AsyncReadExt, AsyncWriteExt},
+    io::{self, AsyncReadExt, AsyncWriteExt},
     net::TcpStream,
 };
 use std::{net::ToSocketAddrs, sync::Arc};
@@ -13,7 +13,7 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
-    script_type::{ScriptType, TupleItemType, TupleType},
+    script_type::{EnumType, EnumVariantType, ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple},
     stdlib::http::tls_stream::TlsStream,
 };
@@ -21,7 +21,18 @@ use crate::{
 mod tls_stream;
 
 pub fn build(builder: &mut Builder) {
-    builder.add_function("Http::fetch", FetchFunc);
+    let http_error = EnumType::new(
+        "HttpError",
+        vec![
+            EnumVariantType::new("UrlError", None),
+            EnumVariantType::new("TlsError", None),
+            EnumVariantType::new("NetworkUnreachable", None),
+            EnumVariantType::new("ConnectionRefused", None),
+        ],
+    );
+    builder.add_enum("HttpError", Arc::clone(&http_error));
+
+    builder.add_function("Http::fetch", FetchFunc { http_error });
 }
 
 struct ResponseType;
@@ -63,7 +74,29 @@ impl ExternalValue for ResponseValue {
     }
 }
 
-struct FetchFunc;
+struct FetchFunc {
+    http_error: Arc<EnumType>,
+}
+
+impl FetchFunc {
+    fn fail(&self, variant: impl Into<Ident>) -> ScriptError {
+        let err = ScriptValue::enum_variant(&self.http_error, &variant.into());
+        match err {
+            Ok(err) => ScriptError::error(err),
+            Err(err) => err,
+        }
+    }
+
+    fn map_io_err(&self, err: io::Error) -> ScriptError {
+        use io::ErrorKind::*;
+        match err.kind() {
+            NetworkUnreachable => self.fail("NetworkUnreachable"),
+            ConnectionRefused => self.fail("ConnectionRefused"),
+            err => unimplemented!("{err}"),
+        }
+    }
+}
+
 impl NativeFunction for FetchFunc {
     fn arguments_type(&self) -> TupleType {
         let header_tuple = ScriptType::Tuple(TupleType::new(vec![
@@ -81,7 +114,11 @@ impl NativeFunction for FetchFunc {
     }
 
     fn return_type(&self, _arguments: &TupleType) -> TypeResult<ScriptType> {
-        Ok(ScriptType::Ext(Arc::new(ResponseType)))
+        let res = ScriptType::Ext(Arc::new(ResponseType));
+        Ok(ScriptType::fallible_of(
+            res,
+            ScriptType::EnumInstance(Arc::clone(&self.http_error)),
+        ))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
@@ -100,92 +137,101 @@ impl NativeFunction for FetchFunc {
         let body = args.get("body").map(|val| val.as_string()).transpose()?;
         let extra_headers = args.get("headers").map(|val| val.as_iterable());
 
-        let url = Url::parse(&url).map_err(ScriptError::panic)?;
-        let hostname = url
-            .host_str()
-            .ok_or_else(|| ScriptError::panic("Invalid URL"))?;
+        let url = Url::parse(&url).map_err(|err| self.fail("UrlError"))?;
+        let hostname = url.host_str().ok_or_else(|| self.fail("UrlError"))?;
+        let port = url.port().unwrap_or(443);
         let path = url.path();
 
-        let sock_addr = (hostname, 443).to_socket_addrs().unwrap().next().unwrap();
+        let mut headers = vec![
+            format!("{method} {path} HTTP/1.1"),
+            format!("Host: {hostname}"),
+            "Connection: close".to_string(),
+            "User-Agent: Taco/0.1".to_string(),
+            "Accept: application/json".to_string(),
+            "Content-type: application/json".to_string(),
+            format!(
+                "Content-Length: {}",
+                body.as_ref().map(|s| s.len()).unwrap_or(0)
+            ),
+        ];
 
-        let server_name: ServerName = hostname.try_into().unwrap();
+        if let Some(eh) = extra_headers {
+            for h in eh {
+                let tup = h
+                    .as_tuple()
+                    .ok_or_else(|| ScriptError::panic("Expected tuple"))?;
+                let mut args = tup.iter_args();
+                headers.push(format!(
+                    "{}: {}",
+                    args.get("name").unwrap(),
+                    args.get("value").unwrap()
+                ));
+            }
+        }
 
-        smol::block_on(async move {
-            let connection = ClientConnection::new(config.clone(), server_name.to_owned())
-                .map_err(ScriptError::panic)?;
+        headers.push("\r\n".into());
 
+        let head = headers.join("\r\n");
+
+        let sock_addr = (hostname, port)
+            .to_socket_addrs()
+            .map_err(|e| self.fail("UrlError"))?
+            .next()
+            .ok_or_else(|| self.fail("UrlError"))?;
+
+        let server_name: ServerName = hostname.try_into().map_err(|err| self.fail("TlsError"))?;
+
+        let connection = ClientConnection::new(config.clone(), server_name.to_owned())
+            .map_err(|err| self.fail("TlsError"))?;
+
+        let buf = smol::block_on(async move {
             // Connect to server
-            let stream = TcpStream::connect(sock_addr).await.unwrap();
+            let stream = TcpStream::connect(sock_addr).await?;
 
             // Create TlsStream and complete handshake
             let mut stream = TlsStream::new(connection, stream);
-            stream.flush().await.unwrap();
+            stream.flush().await?;
 
-            let mut headers = vec![
-                format!("{method} {path} HTTP/1.1"),
-                format!("Host: {hostname}"),
-                "Connection: close".to_string(),
-                "User-Agent: Taco/0.1".to_string(),
-                "Accept: application/json".to_string(),
-                "Content-type: application/json".to_string(),
-                format!(
-                    "Content-Length: {}",
-                    body.as_ref().map(|s| s.len()).unwrap_or(0)
-                ),
-            ];
-
-            if let Some(eh) = extra_headers {
-                for h in eh {
-                    let tup = h
-                        .as_tuple()
-                        .ok_or_else(|| ScriptError::panic("Expected tuple"))?;
-                    let mut args = tup.iter_args();
-                    headers.push(format!(
-                        "{}: {}",
-                        args.get("name").unwrap(),
-                        args.get("value").unwrap()
-                    ));
-                }
-            }
-
-            headers.push("\r\n".into());
-
-            let head = headers.join("\r\n");
-
-            stream.write(head.as_bytes()).await.unwrap();
+            stream.write(head.as_bytes()).await?;
             if let Some(body) = body {
-                stream.write(body.as_bytes()).await.unwrap();
+                stream.write(body.as_bytes()).await?;
             }
-            stream.flush().await.unwrap();
+            stream.flush().await?;
 
             let mut buf = Vec::new();
             match stream.read_to_end(&mut buf).await {
-                Ok(_) => {}
+                Ok(_) => Ok(()),
                 Err(err) => match err.kind() {
                     // XXX https://docs.rs/rustls/latest/rustls/manual/_03_howto/index.html#unexpected-eof
-                    std::io::ErrorKind::UnexpectedEof => {}
-                    _ => panic!("{err}"),
+                    io::ErrorKind::UnexpectedEof => Ok(()),
+                    _ => Err(err),
                 },
-            }
+            }?;
 
-            let mut headers = [httparse::EMPTY_HEADER; 32];
-            let mut res = Response::new(&mut headers);
-
-            match res.parse(&buf).map_err(ScriptError::panic)? {
-                httparse::Status::Complete(n) => {
-                    let code = res.code.unwrap_or_default();
-                    let body = if buf.len() > n {
-                        Some(parse_body(&res, &buf[n..])?)
-                    } else {
-                        None
-                    };
-                    let response = ResponseValue::new(code, body);
-
-                    Ok(ScriptValue::Ext(Arc::new(ResponseType), Arc::new(response)))
-                }
-                httparse::Status::Partial => todo!("Partially parsed"),
-            }
+            Ok(buf)
         })
+        .map_err(|err| self.map_io_err(err))?;
+
+        let mut headers = [httparse::EMPTY_HEADER; 32];
+        let mut res = Response::new(&mut headers);
+
+        match res.parse(&buf).map_err(ScriptError::panic)? {
+            httparse::Status::Complete(n) => {
+                let code = res.code.unwrap_or_default();
+                let body = if buf.len() > n {
+                    Some(parse_body(&res, &buf[n..])?)
+                } else {
+                    None
+                };
+                let response = ResponseValue::new(code, body);
+
+                Ok(ScriptValue::ok(ScriptValue::Ext(
+                    Arc::new(ResponseType),
+                    Arc::new(response),
+                )))
+            }
+            httparse::Status::Partial => todo!("Partially parsed"),
+        }
     }
 }
 

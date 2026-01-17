@@ -96,6 +96,18 @@ impl ScriptValue {
         Self::Opt(val.map(Box::new))
     }
 
+    pub fn enum_variant(def: &Arc<EnumType>, name: &Ident) -> ScriptResult<Self> {
+        let (index, var) = def
+            .find_variant(name)
+            .ok_or_else(|| ScriptError::panic("Variant not found"))?;
+
+        Ok(ScriptValue::Enum {
+            def: Arc::clone(def),
+            index,
+            value: Tuple::identity().into(),
+        })
+    }
+
     pub fn is_nan(&self) -> bool {
         matches!(self, Self::NaN)
     }

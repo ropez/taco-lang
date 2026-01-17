@@ -1,0 +1,42 @@
+
+fun invalid_url_error() {
+    res = Http::fetch("foobar")
+
+    assert res.is_err()
+    assert res.error() == HttpError::UrlError # ("relative URL without a base")
+}
+
+fun url_without_hostname_error() {
+    res = Http::fetch("mailto:foo@bar")
+
+    assert res.is_err()
+    assert res.error() == HttpError::UrlError # ("relative URL without a base")
+}
+
+fun invalid_hostname_error() {
+    res = Http::fetch("https://_/foo")
+
+    assert res.is_err()
+    assert res.error() == HttpError::UrlError
+}
+
+fun invalid_domain_name_error() {
+    res = Http::fetch("https://this-domain-should-not-exist.com/foo")
+
+    assert res.is_err()
+    assert res.error() == HttpError::UrlError
+}
+
+fun unreachable_error() {
+    res = Http::fetch("https://10.0.5.5/foo")
+
+    assert res.is_err()
+    assert res.error() == HttpError::NetworkUnreachable
+}
+
+fun connection_refused() {
+    res = Http::fetch("https://localhost:61616/foo")
+
+    assert res.is_err()
+    assert res.error() == HttpError::ConnectionRefused
+}

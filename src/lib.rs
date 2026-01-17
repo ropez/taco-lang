@@ -7,8 +7,9 @@ use crate::{
     interpreter::Interpreter,
     output_adapter::OutputAdapter,
     parser::Parser,
-    script_type::ScriptType,
-    script_value::{ScriptValue, Tuple},
+    script_type::{EnumType, ScriptType},
+    script_value::{Fallible, ScriptValue, Tuple},
+    type_scope::{TypeDefinition, TypeScope},
     validate::Validator,
 };
 
@@ -195,9 +196,13 @@ where
 
 #[derive(Default)]
 struct Builder {
+    // Types of global values (by name of value)
     global_types: HashMap<Ident, ScriptType>,
     global_values: HashMap<Ident, ScriptValue>,
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
+
+    // Global types (by name of type)
+    types: HashMap<Ident, TypeDefinition>,
 }
 
 impl Builder {
@@ -232,14 +237,21 @@ impl Builder {
             .insert((ns.into(), name.into()), NativeMethodRef::from(method));
     }
 
+    pub fn add_enum(&mut self, name: impl Into<Ident>, def: Arc<EnumType>) {
+        self.types
+            .insert(name.into(), TypeDefinition::EnumDefinition(def));
+    }
+
     fn build_validator(&self) -> Validator {
         Validator::default()
+            .with_types(self.types.clone())
             .with_globals(self.global_types.clone())
             .with_methods(self.methods.clone())
     }
 
     fn build_interpreter(&self) -> Interpreter {
         Interpreter::default()
+            .with_types(self.types.clone())
             .with_globals(self.global_values.clone())
             .with_methods(self.methods.clone())
     }
