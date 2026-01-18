@@ -12,7 +12,7 @@ use crate::{
     parser::{Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, Statement},
     script_type::{ScriptType, TupleType},
     script_value::{Fallible, ScriptFunction, ScriptValue, Tuple, TupleItem},
-    stdlib::{list::List, parse::ParseFunc},
+    stdlib::{list::List, parse::ParseFunc, pipe::exec_spawn},
     type_scope::{TypeDefinition, TypeScope, eval_function},
 };
 
@@ -23,7 +23,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-enum Completion {
+pub(crate) enum Completion {
     EndOfBlock(Scope),
     ExplicitReturn(ScriptValue),
     ImpliedReturn(ScriptValue),
@@ -139,7 +139,7 @@ impl Interpreter {
         })
     }
 
-    fn execute_block(&self, ast: &[Statement], mut scope: Scope) -> ScriptResult<Completion> {
+    pub(crate) fn execute_block(&self, ast: &[Statement], mut scope: Scope) -> ScriptResult<Completion> {
         for node in ast {
             match node {
                 Statement::Assignment { assignee, value } => {
@@ -320,6 +320,9 @@ impl Interpreter {
                         _ => (),
                     }
                 },
+                Statement::Spawn { body } => {
+                    exec_spawn(self, Arc::clone(body), scope.clone())?;
+                }
                 Statement::Expression(expr) => {
                     let val = self.eval_expr(expr, &scope)?;
 

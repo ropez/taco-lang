@@ -9,7 +9,8 @@ use crate::{
     error::{ScriptError, ScriptResult, TypeError, TypeResult},
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
-    interpreter::Interpreter,
+    interpreter::{Interpreter, Scope},
+    parser::Statement,
     script_type::{FunctionType, ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
 };
@@ -98,7 +99,28 @@ pub(crate) fn exec_pipe(
         Ok(())
     });
 
-    // XXX Must track running tasks
+    // Track running tasks, so that we can wait after the script has completed
+    interpreter.tracker.track(task);
+
+    Ok(())
+}
+
+pub(crate) fn exec_spawn(
+    interpreter: &Interpreter,
+    body: Arc<Vec<Statement>>,
+    scope: Scope,
+) -> ScriptResult<()> {
+    // XXX Cloning the interpreter feels wrong
+    let i = interpreter.clone();
+
+    // XXX See above
+    let task = smol::spawn(async move {
+        i.execute_block(&body, scope)?;
+
+        Ok(())
+    });
+
+    // Track running tasks, so that we can wait after the script has completed
     interpreter.tracker.track(task);
 
     Ok(())

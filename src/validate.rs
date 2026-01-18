@@ -275,6 +275,11 @@ impl Validator {
                     self.eval_assignment(assignee, inner_typ, &mut inner_scope)?;
                     self.validate_block(body, inner_scope)?;
                 }
+                Statement::Spawn { body } => {
+                    let mut inner_scope = scope.clone();
+                    inner_scope.ret = None;
+                    self.validate_block(body, inner_scope)?;
+                }
                 Statement::Expression(expr) => {
                     self.validate_expr(expr, &scope)?;
                 }

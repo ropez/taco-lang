@@ -284,11 +284,17 @@ impl TcpListenerValue {
     }
 }
 
-struct TcpStreamValue(Mutex<TcpStream>);
+struct TcpStreamValue {
+    recv_sock: Mutex<TcpStream>,
+    send_sock: Mutex<TcpStream>,
+}
 
 impl TcpStreamValue {
-    fn new(mutex: TcpStream) -> Self {
-        Self(Mutex::new(mutex))
+    fn new(sock: TcpStream) -> Self {
+        Self {
+            recv_sock: Mutex::new(sock.clone()),
+            send_sock: Mutex::new(sock),
+        }
     }
 
     async fn connect(addr: &str, timeout: Option<Duration>) -> io::Result<Self> {
@@ -297,7 +303,7 @@ impl TcpStreamValue {
     }
 
     async fn recv(&self, timeout: Option<Duration>) -> io::Result<Option<Vec<u8>>> {
-        let mut sock = self.0.lock().await;
+        let mut sock = self.recv_sock.lock().await;
         let mut buf = [0u8; 10000]; // XXX
         let len = sock.read(&mut buf).or(make_timeout(timeout)).await?;
         if len > 0 {
@@ -308,14 +314,14 @@ impl TcpStreamValue {
     }
 
     async fn send(&self, bytes: &[u8], timeout: Option<Duration>) -> io::Result<()> {
-        let mut sock = self.0.lock().await;
+        let mut sock = self.send_sock.lock().await;
         sock.write(bytes).or(make_timeout(timeout)).await?;
 
         Ok(())
     }
 
     async fn close(&self) -> io::Result<()> {
-        let mut sock = self.0.lock().await;
+        let mut sock = self.send_sock.lock().await;
         sock.close().await?;
 
         Ok(())

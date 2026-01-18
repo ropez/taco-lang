@@ -13,3 +13,6 @@ run = [
     "cargo check --all-features",
 ]
 
+[env]
+SMOL_THREADS = "10"
+

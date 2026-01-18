@@ -60,6 +60,10 @@ pub enum Statement {
         body: Vec<Statement>,
     },
 
+    Spawn {
+        body: Arc<Vec<Statement>>,
+    },
+
     Rec(Arc<Record>),
     Union(Arc<UnionExpression>),
 
@@ -407,6 +411,13 @@ impl<'a> Parser<'a> {
                         let expr = self.parse_expression(0)?;
                         ast.push(Statement::Expression(expr));
                     }
+                }
+                TokenKind::Spawn => {
+                    self.expect_kind(TokenKind::Spawn)?;
+
+                    let body = self.parse_block(false)?;
+
+                    ast.push(Statement::Spawn { body: body.into() })
                 }
                 TokenKind::If => {
                     self.expect_kind(TokenKind::If)?;

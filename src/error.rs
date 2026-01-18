@@ -260,7 +260,7 @@ impl TypeError {
             TypeErrorKind::InvalidMapTo(actual) => {
                 format!("Expected a list of tuples, found '{actual}'")
             }
-            TypeErrorKind::TryNotAllowed => "Question operator noe allowed here".into(),
+            TypeErrorKind::TryNotAllowed => "Question operator not allowed here".into(),
             TypeErrorKind::TypeNotInferred => "Type can not be inferred".into(),
             TypeErrorKind::TypeAssertionFailed(msg) => {
                 format!("Assertion failed during static analysis.\n\t{msg}")

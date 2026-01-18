@@ -134,6 +134,7 @@ pub enum TokenKind {
     Union,
     Match,
     Assert,
+    Spawn,
 }
 
 pub type Token = Src<TokenKind>;
@@ -272,6 +273,7 @@ impl<'a> Tokenizer<'a> {
                         "union" => Some(self.produce(TokenKind::Union)),
                         "match" => Some(self.produce(TokenKind::Match)),
                         "assert" => Some(self.produce(TokenKind::Assert)),
+                        "spawn" => Some(self.produce(TokenKind::Spawn)),
                         _ => Some(self.produce(TokenKind::Identifier(s))),
                     }
                 }
