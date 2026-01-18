@@ -5,12 +5,12 @@ use crate::{
     ident::Ident,
     lexer::Src,
     parser::{
-        AttributeExpression, UnionExpression, Expression, Function, Literal, ParamExpression,
-        Record, TypeExpression,
+        AttributeExpression, Expression, Function, Literal, ParamExpression, Record,
+        TypeExpression, UnionExpression,
     },
     script_type::{
-        UnionType, UnionVariantType, FunctionType, RecType, ScriptType, TupleItemType, TupleType,
-        TypeAttribute,
+        FunctionType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute, UnionType,
+        UnionVariantType,
     },
     script_value::{ScriptValue, Tuple, TupleItem},
 };

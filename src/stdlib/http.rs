@@ -13,7 +13,7 @@ use crate::{
     ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
-    script_type::{UnionType, UnionVariantType, ScriptType, TupleItemType, TupleType},
+    script_type::{ScriptType, TupleItemType, TupleType, UnionType, UnionVariantType},
     script_value::{ContentType, ScriptValue, Tuple},
     stdlib::http::tls_stream::TlsStream,
 };

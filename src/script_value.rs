@@ -7,7 +7,7 @@ use crate::{
     ident::Ident,
     interpreter::Scope,
     parser::Function,
-    script_type::{UnionType, FunctionType, RecType},
+    script_type::{FunctionType, RecType, UnionType},
     stdlib::list::List,
 };
 

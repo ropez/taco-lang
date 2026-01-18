@@ -559,7 +559,6 @@ impl ListMethod for ListJoin {
         let val = items.join(sep.as_ref());
         Ok(ScriptValue::string(val))
     }
-
 }
 
 pub(crate) struct ListMax;

@@ -219,9 +219,7 @@ impl ScriptType {
         match &self {
             ScriptType::Function(fun) => Ok(fun.params.clone()),
             ScriptType::UnionVariant { params, .. } => Ok(params.clone()),
-            ScriptType::NativeFunction(func) => {
-                func.arguments_type(given_args)
-            }
+            ScriptType::NativeFunction(func) => func.arguments_type(given_args),
             ScriptType::NativeMethodBound(method, subject_typ) => {
                 method.arguments_type(subject_typ)
             }

@@ -7,9 +7,9 @@ use crate::{
     interpreter::Interpreter,
     output_adapter::OutputAdapter,
     parser::Parser,
-    script_type::{UnionType, ScriptType},
+    script_type::{ScriptType, UnionType},
     script_value::{ScriptValue, Tuple},
-    type_scope::{TypeDefinition},
+    type_scope::TypeDefinition,
     validate::Validator,
 };
 

@@ -1,7 +1,9 @@
-use std::{any::Any, sync::Arc};
+use std::{any::Any, net::SocketAddr, sync::Arc, time::Duration};
 
 use async_lock::Mutex;
 use smol::{
+    Timer,
+    future::FutureExt,
     io::{self, AsyncReadExt, AsyncWriteExt},
     net::{TcpListener, TcpStream, UdpSocket},
 };
@@ -48,6 +50,20 @@ impl UdpSocketValue {
     async fn bind(addr: &str) -> io::Result<Self> {
         let sock = UdpSocket::bind(addr).await?;
         Ok(Self(sock))
+    }
+
+    async fn send_to(&self, addr: &str, bytes: &[u8], timeout: Option<Duration>) -> io::Result<()> {
+        self.0
+            .send_to(bytes, addr)
+            .or(make_timeout(timeout))
+            .await?;
+        Ok(())
+    }
+
+    async fn recv_from(&self, timeout: Option<Duration>) -> io::Result<(Vec<u8>, SocketAddr)> {
+        let mut buf = [0u8; 10000];
+        let (len, b) = self.0.recv_from(&mut buf).or(make_timeout(timeout)).await?;
+        Ok((buf[..len].to_vec(), b))
     }
 }
 
@@ -96,6 +112,7 @@ impl NativeMethod for SendToMethod {
         Ok(TupleType::new(vec![
             TupleItemType::named("addr", ScriptType::Str),
             TupleItemType::named("content", ScriptType::Str),
+            TupleItemType::named("timeout", ScriptType::opt_of(ScriptType::Int)),
         ]))
     }
 
@@ -124,9 +141,13 @@ impl NativeMethod for SendToMethod {
             .get("content")
             .ok_or_else(|| ScriptError::panic("Expected content"))?
             .as_string()?;
+        let timeout = as_opt_duration(args.get("timeout"))?;
 
         smol::block_on(async move {
-            match sock.0.send_to(content.as_bytes(), addr.as_ref()).await {
+            match sock
+                .send_to(addr.as_ref(), content.as_bytes(), timeout)
+                .await
+            {
                 Ok(_) => Ok(ScriptValue::ok(ScriptValue::identity())),
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
@@ -137,7 +158,10 @@ impl NativeMethod for SendToMethod {
 struct RecvFromMethod;
 impl NativeMethod for RecvFromMethod {
     fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
-        Ok(TupleType::identity())
+        Ok(TupleType::new(vec![TupleItemType::named(
+            "timeout",
+            ScriptType::opt_of(ScriptType::Int),
+        )]))
     }
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
@@ -150,17 +174,24 @@ impl NativeMethod for RecvFromMethod {
         Ok(ScriptType::fallible_of(tuple, ScriptType::Str))
     }
 
-    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
         let sock = subject.downcast_ext::<UdpSocketValue>()?;
 
+        let mut args = arguments.iter_args();
+        let timeout = as_opt_duration(args.get("timeout"))?;
+
         smol::block_on(async move {
-            let mut buf = [0u8; 10000];
-            match sock.0.recv_from(&mut buf).await {
-                Ok((len, b)) => {
-                    let s = str::from_utf8(&buf[..len]).map_err(ScriptError::panic)?; // XXX
+            match sock.recv_from(timeout).await {
+                Ok((buf, addr)) => {
+                    let s = str::from_utf8(&buf).map_err(ScriptError::panic)?; // XXX
                     let tuple = Arc::new(Tuple::new(vec![
                         TupleItem::unnamed(ScriptValue::string(s)),
-                        TupleItem::unnamed(ScriptValue::string(b.to_string())),
+                        TupleItem::unnamed(ScriptValue::string(addr.to_string())),
                     ]));
                     Ok(ScriptValue::ok(ScriptValue::Tuple(tuple)))
                 }
@@ -235,15 +266,15 @@ impl TcpStreamValue {
         Self(Mutex::new(mutex))
     }
 
-    async fn connect(addr: &str) -> io::Result<Self> {
-        let stream = TcpStream::connect(addr).await?;
+    async fn connect(addr: &str, timeout: Option<Duration>) -> io::Result<Self> {
+        let stream = TcpStream::connect(addr).or(make_timeout(timeout)).await?;
         Ok(Self::new(stream))
     }
 
-    async fn recv(&self) -> io::Result<Option<Vec<u8>>> {
+    async fn recv(&self, timeout: Option<Duration>) -> io::Result<Option<Vec<u8>>> {
         let mut sock = self.0.lock().await;
         let mut buf = [0u8; 10000]; // XXX
-        let len = sock.read(&mut buf).await?;
+        let len = sock.read(&mut buf).or(make_timeout(timeout)).await?;
         if len > 0 {
             Ok(Some(buf[..len].to_vec()))
         } else {
@@ -251,9 +282,9 @@ impl TcpStreamValue {
         }
     }
 
-    async fn send(&self, bytes: &[u8]) -> io::Result<()> {
+    async fn send(&self, bytes: &[u8], timeout: Option<Duration>) -> io::Result<()> {
         let mut sock = self.0.lock().await;
-        sock.write(bytes).await?;
+        sock.write(bytes).or(make_timeout(timeout)).await?;
 
         Ok(())
     }
@@ -262,7 +293,10 @@ impl TcpStreamValue {
 struct TcpConnect;
 impl NativeFunction for TcpConnect {
     fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
-        Ok(TupleType::from_single(ScriptType::Str))
+        Ok(TupleType::new(vec![
+            TupleItemType::named("address", ScriptType::Str),
+            TupleItemType::named("timeout", ScriptType::opt_of(ScriptType::Int)),
+        ]))
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
@@ -271,9 +305,15 @@ impl NativeFunction for TcpConnect {
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
-        let addr = arguments.single()?.as_string()?;
+        let mut args = arguments.iter_args();
+        let addr = args
+            .get("address")
+            .ok_or_else(|| ScriptError::panic("Expected address"))?
+            .as_string()?;
+        let timeout = as_opt_duration(args.get("timeout"))?;
+
         smol::block_on(async move {
-            match TcpStreamValue::connect(&addr).await {
+            match TcpStreamValue::connect(&addr, timeout).await {
                 Ok(value) => {
                     let ext = ScriptValue::Ext(Arc::new(TcpStreamType), Arc::new(value));
                     Ok(ScriptValue::ok(ext))
@@ -352,7 +392,10 @@ impl NativeMethod for AcceptMethod {
 struct SendMethod;
 impl NativeMethod for SendMethod {
     fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
-        Ok(TupleType::from_single(ScriptType::Str))
+        Ok(TupleType::new(vec![
+            TupleItemType::named("content", ScriptType::Str),
+            TupleItemType::named("timeout", ScriptType::opt_of(ScriptType::Int)),
+        ]))
     }
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
@@ -376,9 +419,10 @@ impl NativeMethod for SendMethod {
             .get("content")
             .ok_or_else(|| ScriptError::panic("Expected content"))?
             .as_string()?;
+        let timeout = as_opt_duration(args.get("timeout"))?;
 
         smol::block_on(async move {
-            match sock.send(content.as_bytes()).await {
+            match sock.send(content.as_bytes(), timeout).await {
                 Ok(_) => Ok(ScriptValue::ok(ScriptValue::identity())),
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
@@ -389,7 +433,10 @@ impl NativeMethod for SendMethod {
 struct RecvMethod;
 impl NativeMethod for RecvMethod {
     fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
-        Ok(TupleType::identity())
+        Ok(TupleType::new(vec![TupleItemType::named(
+            "timeout",
+            ScriptType::opt_of(ScriptType::Int),
+        )]))
     }
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
@@ -399,11 +446,19 @@ impl NativeMethod for RecvMethod {
         ))
     }
 
-    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
         let sock = subject.downcast_ext::<TcpStreamValue>()?;
 
+        let mut args = arguments.iter_args();
+        let timeout = as_opt_duration(args.get("timeout"))?;
+
         smol::block_on(async move {
-            match sock.recv().await {
+            match sock.recv(timeout).await {
                 Ok(Some(s)) => {
                     let s = str::from_utf8(&s).map_err(ScriptError::panic)?;
                     let val = ScriptValue::string(s);
@@ -414,4 +469,23 @@ impl NativeMethod for RecvMethod {
             }
         })
     }
+}
+
+fn as_opt_duration(arg: Option<ScriptValue>) -> ScriptResult<Option<Duration>> {
+    Ok(arg
+        .map(|a| a.as_int())
+        .transpose()?
+        .map(|ms| ms.try_into())
+        .transpose()
+        .map_err(ScriptError::panic)?
+        .map(Duration::from_millis))
+}
+
+async fn make_timeout<T>(duration: Option<Duration>) -> io::Result<T> {
+    match duration {
+        Some(d) => Timer::after(d),
+        None => Timer::never(),
+    }
+    .await;
+    Err(io::ErrorKind::TimedOut.into())
 }

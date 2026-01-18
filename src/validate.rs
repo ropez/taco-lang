@@ -263,7 +263,11 @@ impl Validator {
                         self.validate_block(else_body, scope.clone())?;
                     }
                 }
-                Statement::WhileIn { assignee, value, body } => {
+                Statement::WhileIn {
+                    assignee,
+                    value,
+                    body,
+                } => {
                     let opt_typ = self.validate_expr(value, &scope)?;
                     let inner_typ = opt_typ.flatten();
 
