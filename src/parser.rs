@@ -54,6 +54,12 @@ pub enum Statement {
         else_body: Option<Vec<Statement>>,
     },
 
+    WhileIn {
+        assignee: Src<Assignee>,
+        value: Src<Expression>,
+        body: Vec<Statement>,
+    },
+
     Rec(Arc<Record>),
     Union(Arc<UnionExpression>),
 
@@ -443,12 +449,28 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::While => {
                     self.expect_kind(TokenKind::While)?;
-                    let cond = self.parse_expression(0)?;
-                    let body = self.parse_block(false)?;
+                    if self.peek_is_assignee_followed_by_in() {
+                        let assignee = self.parse_assignee()?;
+                        self.expect_kind(TokenKind::In)?;
 
-                    self.expect_end_of_line()?;
+                        let value = self.parse_expression(0)?;
+                        let body = self.parse_block(false)?;
 
-                    ast.push(Statement::While { cond, body });
+                        self.expect_end_of_line()?;
+
+                        ast.push(Statement::WhileIn {
+                            assignee,
+                            value,
+                            body,
+                        });
+                    } else {
+                        let cond = self.parse_expression(0)?;
+                        let body = self.parse_block(false)?;
+
+                        self.expect_end_of_line()?;
+
+                        ast.push(Statement::While { cond, body });
+                    }
                 }
                 TokenKind::For => {
                     self.expect_kind(TokenKind::For)?;

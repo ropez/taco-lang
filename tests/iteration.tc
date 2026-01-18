@@ -42,3 +42,20 @@ fun test_break_from_range() {
 
     assert s.get() == 10
 }
+
+fun test_while_in() {
+    s = State(3)
+    fun test(): int? {
+        if s.get() > 0 {
+            return s.get()
+        }
+    }
+
+    while x in test() {
+        println("$x")
+        s.update(fun(v) { v - 1 })
+    }
+
+    assert s.get() == 0
+}
+

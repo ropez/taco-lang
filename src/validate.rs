@@ -263,6 +263,14 @@ impl Validator {
                         self.validate_block(else_body, scope.clone())?;
                     }
                 }
+                Statement::WhileIn { assignee, value, body } => {
+                    let opt_typ = self.validate_expr(value, &scope)?;
+                    let inner_typ = opt_typ.flatten();
+
+                    let mut inner_scope = scope.clone();
+                    self.eval_assignment(assignee, inner_typ, &mut inner_scope)?;
+                    self.validate_block(body, inner_scope)?;
+                }
                 Statement::Expression(expr) => {
                     self.validate_expr(expr, &scope)?;
                 }

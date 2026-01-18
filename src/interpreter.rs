@@ -291,6 +291,35 @@ impl Interpreter {
                         }
                     }
                 }
+                Statement::WhileIn {
+                    assignee,
+                    value,
+                    body,
+                } => loop {
+                    let val = self.eval_expr(value, &scope)?;
+
+                    let val = match val {
+                        ScriptValue::Opt(opt) => match opt {
+                            Some(v) => v.as_ref().clone(),
+                            _ => break,
+                        },
+                        o => o,
+                    };
+
+                    let mut inner_scope = scope.clone();
+                    eval_assignment(assignee, &val, &mut inner_scope.locals);
+
+                    match self.execute_block(body, inner_scope)? {
+                        Completion::ExplicitReturn(val) => {
+                            return Ok(Completion::ExplicitReturn(val));
+                        }
+                        Completion::ImpliedReturn(val) if ast.len() == 1 => {
+                            return Ok(Completion::ImpliedReturn(val));
+                        }
+                        Completion::Break => break,
+                        _ => (),
+                    }
+                },
                 Statement::Expression(expr) => {
                     let val = self.eval_expr(expr, &scope)?;
 
