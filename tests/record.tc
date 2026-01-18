@@ -45,6 +45,21 @@ fun test_record_with_unnamed_params() {
     assert email == "foo@bar.com"
 }
 
+fun test_inline_comments() {
+    rec Point(
+        # A point with two coordinates
+        x: int  # first axis
+        y: int  # second axis
+
+        # no more axis
+    )
+
+    p = Point(
+        100  # x
+        200  # y
+    )
+}
+
 fun test_apply_arguments_from_tuple() {
     rec Person(name: str, age: int)
 

@@ -1104,7 +1104,7 @@ impl<'a> Parser<'a> {
             match kind {
                 None => break,
                 Some(kind) if *kind == until => break,
-                Some(TokenKind::Comma | TokenKind::NewLine) => {
+                Some(TokenKind::Comma | TokenKind::NewLine | TokenKind::Comment(_)) => {
                     self.iter.next();
                     continue;
                 }
