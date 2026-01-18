@@ -18,6 +18,7 @@ use crate::{
 
 pub fn build(builder: &mut Builder) {
     builder.add_function("UdpSocket::bind", UdpBind);
+    builder.add_function("TcpStream::connect", TcpConnect);
     builder.add_function("TcpListener::listen", TcpListen);
 }
 
@@ -234,6 +235,11 @@ impl TcpStreamValue {
         Self(Mutex::new(mutex))
     }
 
+    async fn connect(addr: &str) -> io::Result<Self> {
+        let stream = TcpStream::connect(addr).await?;
+        Ok(Self::new(stream))
+    }
+
     async fn recv(&self) -> io::Result<Option<Vec<u8>>> {
         let mut sock = self.0.lock().await;
         let mut buf = [0u8; 10000]; // XXX
@@ -250,6 +256,31 @@ impl TcpStreamValue {
         sock.write(bytes).await?;
 
         Ok(())
+    }
+}
+
+struct TcpConnect;
+impl NativeFunction for TcpConnect {
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
+    }
+
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
+        let ext = ScriptType::Ext(Arc::new(TcpStreamType));
+        Ok(ScriptType::fallible_of(ext, ScriptType::Str))
+    }
+
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
+        let addr = arguments.single()?.as_string()?;
+        smol::block_on(async move {
+            match TcpStreamValue::connect(&addr).await {
+                Ok(value) => {
+                    let ext = ScriptValue::Ext(Arc::new(TcpStreamType), Arc::new(value));
+                    Ok(ScriptValue::ok(ext))
+                }
+                Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
+            }
+        })
     }
 }
 
