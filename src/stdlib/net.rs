@@ -1,6 +1,10 @@
 use std::{any::Any, sync::Arc};
 
-use smol::{io, net::UdpSocket};
+use async_lock::Mutex;
+use smol::{
+    io::{self, AsyncReadExt, AsyncWriteExt},
+    net::{TcpListener, TcpStream, UdpSocket},
+};
 
 use crate::{
     Builder,
@@ -14,13 +18,14 @@ use crate::{
 
 pub fn build(builder: &mut Builder) {
     builder.add_function("UdpSocket::bind", UdpBind);
+    builder.add_function("TcpListener::listen", TcpListen);
 }
 
-struct ScriptSocketType;
+struct UdpSocketType;
 
-impl ExternalType for ScriptSocketType {
+impl ExternalType for UdpSocketType {
     fn name(&self) -> Ident {
-        "Socket".into()
+        "UdpSocket".into()
     }
 
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
@@ -36,16 +41,16 @@ impl ExternalType for ScriptSocketType {
     }
 }
 
-struct ScriptSocket(UdpSocket);
+struct UdpSocketValue(UdpSocket);
 
-impl ScriptSocket {
+impl UdpSocketValue {
     async fn bind(addr: &str) -> io::Result<Self> {
         let sock = UdpSocket::bind(addr).await?;
         Ok(Self(sock))
     }
 }
 
-impl ExternalValue for ScriptSocket {
+impl ExternalValue for UdpSocketValue {
     fn as_readable(&self) -> Option<&(dyn crate::ext::Readable + Send + Sync)> {
         unimplemented!("readable for socket")
     }
@@ -66,16 +71,16 @@ impl NativeFunction for UdpBind {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let ext = ScriptType::Ext(Arc::new(ScriptSocketType));
+        let ext = ScriptType::Ext(Arc::new(UdpSocketType));
         Ok(ScriptType::fallible_of(ext, ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let addr = arguments.single()?.as_string()?;
         smol::block_on(async move {
-            match ScriptSocket::bind(&addr).await {
+            match UdpSocketValue::bind(&addr).await {
                 Ok(value) => {
-                    let ext = ScriptValue::Ext(Arc::new(ScriptSocketType), Arc::new(value));
+                    let ext = ScriptValue::Ext(Arc::new(UdpSocketType), Arc::new(value));
                     Ok(ScriptValue::ok(ext))
                 }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
@@ -107,7 +112,7 @@ impl NativeMethod for SendToMethod {
         subject: ScriptValue,
         arguments: &Tuple,
     ) -> ScriptResult<ScriptValue> {
-        let sock = subject.downcast_ext::<ScriptSocket>()?;
+        let sock = subject.downcast_ext::<UdpSocketValue>()?;
 
         let mut args = arguments.iter_args();
         let addr = args
@@ -145,7 +150,7 @@ impl NativeMethod for RecvFromMethod {
     }
 
     fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
-        let sock = subject.downcast_ext::<ScriptSocket>()?;
+        let sock = subject.downcast_ext::<UdpSocketValue>()?;
 
         smol::block_on(async move {
             let mut buf = [0u8; 10000];
@@ -158,6 +163,222 @@ impl NativeMethod for RecvFromMethod {
                     ]));
                     Ok(ScriptValue::ok(ScriptValue::Tuple(tuple)))
                 }
+                Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
+            }
+        })
+    }
+}
+
+struct TcpListenerType;
+impl ExternalType for TcpListenerType {
+    fn name(&self) -> Ident {
+        "TcpListener".into()
+    }
+
+    fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
+        match name.as_str() {
+            "accept" => Some(NativeMethodRef::new(Arc::new(AcceptMethod))),
+            _ => None,
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+struct TcpStreamType;
+impl ExternalType for TcpStreamType {
+    fn name(&self) -> Ident {
+        "TcpStream".into()
+    }
+
+    fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
+        match name.as_str() {
+            "send" => Some(NativeMethodRef::new(Arc::new(SendMethod))),
+            "recv" => Some(NativeMethodRef::new(Arc::new(RecvMethod))),
+            _ => None,
+        }
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+struct TcpListenerValue(TcpListener);
+
+impl ExternalValue for TcpListenerValue {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl TcpListenerValue {
+    async fn listen(addr: &str) -> io::Result<Self> {
+        let listener = TcpListener::bind(addr).await?;
+        Ok(Self(listener))
+    }
+}
+
+struct TcpStreamValue(Mutex<TcpStream>);
+
+impl ExternalValue for TcpStreamValue {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
+
+impl TcpStreamValue {
+    fn new(mutex: TcpStream) -> Self {
+        Self(Mutex::new(mutex))
+    }
+
+    async fn recv(&self) -> io::Result<Option<Vec<u8>>> {
+        let mut sock = self.0.lock().await;
+        let mut buf = [0u8; 10000]; // XXX
+        let len = sock.read(&mut buf).await?;
+        if len > 0 {
+            Ok(Some(buf[..len].to_vec()))
+        } else {
+            Ok(None)
+        }
+    }
+
+    async fn send(&self, bytes: &[u8]) -> io::Result<()> {
+        let mut sock = self.0.lock().await;
+        sock.write(bytes).await?;
+
+        Ok(())
+    }
+}
+
+struct TcpListen;
+impl NativeFunction for TcpListen {
+    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
+    }
+
+    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
+        let ext = ScriptType::Ext(Arc::new(TcpListenerType));
+        Ok(ScriptType::fallible_of(ext, ScriptType::Str))
+    }
+
+    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
+        let addr = arguments.single()?.as_string()?;
+        smol::block_on(async move {
+            match TcpListenerValue::listen(&addr).await {
+                Ok(value) => {
+                    let ext = ScriptValue::Ext(Arc::new(TcpListenerType), Arc::new(value));
+                    Ok(ScriptValue::ok(ext))
+                }
+                Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
+            }
+        })
+    }
+}
+
+struct AcceptMethod;
+impl NativeMethod for AcceptMethod {
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
+        Ok(TupleType::identity())
+    }
+
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        // FIXME Should use a rec here
+        let ext = ScriptType::Ext(Arc::new(TcpStreamType));
+        let tuple = ScriptType::Tuple(TupleType::new(vec![
+            TupleItemType::unnamed(ext),
+            TupleItemType::unnamed(ScriptType::Str),
+        ]));
+
+        Ok(ScriptType::fallible_of(tuple, ScriptType::Str))
+    }
+
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let listener = subject.downcast_ext::<TcpListenerValue>()?;
+
+        smol::block_on(async move {
+            match listener.0.accept().await {
+                Ok((stream, b)) => {
+                    let ext = ScriptValue::Ext(
+                        Arc::new(TcpStreamType),
+                        Arc::new(TcpStreamValue::new(stream)),
+                    );
+
+                    let tuple = Arc::new(Tuple::new(vec![
+                        TupleItem::unnamed(ext),
+                        TupleItem::unnamed(ScriptValue::string(b.to_string())),
+                    ]));
+                    Ok(ScriptValue::ok(ScriptValue::Tuple(tuple)))
+                }
+                Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
+            }
+        })
+    }
+}
+
+struct SendMethod;
+impl NativeMethod for SendMethod {
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
+    }
+
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        // XXX Need to define custom error types like "Net::Error"
+        Ok(ScriptType::fallible_of(
+            ScriptType::identity(),
+            ScriptType::Str,
+        ))
+    }
+
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
+        let sock = subject.downcast_ext::<TcpStreamValue>()?;
+
+        let mut args = arguments.iter_args();
+        let content = args
+            .get("content")
+            .ok_or_else(|| ScriptError::panic("Expected content"))?
+            .as_string()?;
+
+        smol::block_on(async move {
+            match sock.send(content.as_bytes()).await {
+                Ok(_) => Ok(ScriptValue::ok(ScriptValue::identity())),
+                Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
+            }
+        })
+    }
+}
+
+struct RecvMethod;
+impl NativeMethod for RecvMethod {
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
+        Ok(TupleType::identity())
+    }
+
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::fallible_of(
+            ScriptType::opt_of(ScriptType::Str),
+            ScriptType::Str,
+        ))
+    }
+
+    fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let sock = subject.downcast_ext::<TcpStreamValue>()?;
+
+        smol::block_on(async move {
+            match sock.recv().await {
+                Ok(Some(s)) => {
+                    let s = str::from_utf8(&s).map_err(ScriptError::panic)?;
+                    let val = ScriptValue::string(s);
+                    Ok(ScriptValue::ok(ScriptValue::opt(Some(val))))
+                }
+                Ok(None) => Ok(ScriptValue::ok(ScriptValue::opt(None))),
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
         })
