@@ -155,6 +155,7 @@ pub(crate) fn eval_type_expr(
 ) -> TypeResult<ScriptType> {
     match type_expr.as_ref() {
         TypeExpression::Int => Ok(ScriptType::Int),
+        TypeExpression::Char => Ok(ScriptType::Char),
         TypeExpression::Str => Ok(ScriptType::Str),
         TypeExpression::Bool => Ok(ScriptType::Bool),
         TypeExpression::Range => Ok(ScriptType::Range),

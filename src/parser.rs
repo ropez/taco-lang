@@ -157,6 +157,7 @@ pub enum CallExpression {
 #[derive(Debug)]
 pub enum TypeExpression {
     Int,
+    Char,
     Str,
     Bool,
     Range,
@@ -172,6 +173,7 @@ impl TypeExpression {
     pub(crate) fn from_ident(ident: Ident) -> Self {
         match ident.as_str() {
             "int" => Self::Int,
+            "char" => Self::Char,
             "str" => Self::Str,
             "bool" => Self::Bool,
             "range" => Self::Range,
@@ -909,6 +911,7 @@ impl<'a> Parser<'a> {
             TokenKind::True => Src::new(MatchPattern::Literal(Literal::True), token.loc),
             TokenKind::False => Src::new(MatchPattern::Literal(Literal::False), token.loc),
             TokenKind::Number(n) => Src::new(MatchPattern::Literal(Literal::Int(*n)), token.loc),
+            TokenKind::Char(c) => Src::new(MatchPattern::Literal(Literal::Char(*c)), token.loc),
             TokenKind::String(s) => Src::new(
                 MatchPattern::Literal(Literal::Str(Arc::clone(s))),
                 token.loc,

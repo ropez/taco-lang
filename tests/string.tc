@@ -74,6 +74,26 @@ fun test_chars_unicode() {
     assert "Юлія☃".chars() == ['Ю', 'л', 'і', 'я', '☃']
 }
 
+fun test_char_type() {
+    fun test(a: char): [char] {
+        return [a]
+    }
+
+    assert test('a') == ['a']
+}
+
+fun test_match_char() {
+    fun test(ch: char): str {
+        match ch {
+            'a' { "foo" }
+            _ { "bar" }
+        }
+    }
+
+    assert test('a') == "foo"
+    assert test('b') == "bar"
+}
+
 fun test_escaped_string() {
     assert "\\foo\r\nbar\r\n".len() == 11
     assert "\\foo\r\nbar\r\n".lines().len() == 2

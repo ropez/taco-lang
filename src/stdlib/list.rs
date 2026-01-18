@@ -531,7 +531,7 @@ impl ListMethod for ListJoin {
 
     fn list_return_type(&self, inner: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         match inner {
-            ScriptType::Str => Ok(ScriptType::opt_of(ScriptType::Str)),
+            ScriptType::Str => Ok(ScriptType::Str),
             _ => Err(TypeError::expected_type(
                 ScriptType::list_of(ScriptType::Str),
                 ScriptType::list_of(inner.clone()),
