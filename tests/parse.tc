@@ -2,6 +2,10 @@ fun test_parse_int() {
     assert int::parse("234") == 234
 }
 
+fun test_parse_int_hex() {
+    assert int::parse("abab", base: 16) == 43947
+}
+
 fun test_parse_range() {
     assert Range::parse("234-345") == 234..345
 }

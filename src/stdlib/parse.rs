@@ -109,9 +109,18 @@ fn parse_default(rec: &RecType, input: &str) -> Result<Tuple, ParseError> {
 struct ParseIntFunc;
 impl NativeFunction for ParseIntFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
-        let input = arguments.single()?.as_string()?;
-        let val = input
-            .parse()
+        let mut args = arguments.iter_args();
+        let input = args
+            .next_positional()
+            .ok_or_else(|| ScriptError::panic("Expected argument"))?
+            .as_string()?;
+        let base = args
+            .get("base")
+            .map(|a| a.as_int())
+            .transpose()?
+            .unwrap_or(10);
+        let base: u32 = base.try_into().map_err(ScriptError::panic)?;
+        let val = i64::from_str_radix(input.as_ref(), base)
             .map_err(|err| ScriptError::panic(format!("{err}, input: '{input}'")))?;
         Ok(ScriptValue::Int(val))
     }
