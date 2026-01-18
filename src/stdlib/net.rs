@@ -1,6 +1,7 @@
 use std::{any::Any, net::SocketAddr, sync::Arc, time::Duration};
 
 use async_lock::Mutex;
+use async_trait::async_trait;
 use smol::{
     Timer,
     future::FutureExt,
@@ -11,7 +12,10 @@ use smol::{
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    ext::{ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef},
+    ext::{
+        ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
+        Writable,
+    },
     ident::Ident,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleItemType, TupleType},
@@ -42,6 +46,14 @@ impl ExternalType for UdpSocketType {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn as_readable(&self) -> Option<ScriptType> {
+        Some(ScriptType::Str)
+    }
+
+    fn as_writable(&self) -> Option<ScriptType> {
+        None
+    }
 }
 
 struct UdpSocketValue(UdpSocket);
@@ -68,16 +80,27 @@ impl UdpSocketValue {
 }
 
 impl ExternalValue for UdpSocketValue {
-    fn as_readable(&self) -> Option<&(dyn crate::ext::Readable + Send + Sync)> {
-        unimplemented!("readable for socket")
+    fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
+        Some(self)
     }
 
-    fn as_writable(&self) -> Option<&(dyn crate::ext::Writable + Send + Sync)> {
-        unimplemented!("writable for socket")
+    fn as_writable(&self) -> Option<&(dyn Writable + Send + Sync)> {
+        unimplemented!("writable for UdpSocket")
     }
 
     fn as_any(&self) -> &dyn Any {
         self
+    }
+}
+
+#[async_trait]
+impl Readable for UdpSocketValue {
+    async fn read(&self, _: &Interpreter) -> ScriptResult<Option<ScriptValue>> {
+        let (buf, _) = self.recv_from(None).await.map_err(ScriptError::panic)?;
+
+        let s = str::from_utf8(&buf).map_err(ScriptError::panic)?;
+
+        Ok(Some(ScriptValue::string(s)))
     }
 }
 
@@ -236,6 +259,14 @@ impl ExternalType for TcpStreamType {
     fn as_any(&self) -> &dyn Any {
         self
     }
+
+    fn as_readable(&self) -> Option<ScriptType> {
+        Some(ScriptType::Str)
+    }
+
+    fn as_writable(&self) -> Option<ScriptType> {
+        Some(ScriptType::Str)
+    }
 }
 
 struct TcpListenerValue(TcpListener);
@@ -254,12 +285,6 @@ impl TcpListenerValue {
 }
 
 struct TcpStreamValue(Mutex<TcpStream>);
-
-impl ExternalValue for TcpStreamValue {
-    fn as_any(&self) -> &dyn Any {
-        self
-    }
-}
 
 impl TcpStreamValue {
     fn new(mutex: TcpStream) -> Self {
@@ -287,6 +312,55 @@ impl TcpStreamValue {
         sock.write(bytes).or(make_timeout(timeout)).await?;
 
         Ok(())
+    }
+
+    async fn close(&self) -> io::Result<()> {
+        let mut sock = self.0.lock().await;
+        sock.close().await?;
+
+        Ok(())
+    }
+}
+
+impl ExternalValue for TcpStreamValue {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
+        Some(self)
+    }
+
+    fn as_writable(&self) -> Option<&(dyn Writable + Send + Sync)> {
+        Some(self)
+    }
+}
+
+#[async_trait]
+impl Readable for TcpStreamValue {
+    async fn read(&self, _: &Interpreter) -> ScriptResult<Option<ScriptValue>> {
+        if let Some(buf) = self.recv(None).await.map_err(ScriptError::panic)? {
+            let s = str::from_utf8(&buf).map_err(ScriptError::panic)?;
+
+            Ok(Some(ScriptValue::string(s)))
+        } else {
+            Ok(None)
+        }
+    }
+}
+
+#[async_trait]
+impl Writable for TcpStreamValue {
+    async fn write(&self, _: &Interpreter, value: ScriptValue) -> ScriptResult<()> {
+        let content = value.as_string()?;
+        self.send(content.as_bytes(), None)
+            .await
+            .map_err(ScriptError::panic)?;
+        Ok(())
+    }
+
+    async fn close(&self) -> ScriptResult<()> {
+        self.close().await.map_err(ScriptError::panic)
     }
 }
 
