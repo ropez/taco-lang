@@ -1,0 +1,29 @@
+fun simple_enum() {
+    enum Hero {
+        Fred = 1
+        Wilma = 2
+        Barney = 3
+    }
+
+    hero = Hero::Fred
+
+    assert hero == 1
+    assert "$hero" == "1"
+    assert hero == Hero::Fred
+}
+
+fun simple_flag_enum() {
+    enum Modifier {
+        Shift = 1
+        Control = 2
+        Alt = 4
+        Super = 8
+    }
+
+    mod = Modifier::Control | Modifier::Control
+
+    assert mod & Modifier::Shift == false
+    assert mod & Modifier::Control == true
+    assert mod & Modifier::Alt == false
+    assert mod & Modifier::Super == true
+}
