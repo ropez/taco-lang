@@ -46,16 +46,14 @@ impl TypeScope {
         self.types.get(name)
     }
 
-    pub(crate) fn add_union(&mut self, name: impl Into<Ident>, def: Arc<UnionType>) {
-        self.types
-            .insert(name.into(), TypeDefinition::UnionDefinition(def));
+    fn insert(&mut self, name: impl Into<Ident>, def: TypeDefinition) {
+        self.types.insert(name.into(), def);
     }
 
     pub(crate) fn eval_rec(&mut self, rec: &Record) -> TypeResult<()> {
         let rec_type = RecType::new(&rec.name, eval_params(&rec.params, self)?);
 
-        self.types
-            .insert(rec.name.clone(), TypeDefinition::RecDefinition(rec_type));
+        self.insert(&rec.name, TypeDefinition::RecDefinition(rec_type));
 
         Ok(())
     }
@@ -76,7 +74,7 @@ impl TypeScope {
                 .collect::<TypeResult<Vec<UnionVariantType>>>()?,
         );
 
-        self.add_union(&def.name, union_type);
+        self.insert(&def.name, TypeDefinition::UnionDefinition(union_type));
 
         Ok(())
     }
