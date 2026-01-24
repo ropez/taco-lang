@@ -1,0 +1,25 @@
+
+fun test_has_bit() {
+    assert 10.has_bit(0) == false
+    assert 10.has_bit(1) == true
+    assert 10.has_bit(2) == false
+    assert 10.has_bit(3) == true
+}
+
+fun test_set_bit() {
+    assert 0.set_bit(0) == 1
+    assert 0.set_bit(1) == 2
+    assert 0.set_bit(2) == 4
+    assert 0.set_bit(1).set_bit(3) == 10
+}
+
+fun test_clear_bit() {
+    assert 10.clear_bit(0) == 10
+    assert 10.clear_bit(1) == 8
+    assert 10.clear_bit(3) == 2
+    assert 10.clear_bit(1).clear_bit(3) == 0
+}
+
+fun test_edge_case() {
+    assert 0.set_bit(63).has_bit(63)
+}
