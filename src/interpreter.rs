@@ -4,6 +4,8 @@ use std::{
     sync::Arc,
 };
 
+use async_lock::RwLock;
+
 use crate::{
     error::{ScriptError, ScriptErrorKind, ScriptResult},
     ext::{NativeFunctionRef, NativeMethodRef},
@@ -33,25 +35,44 @@ pub(crate) enum Completion {
     Continue,
 }
 
-#[derive(Clone)]
 pub(crate) struct Scope {
     locals: HashMap<Ident, ScriptValue>,
+
+    // Special case for functions declared in the current scope.
+    //
+    // In order to call a function 'b' from inside a function 'a', if 'a' is declared before 'b' in
+    // the block, we need to "update" the scope of 'a', so that it contains 'b' with fully
+    // evaluated scope when 'a' is called. This is solved by having this map shared between all
+    // functions in the current scope.
+    pub(crate) local_functions: Arc<RwLock<HashMap<Ident, ScriptFunction>>>,
 
     types: TypeScope,
 
     arguments: Arc<Tuple>,
 }
 
+impl Clone for Scope {
+    fn clone(&self) -> Self {
+        Self {
+            locals: self.locals.clone(),
+            local_functions: Default::default(),
+            types: self.types.clone(),
+            arguments: self.arguments.clone(),
+        }
+    }
+}
+
 impl Scope {
     fn new(types: HashMap<Ident, TypeDefinition>, globals: HashMap<Ident, ScriptValue>) -> Self {
         Self {
             locals: globals,
+            local_functions: Default::default(),
             types: TypeScope::new(types),
             arguments: Default::default(),
         }
     }
 
-    fn set_local(&mut self, name: impl Into<Ident>, value: ScriptValue) {
+    pub(crate) fn set_local(&mut self, name: impl Into<Ident>, value: ScriptValue) {
         // Make sure we never assign a value to '_'
         let key = name.into();
         if key.as_str() != "_" {
@@ -63,6 +84,15 @@ impl Scope {
         let mut scope = self.clone();
         scope.locals.extend(locals);
         scope
+    }
+
+    fn capture(&self) -> Scope {
+        Self {
+            locals: self.locals.clone(),
+            local_functions: self.local_functions.clone(),
+            types: self.types.clone(),
+            arguments: Default::default(),
+        }
     }
 }
 
@@ -139,7 +169,11 @@ impl Interpreter {
         })
     }
 
-    pub(crate) fn execute_block(&self, ast: &[Statement], mut scope: Scope) -> ScriptResult<Completion> {
+    pub(crate) fn execute_block(
+        &self,
+        ast: &[Statement],
+        mut scope: Scope,
+    ) -> ScriptResult<Completion> {
         for node in ast {
             match node {
                 Statement::Assignment { assignee, value } => {
@@ -149,12 +183,15 @@ impl Interpreter {
                 Statement::Function { name, fun, .. } => {
                     let function = eval_function(fun, &scope.types).map_err(ScriptError::panic)?;
 
-                    let fun = ScriptValue::ScriptFunction(ScriptFunction::new(
-                        function,
-                        Arc::clone(fun),
-                        Arc::new(scope.clone()),
-                    ));
+                    let script_function =
+                        ScriptFunction::new(function, Arc::clone(fun), Arc::new(scope.capture()));
+
+                    let fun = ScriptValue::ScriptFunction(script_function.clone());
                     scope.set_local(name, fun);
+                    scope
+                        .local_functions
+                        .write_blocking()
+                        .insert(name.clone(), script_function);
                 }
                 Statement::Rec(rec) => {
                     scope.types.eval_rec(rec).map_err(ScriptError::panic)?;
@@ -744,7 +781,8 @@ impl Interpreter {
     ) -> ScriptResult<ScriptValue> {
         let return_value = match callable {
             ScriptValue::ScriptFunction(f) => {
-                let mut inner_scope = f.clone_captured_scope();
+                let mut inner_scope = self.clone_captured_scope(&f);
+
                 let values = transform_args(&f.function.params, arguments);
                 for item in values.items() {
                     if let Some(name) = &item.name {
@@ -792,6 +830,18 @@ impl Interpreter {
         };
 
         Ok(return_value)
+    }
+
+    fn clone_captured_scope(&self, fun: &ScriptFunction) -> Scope {
+        let mut scope = Scope::clone(&fun.captured_scope);
+
+        // "Promote" functions
+        let functions = fun.captured_scope.local_functions.read_blocking();
+        for (name, func) in functions.iter() {
+            scope.set_local(name, ScriptValue::ScriptFunction(func.clone()));
+        }
+
+        scope
     }
 
     fn eval_args(&self, arguments: &CallExpression, scope: &Scope) -> ScriptResult<Arc<Tuple>> {

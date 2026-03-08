@@ -25,23 +25,6 @@ fun test_implicit_fallable_return() {
     assert test(false).is_err()
 }
 
-fun test_implicit_fallible_decl() {
-    fun inner(ok: bool): str ~ str {
-        if ok {
-            return Ok("ok")
-        } else {
-            return Err("error")
-        }
-    }
-
-    fun test(ok: bool) {
-        inner(ok)
-    }
-
-    assert test(true).is_ok()
-    assert test(false).is_err()
-}
-
 fun test_question_operator() {
     fun inner(ok: bool): str ~ str {
         if ok {

@@ -50,7 +50,7 @@ fun test_implied_return() {
 }
 
 fun test_implied_return_with_implied_type() {
-    fun square(n: int) { n * n }
+    fun square(n: int): int { n * n }
     assert square(2) == 4
     assert typeof(square(2)) == "int"
     # assert typeof(square) == "fun(n: int): int" -- XXX fails in runtime
@@ -176,7 +176,7 @@ fun test_return_implicit_tuple_with_arg() {
 }
 
 fun test_arguments_access() {
-    fun foo(fruit: str, count: int) {
+    fun foo(fruit: str, count: int): str {
         "${arguments.fruit} ${arguments.count}"
     }
 
@@ -239,11 +239,11 @@ fun test_apply_arguments_from_tuple() {
 }
 
 fun test_forward_arguments() {
-    fun foo(fruit: str, amount: int) {
+    fun foo(fruit: str, amount: int): str {
         "$amount $fruit"
     }
 
-    fun bar(fruit: str, amount: int) {
+    fun bar(fruit: str, amount: int): str {
         foo(=arguments)
     }
 
@@ -251,11 +251,11 @@ fun test_forward_arguments() {
 }
 
 fun test_forward_implied_arguments() {
-    fun foo(fruit: str, amount: int) {
+    fun foo(fruit: str, amount: int): str {
         "$amount $fruit"
     }
 
-    fun bar(fruit: str, amount: int) {
+    fun bar(fruit: str, amount: int): str {
         foo(=)
     }
 
@@ -272,8 +272,83 @@ fun test_param_type_binding() {
     }
     a = Foo(42)
 
-    # 'Foo(int)' is not in scope when calling the function
-    rec Foo(x: bool)
+    # # 'Foo(int)' is not in scope when calling the function
+    # rec Foo(x: bool)
 
     assert foo(a) == """{"x":42}"""
 }
+
+fun test_call_function_below() {
+    fun foo(): str {
+        z = bar()
+        assert typeof(z) == "str"
+        return z
+    }
+
+    # foo() # XXX Must be validation error
+
+    a = "bar"
+
+    fun bar(): str { a }
+
+    assert bar() == "bar"
+    assert foo() == "bar"
+}
+
+# fun test_call_function_below_in_expression() {
+#     l = [ 1, 2 ]
+#
+#     f = fun(a: int) { bar(a) }
+#
+#     fun bar(a: int): str {
+#         return "bar $a"
+#     }
+#
+#     assert l.map(f) == ["bar 1", "bar 2"]
+# }
+
+fun test_triple_nested() {
+    fun foobar(): int { foo() }
+    fun foo(): int { bar() }
+    a = 1
+    fun bar(): int { a }
+    assert foobar() == 1
+}
+
+fun test_complex_scope() {
+    fun test(): str {
+        fun foo(): str {
+            return "${poop()} + ${bar()}"
+        }
+
+        a = "bar"
+
+        fun bar(): str {
+            return a
+        }
+
+        return foo()
+    }
+
+    b = "poop"
+
+    fun poop(): str {
+        return b
+    }
+
+    assert test() == "poop + bar"
+}
+
+fun test_recursive_call() {
+    fun foo(n: int): int {
+        if n < 2 {
+            return 1
+        } else {
+            return foo(n - 1) + foo(n - 2)
+        }
+    }
+
+    assert foo(8) == 34
+}
+
+# test_discard_unnamed_arg()

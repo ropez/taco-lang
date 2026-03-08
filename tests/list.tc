@@ -11,7 +11,7 @@ fun test_simple_list() {
 }
 
 fun test_list_as_function_argument() {
-    fun show(items: [str]) { items }
+    fun show(items: [str]): [str] { items }
 
     assert show(["foo", "bar"]) == ["foo", "bar"]
 }
@@ -102,7 +102,7 @@ fun test_simple_map() {
         "banana"
     ]
 
-    fun quote(name: str) {
+    fun quote(name: str): str {
         "'$name'"
     }
 
@@ -117,7 +117,7 @@ fun test_map_as_tuple() {
         ("banana", 42)
     ]
 
-    fun quote(fruit: str, amount: int) {
+    fun quote(fruit: str, amount: int): str {
         "$amount ${fruit}s"
     }
 

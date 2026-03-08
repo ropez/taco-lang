@@ -451,7 +451,7 @@ impl fmt::Display for Tuple {
 pub struct ScriptFunction {
     pub(crate) function: Arc<FunctionType>,
     pub(crate) source: Arc<Function>,
-    captured_scope: Arc<Scope>, // XXX Kind-of circular
+    pub(crate) captured_scope: Arc<Scope>,
 }
 
 impl ScriptFunction {
@@ -465,9 +465,5 @@ impl ScriptFunction {
             source,
             captured_scope,
         }
-    }
-
-    pub(crate) fn clone_captured_scope(&self) -> Scope {
-        Scope::clone(&self.captured_scope)
     }
 }

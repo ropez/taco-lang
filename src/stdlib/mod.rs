@@ -4,10 +4,10 @@ use async_lock::Mutex;
 
 use crate::Builder;
 
+pub(crate) mod bitflags;
 pub(crate) mod fallible;
 pub(crate) mod list;
 pub(crate) mod math;
-pub(crate) mod bitflags;
 pub(crate) mod opt;
 pub(crate) mod panic;
 pub(crate) mod parse;

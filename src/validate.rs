@@ -1,4 +1,10 @@
-use std::{collections::HashMap, fmt::Display, sync::Arc};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt::{self, Display},
+    sync::Arc,
+};
+
+use async_lock::{Mutex, RwLock};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
@@ -10,7 +16,7 @@ use crate::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, Literal, MatchArm,
         MatchPattern, Statement,
     },
-    script_type::{FunctionType, ScriptType, TupleItemType, TupleType},
+    script_type::{FunctionType, ScriptFunction, ScriptType, TupleItemType, TupleType},
     stdlib::{self, parse::ParseFunc},
     type_scope::{TypeDefinition, TypeScope, eval_params, eval_type_expr},
 };
@@ -27,18 +33,40 @@ impl Display for Src<Vec<ArgumentExpressionType>> {
     }
 }
 
-#[derive(Clone)]
-struct Scope {
+pub(crate) struct Scope {
     locals: HashMap<Ident, ScriptType>,
+
+    // Special case for functions declared in the current scope.
+    //
+    // In order to call a function 'b' from inside a function 'a', if 'a' is declared before 'b' in
+    // the block, we need to "update" the scope of 'a', so that it contains 'b' with fully
+    // evaluated scope when 'a' is called. This is solved by having this map shared between all
+    // functions in the current scope.
+    local_functions: Arc<RwLock<HashMap<Ident, ScriptFunction>>>,
+
     types: TypeScope,
     ret: Option<ScriptType>,
     arguments: TupleType,
+}
+
+// Override clone to exclude local_functions
+impl Clone for Scope {
+    fn clone(&self) -> Self {
+        Self {
+            locals: self.locals.clone(),
+            types: self.types.clone(),
+            ret: self.ret.clone(),
+            arguments: self.arguments.clone(),
+            local_functions: Default::default(),
+        }
+    }
 }
 
 impl Scope {
     fn new(types: HashMap<Ident, TypeDefinition>, globals: HashMap<Ident, ScriptType>) -> Self {
         Self {
             locals: globals,
+            local_functions: Default::default(),
             types: TypeScope::new(types),
             ret: None,
             arguments: TupleType::identity(),
@@ -62,6 +90,33 @@ impl Scope {
         if name.as_str() != "_" {
             self.locals.insert(name, value);
         }
+    }
+
+    fn get_local_functions(&self) -> Vec<ScriptFunction> {
+        let handle = self.local_functions.read_blocking();
+        handle.values().cloned().collect()
+    }
+
+    fn track_local_function(&self, name: impl Into<Ident>, fun: ScriptFunction) {
+        let mut handle = self.local_functions.write_blocking();
+
+        handle.insert(name.into(), fun);
+    }
+
+    fn capture(&self) -> Scope {
+        Self {
+            locals: self.locals.clone(),
+            types: self.types.clone(),
+            local_functions: self.local_functions.clone(),
+            arguments: Default::default(),
+            ret: None,
+        }
+    }
+}
+
+impl fmt::Debug for Scope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Scope").finish()
     }
 }
 
@@ -102,6 +157,13 @@ pub struct Validator {
     types: HashMap<Ident, TypeDefinition>,
     globals: HashMap<Ident, ScriptType>,
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
+
+    // Keep track of which function bodies have been visited (evaluated).
+    // This is needed to be able to lazily evaluate functions when first called, while making sure
+    // we don't recursively evaluate recursive/cyclic call chains.
+    //
+    // It contains raw pointers to parsed functions.
+    visited_blocks: Mutex<HashSet<*const Function>>,
 }
 
 impl Validator {
@@ -159,9 +221,14 @@ impl Validator {
                     self.eval_assignment(assignee, &typ, &mut scope)?;
                 }
                 Statement::Function { name, fun } => {
-                    let fun = self.eval_function(fun, &scope)?;
+                    let function = ScriptFunction {
+                        function: self.eval_function_signature(fun, &scope)?,
+                        source: Arc::clone(fun),
+                        captured_scope: Arc::new(scope.capture()),
+                    };
 
-                    scope.set_local(name, ScriptType::Function(fun));
+                    scope.track_local_function(name, function.clone());
+                    scope.set_local(name, ScriptType::ScriptFunction(function));
                 }
                 Statement::Rec(rec) => {
                     scope.types.eval_rec(rec)?;
@@ -327,6 +394,13 @@ impl Validator {
             }
         }
 
+        {
+            // Ensure all local functions are evaluated (even if never called)
+            for fun in &scope.get_local_functions() {
+                self.eval_function_body(fun)?;
+            }
+        }
+
         Ok(scope)
     }
 
@@ -485,7 +559,7 @@ impl Validator {
                 }
             }
             Expression::Function(fun) => {
-                let fun = self.eval_function(fun, scope)?;
+                let fun = self.eval_function_expr(fun, scope)?;
                 Ok(ScriptType::Function(fun))
             }
             Expression::LogicNot(expr) => {
@@ -676,7 +750,28 @@ impl Validator {
         .map_err(|err| err.at(expr.loc))
     }
 
-    fn eval_function(&self, fun: &Arc<Function>, scope: &Scope) -> TypeResult<Arc<FunctionType>> {
+    fn eval_function_signature(
+        &self,
+        fun: &Arc<Function>,
+        scope: &Scope,
+    ) -> TypeResult<Arc<FunctionType>> {
+        let params = eval_params(&fun.params, &scope.types)?;
+        let declared_type = fun
+            .type_expr
+            .as_ref()
+            .map(|expr| eval_type_expr(expr, &scope.types))
+            .transpose()?;
+
+        let ret = declared_type.unwrap_or(ScriptType::identity());
+
+        Ok(FunctionType::new(params, ret))
+    }
+
+    fn eval_function_expr(
+        &self,
+        fun: &Arc<Function>,
+        scope: &Scope,
+    ) -> TypeResult<Arc<FunctionType>> {
         let params = eval_params(&fun.params, &scope.types)?;
         let declared_type = fun
             .type_expr
@@ -718,6 +813,63 @@ impl Validator {
         };
 
         Ok(FunctionType::new(params, ret))
+    }
+
+    fn eval_function_body(&self, fun: &ScriptFunction) -> TypeResult<()> {
+        if self.check_and_set_visited(&fun.source) {
+            return Ok(());
+        }
+
+        let declared_type = ScriptType::clone(&fun.function.ret);
+
+        let mut inner = Scope::clone(&fun.captured_scope);
+        {
+            let functions = fun.captured_scope.local_functions.read_blocking();
+
+            for (name, f) in functions.iter() {
+                inner.set_local(name, ScriptType::ScriptFunction(f.clone()));
+            }
+        }
+        for arg in fun.function.params.items() {
+            if let Some(name) = &arg.name {
+                inner.set_local(name, arg.value.clone());
+            }
+        }
+        inner.arguments = fun.function.params.clone();
+        inner.ret = Some(declared_type.clone());
+        let inner = self.validate_block(&fun.source.body, inner.clone())?;
+        let found_ret_type = self.eval_return_type(&fun.source.body, &inner)?;
+        let found_type = found_ret_type
+            .as_ref()
+            .map(|r| ScriptType::clone(&r.typ))
+            .unwrap_or(ScriptType::identity());
+
+        if !declared_type.accepts(&found_type) {
+            let loc = fun.source.type_expr.as_ref().map(|t| t.loc);
+            if found_ret_type.is_some() {
+                return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
+                    expected: declared_type.clone(),
+                    actual: found_type,
+                })
+                .at(loc));
+            } else {
+                let loc = fun.source.type_expr.as_ref().map(|t| t.loc);
+                return Err(TypeError::new(TypeErrorKind::MissingReturnStatement).at(loc));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn check_and_set_visited(&self, source: &Arc<Function>) -> bool {
+        let ptr = Arc::as_ptr(source);
+        let mut visited = self.visited_blocks.lock_blocking();
+        if visited.contains(&ptr) {
+            true
+        } else {
+            visited.insert(ptr);
+            false
+        }
     }
 
     fn eval_return_type(&self, ast: &[Statement], scope: &Scope) -> TypeResult<Option<ReturnType>> {
@@ -814,6 +966,10 @@ impl Validator {
         scope: &Scope,
     ) -> TypeResult<ScriptType> {
         let subject = self.eval_expr(subject, scope)?;
+
+        if let ScriptType::ScriptFunction(f) = subject.as_ref() {
+            self.eval_function_body(f)?;
+        }
 
         if let ScriptType::NativeFunction(f) = subject.as_ref() {
             // XXX Support destructure
@@ -1265,6 +1421,10 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> TypeResult<HashMap<u
         (ScriptType::Function(formal), ScriptType::Function(actual)) => {
             found.extend(infer_tuple_types(&formal.params, &actual.params)?);
             found.extend(infer_types(&formal.ret, &actual.ret)?);
+        }
+        (ScriptType::Function(formal), ScriptType::ScriptFunction(actual)) => {
+            found.extend(infer_tuple_types(&formal.params, &actual.function.params)?);
+            found.extend(infer_types(&formal.ret, &actual.function.ret)?);
         }
         (ScriptType::Function(formal), ScriptType::NativeFunction(fun)) => {
             let arguments = TupleType::identity(); // How to get actual args here?

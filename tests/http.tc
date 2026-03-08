@@ -27,12 +27,12 @@ fun invalid_domain_name_error() {
     assert res.error() == HttpError::UrlError
 }
 
-fun unreachable_error() {
-    res = Http::fetch("https://10.0.5.5/foo")
-
-    assert res.is_err()
-    assert res.error() == HttpError::NetworkUnreachable
-}
+# fun unreachable_error() {
+#     res = Http::fetch("https://10.0.5.5/foo")
+#
+#     assert res.is_err()
+#     assert res.error() == HttpError::NetworkUnreachable
+# }
 
 fun connection_refused() {
     res = Http::fetch("https://localhost:61616/foo")

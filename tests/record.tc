@@ -72,7 +72,7 @@ fun test_apply_arguments_from_tuple() {
 fun test_as_function_arguments() {
     rec Person(name: str, age: int)
 
-    fun foo(arg: (name: str, age: int)) { arg.name }
+    fun foo(arg: (name: str, age: int)): str { arg.name }
 
     assert foo(Person("per", 42)) == "per"
     assert foo(Person(name: "per", age: 42)) == "per"
@@ -102,7 +102,7 @@ fun test_pass_record_as_function() {
 fun test_apply_params() {
     rec Foo(a: int, b: int, c: int, d: int)
 
-    fun dump(foo: Foo) {
+    fun dump(foo: Foo): (int, int, int, int) {
         (foo.a, foo.b, foo.c, foo.d)
     }
 

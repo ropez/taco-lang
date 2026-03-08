@@ -37,7 +37,7 @@ fun test_inner_tuple() {
 
     m = Message("foo", sender: ("per", 42))
 
-    fun n(m: Message) { m.sender.name }
+    fun n(m: Message): str { m.sender.name }
 
     assert n(m.with(sender: ("per", 42))) == "per"
     assert n(m.with(sender: (name: "per", age: 42))) == "per"

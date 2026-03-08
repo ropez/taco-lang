@@ -1,7 +1,6 @@
 
 fun test_simple_map() {
-    fun double(a: int) { a + a }
-    fun foo(a: str) { a }
+    fun double(a: int): int { a + a }
 
     result = [1, 2, 3].map(double)
 
@@ -9,7 +8,7 @@ fun test_simple_map() {
 }
 
 fun test_map_to_string() {
-    fun fmt(p: (a: int, b: int)) { "${p.a}x${p.b}" }
+    fun fmt(p: (a: int, b: int)): str { "${p.a}x${p.b}" }
 
     result = [(5, 2), (3, 1), (4, 6)].map(fmt)
 

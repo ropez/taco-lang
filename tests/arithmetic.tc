@@ -87,7 +87,7 @@ fun test_span_multiple_lines() {
 }
 
 fun test_negative_numbers() {
-    fun negate(i: int) { -i }
+    fun negate(i: int): int { -i }
 
     a = -42
     assert "${a}" == "-42"

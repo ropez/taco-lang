@@ -6,8 +6,9 @@ use crate::{
     fmt::fmt_tuple,
     ident::Ident,
     lexer::Src,
-    parser::{Literal, MatchPattern},
+    parser::{Function, Literal, MatchPattern},
     script_value::Tuple,
+    validate::Scope,
 };
 
 #[derive(Debug, Clone)]
@@ -30,6 +31,7 @@ pub enum ScriptType {
     },
     Function(Arc<FunctionType>),
 
+    ScriptFunction(ScriptFunction),
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
 
@@ -218,6 +220,7 @@ impl ScriptType {
         // XXX Too much cloning
         match &self {
             ScriptType::Function(fun) => Ok(fun.params.clone()),
+            ScriptType::ScriptFunction(fun) => Ok(fun.function.params.clone()),
             ScriptType::UnionVariant { params, .. } => Ok(params.clone()),
             ScriptType::NativeFunction(func) => func.arguments_type(given_args),
             ScriptType::NativeMethodBound(method, subject_typ) => {
@@ -230,6 +233,7 @@ impl ScriptType {
     pub fn as_callable_ret(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         match &self {
             ScriptType::Function(fun) => Ok(ScriptType::clone(&fun.ret)),
+            ScriptType::ScriptFunction(fun) => Ok(ScriptType::clone(&fun.function.ret)),
             ScriptType::UnionVariant { def, .. } => Ok(ScriptType::UnionInstance(Arc::clone(def))),
             ScriptType::NativeFunction(func) => func.return_type(arguments),
             ScriptType::NativeMethodBound(method, subject_typ) => {
@@ -287,6 +291,9 @@ impl fmt::Display for ScriptType {
             Self::Tuple(arguments) => write!(f, "{arguments}"),
             Self::RecInstance(rec) => write!(f, "{}{}", rec.name, rec.params),
             Self::Function(fun) => write!(f, "fun{}: {}", fun.params, fun.ret),
+            Self::ScriptFunction(fun) => {
+                write!(f, "fun{}: {}", fun.function.params, fun.function.ret)
+            }
             Self::Infer(n) => write!(f, "<{n}>"),
             Self::Unknown => write!(f, "{{unknown}}"),
             Self::Ext(e) => write!(f, "{{{}}}", e.name()),
@@ -488,4 +495,11 @@ impl fmt::Display for TupleType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_tuple(f, self.0.iter().map(|a| (a.name.clone(), &a.value)))
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct ScriptFunction {
+    pub(crate) function: Arc<FunctionType>,
+    pub(crate) source: Arc<Function>,
+    pub(crate) captured_scope: Arc<Scope>,
 }
