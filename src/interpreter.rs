@@ -595,6 +595,23 @@ impl Interpreter {
                         Fallible::Ok(inner) => ScriptValue::clone(&inner),
                         Fallible::Err(err) => Err(ScriptError::error(*err))?,
                     },
+                    ScriptValue::List(list) => {
+                        let fallible_items = list
+                            .items()
+                            .iter()
+                            .map(|i| Ok(Fallible::clone(i.as_fallible()?)))
+                            .collect::<ScriptResult<Vec<_>>>()?;
+
+                        let items = fallible_items
+                            .into_iter()
+                            .map(|i| match i {
+                                Fallible::Ok(v) => Ok(*v),
+                                Fallible::Err(e) => Err(ScriptError::error(*e)),
+                            })
+                            .collect::<ScriptResult<Vec<_>>>()?;
+
+                        ScriptValue::List(Arc::new(List::new(items)))
+                    }
                     _ => return Err(ScriptError::panic("Invalid question operator").at(expr.loc)),
                 }
             }

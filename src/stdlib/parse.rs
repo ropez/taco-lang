@@ -130,6 +130,7 @@ impl NativeFunction for ParseIntFunc {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
+        // TODO Fallible
         Ok(ScriptType::Int)
     }
 }

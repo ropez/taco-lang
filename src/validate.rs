@@ -1401,6 +1401,30 @@ fn eval_question(expr_type: ScriptType, scope: &Scope) -> TypeResult<ScriptType>
                 Err(TypeError::new(TypeErrorKind::TryNotAllowed))
             }
         }
+        ScriptType::List(ref item_type) => match item_type.as_ref() {
+            ScriptType::Opt(inner) => {
+                if let Some(ScriptType::Opt(_)) = &scope.ret {
+                    Ok(ScriptType::List(inner.clone()))
+                } else {
+                    Err(TypeError::new(TypeErrorKind::TryNotAllowed))
+                }
+            }
+            ScriptType::Fallible(inner_value, inner_error) => {
+                if let Some(ScriptType::Fallible(_, exp)) = &scope.ret {
+                    if exp.accepts(inner_error) {
+                        Ok(ScriptType::List(inner_value.clone()))
+                    } else {
+                        Err(TypeError::expected_type(
+                            ScriptType::clone(exp),
+                            ScriptType::clone(inner_error),
+                        ))?
+                    }
+                } else {
+                    Err(TypeError::new(TypeErrorKind::TryNotAllowed))
+                }
+            }
+            _ => Err(TypeError::new(TypeErrorKind::InvalidQuestion(expr_type))),
+        },
         _ => Err(TypeError::new(TypeErrorKind::InvalidQuestion(expr_type))),
     }
 }

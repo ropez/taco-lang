@@ -80,3 +80,28 @@ fun test_pattern_matching() {
     assert apply_match(test(true)) == "OK: success"
     assert apply_match(test(false)) == "ERR: error"
 }
+
+fun test_fallible_lambda() {
+    # Workaround for int::parse not being fallible
+    rec Num(int)
+
+    fun parse_input(input: [str]): [int] ~ str {
+        numbers = input.map(fun(n): int ~ str {
+            (n) = Num::parse(n)?
+            return n
+        })?
+
+        return numbers
+    }
+
+    assert parse_input(["1", "2", "3"]).is_ok()
+    assert parse_input(["1", "2", "3"]).value() == [1, 2, 3]
+
+    assert parse_input(["1", "2", "x", "4"]).is_err()
+
+    # Currently the map function is called for the final "4".
+    # This is unexpected, because the operation failed on the "x",
+    # and the result will be discarded. To resolve this, the
+    # entire expression must be evaluated lazily, so that we can
+    # short circuit on errors.
+}

@@ -318,7 +318,6 @@ fn parse_tagged_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptVal
             })
         }
         JsonValue::Object(o) => {
-            // Externally tagged
             if o.len() != 1 {
                 parse_bail!("Expected exactly one variant for: {}", def.name);
             }
