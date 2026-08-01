@@ -121,24 +121,11 @@ impl TryFrom<&ScriptValue> for JsonValue {
                 JsonValue::Array(items)
             }
             ScriptValue::Union { def, index, value } => {
-                // TODO Need something like ArgsIterator for attributes!
-                let json_arg = def.attrs.iter().find(|a| a.name.as_str() == "json");
-                let untagged = json_arg.iter().any(|a| {
-                    a.args.iter().any(|t| {
-                        t.items()
-                            .iter()
-                            .any(|v| v.value == ScriptValue::string("untagged"))
-                    })
-                });
-
                 let variant = &def.variants[*index];
-                match &variant.params {
-                    None => JsonValue::String(variant.name.to_string()),
-                    Some(params) => {
-                        if untagged {
-                            serialize_record_values(params, value)?
-                        } else {
-                            // Externally tagged
+                match UnionRepr::from(def) {
+                    UnionRepr::Tagged => match &variant.params {
+                        None => JsonValue::String(variant.name.to_string()),
+                        Some(params) => {
                             let mut map: HashMap<String, JsonValue> = HashMap::new();
                             map.insert(
                                 variant.name.to_string(),
@@ -146,7 +133,11 @@ impl TryFrom<&ScriptValue> for JsonValue {
                             );
                             JsonValue::Object(map)
                         }
-                    }
+                    },
+                    UnionRepr::Untagged => match &variant.params {
+                        None => JsonValue::Null,
+                        Some(params) => serialize_record_values(params, value)?,
+                    },
                 }
             }
             ScriptValue::Opt(o) => match o {
@@ -204,13 +195,19 @@ fn serialize_record_values(params: &TupleType, value: &Tuple) -> ScriptResult<Js
 }
 
 fn serialize_array_tuple(value: &Tuple) -> ScriptResult<JsonValue> {
-    let mut list = Vec::new();
+    if value.items().len() == 1 {
+        // Can we actually do this for recs in general, or only of untagged unions?
+        let val = value.single()?;
+        JsonValue::try_from(val)
+    } else {
+        let mut list = Vec::new();
 
-    for item in value.items().iter() {
-        list.push(JsonValue::try_from(&item.value)?);
+        for item in value.items().iter() {
+            list.push(JsonValue::try_from(&item.value)?);
+        }
+
+        Ok(JsonValue::Array(list))
     }
-
-    Ok(JsonValue::Array(list))
 }
 
 fn parse_typed_tuple(params: &TupleType, val: &JsonValue) -> Result<Tuple, ParseError> {
@@ -219,7 +216,13 @@ fn parse_typed_tuple(params: &TupleType, val: &JsonValue) -> Result<Tuple, Parse
         .iter()
         .all(|i| matches!(get_json_name(i), Ok(None)))
     {
-        parse_array_tuple(params, val)
+        if params.items().len() == 1 {
+            let p = params.single().unwrap();
+            let v = from_json_value(p, val)?;
+            Ok(Tuple::new(vec![TupleItem::unnamed(v)]))
+        } else {
+            parse_array_tuple(params, val)
+        }
     } else {
         let obj: &HashMap<_, _> = val
             .get()
@@ -263,57 +266,30 @@ fn parse_array_tuple(params: &TupleType, val: &JsonValue) -> Result<Tuple, Parse
 }
 
 fn parse_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, ParseError> {
-    // TODO Need something like ArgsIterator for attributes!
-    let json_arg = def.attrs.iter().find(|a| a.name.as_str() == "json");
-    let untagged = json_arg.iter().any(|a| {
-        a.args.iter().any(|t| {
-            t.items()
-                .iter()
-                .any(|v| v.value == ScriptValue::string("untagged"))
-        })
-    });
-
-    if untagged {
-        parse_untagged_union(def, val)
-    } else {
-        parse_tagged_union(def, val)
+    match UnionRepr::from(def) {
+        UnionRepr::Tagged => parse_tagged_union(def, val),
+        UnionRepr::Untagged => parse_untagged_union(def, val),
     }
 }
 
 fn parse_untagged_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, ParseError> {
     for (i, var) in def.variants.iter().enumerate() {
-        match val {
-            JsonValue::Array(_) | JsonValue::Object(_) => {
-                if let Some(params) = &var.params {
-                    let t = parse_typed_tuple(params, val);
-                    if let Ok(t) = t {
-                        return Ok(ScriptValue::Union {
-                            def: Arc::clone(def),
-                            index: i,
-                            value: Arc::new(t),
-                        });
-                    }
-                }
+        if let Some(params) = &var.params {
+            if let Ok(t) = parse_typed_tuple(params, val) {
+                return Ok(ScriptValue::Union {
+                    def: Arc::clone(def),
+                    index: i,
+                    value: Arc::new(t),
+                });
             }
-
-            // TODO Support other types if params is singular
-
-            JsonValue::Null => {
-                // null matches empty variants (e.g. Rust None variant of Option)
-                // TODO Validate that each variant has different type when using untagged
-                if var.params.is_none() {
-                    return Ok(ScriptValue::Union {
-                        def: Arc::clone(def),
-                        index: i,
-                        value: Arc::new(Tuple::identity()),
-                    });
-                }
-            }
-
-            _ => parse_bail!(
-                "Can't parse {} as union variant",
-                val.stringify().unwrap_or_default()
-            ),
+        } else if val.is_null() {
+            // null matches empty variants (e.g. Rust None variant of Option)
+            // TODO Validate that each variant has different type when using untagged
+            return Ok(ScriptValue::Union {
+                def: Arc::clone(def),
+                index: i,
+                value: Arc::new(Tuple::identity()),
+            });
         }
     }
 
@@ -392,5 +368,37 @@ fn get_json_name(expr: &TupleItemType) -> ScriptResult<Option<String>> {
         }
     } else {
         Ok(default_name)
+    }
+}
+
+enum UnionRepr {
+    Tagged,
+    Untagged,
+    // TODO (Rust)
+    // InternallyTagged(tag)
+    // AdjacentlyTagged(tag, content)
+}
+
+impl UnionRepr {
+    fn from(def: &UnionType) -> Self {
+        // TODO Need something like ArgsIterator for attributes!
+        let untagged = def
+            .attrs
+            .iter()
+            .find(|a| a.name.as_str() == "json")
+            .iter()
+            .any(|a| {
+                a.args.iter().any(|t| {
+                    t.items()
+                        .iter()
+                        .any(|v| v.name.is_none() && v.value == ScriptValue::string("untagged"))
+                })
+            });
+
+        if untagged {
+            Self::Untagged
+        } else {
+            Self::Tagged
+        }
     }
 }

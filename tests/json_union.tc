@@ -102,9 +102,33 @@ fun test_json_union_untagged() {
     json_data = json(original)
     println(json_data) # Can't assert because unpredictable attribute ordering
 
-    assert json_data == """[[[192,168,125,100],["fx03....ff"]]]"""
+    assert json_data == """[[192,168,125,100],"fx03....ff"]"""
 
     parsed = IPList::parse(json_data)!
+
+    assert parsed == original
+}
+
+fun test_json_union_untagged_single() {
+    union Option {
+        None
+        Some(str)
+    } @json("untagged")
+
+    # Workaround for not having ::parse on list yet
+    rec Options([Option])
+
+    original = Options([
+        Option::None
+        Option::Some("foo")
+    ])
+
+    json_data = json(original)
+    println(json_data) # Can't assert because unpredictable attribute ordering
+
+    assert json_data == """[null,"foo"]"""
+
+    parsed = Options::parse(json_data)!
 
     assert parsed == original
 }
