@@ -7,7 +7,7 @@ use crate::{
     error::{ScriptError, ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
-    script_type::{RecType, ScriptType, TupleItemType, TupleType},
+    script_type::{RecType, ScriptType, TupleItemType, TupleType, UnionType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseError},
 };
@@ -38,24 +38,21 @@ impl NativeFunction for JsonFunc {
     }
 }
 
+macro_rules! parse_error {
+    ($($arg:tt)*) => {{
+        ParseError::new(format!($($arg)*))
+    }};
+}
+
+macro_rules! parse_bail {
+    ($($arg:tt)*) => {{
+        return Err(parse_error!($($arg)*));
+    }};
+}
+
 pub(crate) fn parse_json(rec: &RecType, input: &str) -> Result<Tuple, ParseError> {
     let json: JsonValue = input.parse().map_err(ParseError::new)?;
-    let obj: &HashMap<_, _> = json
-        .get()
-        .ok_or_else(|| ParseError::new("Expected a JSON object"))?;
-    let mut values = Vec::new();
-    for (i, d) in rec.params.items().iter().enumerate() {
-        let name = get_json_name(i, d).map_err(|_| ParseError::new("Invalid JSON attribute"))?;
-        let val = obj
-            .get(name.as_str())
-            .ok_or_else(|| ParseError::new(format!("Attribute '{name}' not found")))?;
-        values.push(TupleItem::new(
-            d.name.clone(),
-            from_json_value(&d.value, val)?,
-        ));
-    }
-
-    Ok(Tuple::new(values))
+    parse_typed_tuple(&rec.params, &json)
 }
 
 pub(crate) fn from_json_value(
@@ -66,25 +63,23 @@ pub(crate) fn from_json_value(
         ScriptType::Int => {
             let n: &f64 = val
                 .get()
-                .ok_or_else(|| ParseError::new(format!("Expected number, found {val:?}")))?;
+                .ok_or_else(|| parse_error!("Expected number, found {val:?}"))?;
             ScriptValue::Int(*n as i64)
         }
         ScriptType::Bool => {
             let n: &bool = val
                 .get()
-                .ok_or_else(|| ParseError::new(format!("Expected number, found {val:?}")))?;
+                .ok_or_else(|| parse_error!("Expected number, found {val:?}"))?;
             ScriptValue::Boolean(*n)
         }
         ScriptType::Str => {
-            let s: &String = val
-                .get()
-                .ok_or_else(|| ParseError::new("Expected string"))?;
+            let s: &String = val.get().ok_or_else(|| parse_error!("Expected string"))?;
             ScriptValue::string(s.clone())
         }
         ScriptType::List(inner) => {
             let val: &Vec<_> = val
                 .get()
-                .ok_or_else(|| ParseError::new(format!("Expected array, found {val:?}")))?;
+                .ok_or_else(|| parse_error!("Expected array, found {val:?}"))?;
             let items = val
                 .iter()
                 .map(|v| from_json_value(inner, v))
@@ -93,46 +88,14 @@ pub(crate) fn from_json_value(
             ScriptValue::List(Arc::new(list))
         }
         ScriptType::RecInstance(rec) => {
-            let obj: &HashMap<_, _> = val
-                .get()
-                .ok_or_else(|| ParseError::new("Expected a JSON object"))?;
-            let mut values = Vec::new();
-            for (i, d) in rec.params.items().iter().enumerate() {
-                let name =
-                    get_json_name(i, d).map_err(|_| ParseError::new("Invalid JSON attribute"))?;
-                let val = obj
-                    .get(name.as_str())
-                    .ok_or_else(|| ParseError::new(format!("Attribute '{name}' not found")))?;
-                values.push(TupleItem::new(
-                    d.name.clone(),
-                    from_json_value(&d.value, val)?,
-                ));
-            }
+            let tuple = parse_typed_tuple(&rec.params, val)?;
 
             ScriptValue::Rec {
                 def: Arc::clone(rec),
-                value: Arc::new(Tuple::new(values)),
+                value: Arc::new(tuple),
             }
         }
-        ScriptType::UnionInstance(e) => {
-            let s: &String = val
-                .get()
-                .ok_or_else(|| ParseError::new("Expected string"))?;
-
-            let (i, var) = e
-                .find_variant(&s.as_str().into())
-                .ok_or_else(|| ParseError::new("Variant not found"))?;
-
-            if var.params.is_some() {
-                Err(ParseError::new("Don't know how to parse union with params"))?;
-            }
-
-            ScriptValue::Union {
-                def: Arc::clone(e),
-                index: i,
-                value: Arc::new(Tuple::identity()),
-            }
-        }
+        ScriptType::UnionInstance(e) => parse_union(e, val)?,
         o => todo!("Don't know how to parse {o:?}"),
     };
 
@@ -147,8 +110,8 @@ impl TryFrom<&ScriptValue> for JsonValue {
             ScriptValue::Boolean(b) => JsonValue::Boolean(*b),
             ScriptValue::Int(n) => JsonValue::Number(*n as f64),
             ScriptValue::String { content, .. } => JsonValue::String(content.to_string()),
-            ScriptValue::Tuple(value) => JsonValue::try_from(value.as_ref())?,
-            ScriptValue::Rec { def, value } => JsonValue::Object(transform_record(def, value)?),
+            ScriptValue::Tuple(value) => serialize_tuple_values(value)?,
+            ScriptValue::Rec { def, value } => serialize_record_values(&def.params, value)?,
             ScriptValue::List(l) => {
                 let items: Vec<_> = l.items().iter().map(JsonValue::try_from).collect::<Result<
                     Vec<_>,
@@ -158,12 +121,24 @@ impl TryFrom<&ScriptValue> for JsonValue {
                 JsonValue::Array(items)
             }
             ScriptValue::Union { def, index, value } => {
-                if value.is_empty() {
-                    JsonValue::String(def.variants[*index].name.to_string())
-                } else {
-                    unimplemented!("Serialize union with values");
+                let variant = &def.variants[*index];
+                match &variant.params {
+                    None => JsonValue::String(variant.name.to_string()),
+                    Some(params) => {
+                        // Externally tagged
+                        let mut map: HashMap<String, JsonValue> = HashMap::new();
+                        map.insert(
+                            variant.name.to_string(),
+                            serialize_record_values(params, value)?,
+                        );
+                        JsonValue::Object(map)
+                    }
                 }
             }
+            ScriptValue::Opt(o) => match o {
+                None => JsonValue::Null,
+                Some(v) => JsonValue::try_from(v.as_ref())?,
+            },
 
             _ => {
                 return Err(ScriptError::panic(format!(
@@ -176,15 +151,100 @@ impl TryFrom<&ScriptValue> for JsonValue {
     }
 }
 
-fn transform_record(def: &RecType, value: &Tuple) -> ScriptResult<HashMap<String, JsonValue>> {
+fn serialize_tuple_values(value: &Tuple) -> ScriptResult<JsonValue> {
+    let mut map = HashMap::new();
+
+    for (i, item) in value.items().iter().enumerate() {
+        let name = item
+            .name
+            .as_ref()
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| i.to_string());
+        map.insert(name, JsonValue::try_from(&item.value)?);
+    }
+
+    Ok(JsonValue::Object(map))
+}
+
+fn serialize_record_values(params: &TupleType, value: &Tuple) -> ScriptResult<JsonValue> {
     let mut items = HashMap::new();
 
-    for (i, (item, d)) in value.items().iter().zip(def.params.items()).enumerate() {
+    for (i, (item, d)) in value.items().iter().zip(params.items()).enumerate() {
         let name = get_json_name(i, d)?;
         items.insert(name, JsonValue::try_from(&item.value)?);
     }
 
-    Ok(items)
+    Ok(JsonValue::Object(items))
+}
+
+fn parse_typed_tuple(params: &TupleType, val: &JsonValue) -> Result<Tuple, ParseError> {
+    let obj: &HashMap<_, _> = val
+        .get()
+        .ok_or_else(|| parse_error!("Expected a JSON object"))?;
+
+    let mut values = Vec::new();
+    for (i, d) in params.items().iter().enumerate() {
+        let name = get_json_name(i, d).map_err(|_| parse_error!("Invalid JSON attribute"))?;
+        let val = obj
+            .get(name.as_str())
+            .ok_or_else(|| parse_error!("Attribute '{name}' not found"))?;
+        values.push(TupleItem::new(
+            d.name.clone(),
+            from_json_value(&d.value, val)?,
+        ));
+    }
+
+    Ok(Tuple::new(values))
+}
+
+fn parse_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, ParseError> {
+    match val {
+        JsonValue::String(s) => {
+            let Some((i, var)) = def.find_variant(&s.as_str().into()) else {
+                parse_bail!("Variant not found");
+            };
+
+            if var.params.is_some() {
+                parse_bail!("Missing values for variant: {}", s);
+            }
+
+            Ok(ScriptValue::Union {
+                def: Arc::clone(def),
+                index: i,
+                value: Arc::new(Tuple::identity()),
+            })
+        }
+        JsonValue::Object(o) => {
+            // Externally tagged
+            if o.len() != 1 {
+                parse_bail!("Expected exactly one variant for: {}", def.name);
+            }
+
+            let Some((name, value)) = o.iter().next() else {
+                parse_bail!("Expected variant name");
+            };
+
+            let Some((i, var)) = def.find_variant(&name.as_str().into()) else {
+                parse_bail!("Variant not found: {}", name);
+            };
+
+            match &var.params {
+                None => {
+                    parse_bail!("Unexpected values for variant: {}", name);
+                }
+                Some(params) => {
+                    let tuple = parse_typed_tuple(params, value)?;
+
+                    Ok(ScriptValue::Union {
+                        def: Arc::clone(def),
+                        index: i,
+                        value: Arc::new(tuple),
+                    })
+                }
+            }
+        }
+        _ => parse_bail!("Unexpected value for union"),
+    }
 }
 
 fn get_json_name(i: usize, expr: &TupleItemType) -> ScriptResult<String> {
@@ -209,24 +269,5 @@ fn get_json_name(i: usize, expr: &TupleItemType) -> ScriptResult<String> {
         }
     } else {
         Ok(default_name)
-    }
-}
-
-impl TryFrom<&Tuple> for JsonValue {
-    type Error = ScriptError;
-
-    fn try_from(value: &Tuple) -> Result<Self, Self::Error> {
-        let mut map = HashMap::new();
-
-        for (i, item) in value.items().iter().enumerate() {
-            let key = item
-                .name
-                .as_ref()
-                .map(|n| n.to_string())
-                .unwrap_or_else(|| i.to_string());
-            map.insert(key, JsonValue::try_from(&item.value)?);
-        }
-
-        Ok(JsonValue::Object(map))
     }
 }

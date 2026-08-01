@@ -1,0 +1,87 @@
+rec Param (
+    name: str
+    value: str
+)
+
+fun test_union_without_values() {
+    union Position {
+        Goalie
+        Defender
+        Midfielder
+        Attacker
+    }
+
+    assert json([Position::Goalie, Position::Attacker]) == """["Goalie","Attacker"]"""
+
+    # Workaround for not having ::parse on list/union
+    rec Box([Position])
+    json_data = json(Box([Position::Goalie, Position::Attacker]))
+
+    (parsed) = Box::parse(json_data)!
+    assert parsed == [Position::Goalie, Position::Attacker]
+}
+
+fun test_json_union_default() {
+    union Message {
+        Request ( id: str, method: str, params: [Param] )
+        Response ( id: str, result: str )
+    }
+
+    # Workaround for not having ::parse on union yet
+    rec Context(Message)
+
+    original = Context (
+        Message::Request (
+            id: "..."
+            method: "GET"
+            params: []
+        )
+    )
+
+    json_data = json(original)
+    println(json_data) # Can't assert because unpredictable attribute ordering
+
+    parsed = Context::parse(json_data)!
+
+    assert parsed == original
+    assert "$parsed" == "Context(Request(id: ..., method: GET, params: []))"
+}
+
+fun test_mixed_with_and_without_params() {
+    union Country {
+        Spain
+        France
+        Italy
+    }
+
+    union City {
+        Paris
+        London
+        Madrid
+    }
+
+    union VacationPlan {
+        StayAtHome
+        TravelTo(Country, City)
+    }
+
+    # Workaround for not having ::parse on list/union
+    rec Plans([VacationPlan])
+
+    original = Plans([
+        VacationPlan::StayAtHome
+        VacationPlan::TravelTo(Country::France, City::Paris)
+    ])
+
+    json_data = json(original)
+
+    # Should serialize to:
+    # {"0":["StayAtHome",{"TravelTo":{"0":"France","1":"Paris"}}]}
+    # Can't assert because unpredictable attribute ordering
+    println(json_data)
+
+    parsed = Plans::parse(json_data)!
+
+    assert parsed == original
+}
+
