@@ -5,6 +5,31 @@ fun test_simple_serialization() {
     assert json(Foo(13)) == """{"x":13}"""
 }
 
+fun test_unnamed_values() {
+    rec IPv4(int, int, int, int)
+
+    orig = IPv4(192, 168, 125, 100)
+
+    json_data = json(orig)
+    assert json_data == """[192,168,125,100]"""
+
+    parsed = IPv4::parse(json_data)!
+    assert parsed == orig
+}
+
+fun test_mixed_values() {
+    rec Coord(int, int, unit: str)
+
+    orig = Coord(100, 200, unit: "meter")
+
+    json_data = json(orig)
+    assert json_data.contains(""""0":100""")
+    assert json_data.contains(""""1":200""")
+
+    parsed = Coord::parse(json_data)!
+    assert parsed == orig
+}
+
 fun test_serialization_with_attrs() {
     rec Foo(
         x: int @json(name: "taco")

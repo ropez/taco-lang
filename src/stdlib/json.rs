@@ -121,17 +121,31 @@ impl TryFrom<&ScriptValue> for JsonValue {
                 JsonValue::Array(items)
             }
             ScriptValue::Union { def, index, value } => {
+                // TODO Need something like ArgsIterator for attributes!
+                let json_arg = def.attrs.iter().find(|a| a.name.as_str() == "json");
+                let untagged = json_arg.iter().any(|a| {
+                    a.args.iter().any(|t| {
+                        t.items()
+                            .iter()
+                            .any(|v| v.value == ScriptValue::string("untagged"))
+                    })
+                });
+
                 let variant = &def.variants[*index];
                 match &variant.params {
                     None => JsonValue::String(variant.name.to_string()),
                     Some(params) => {
-                        // Externally tagged
-                        let mut map: HashMap<String, JsonValue> = HashMap::new();
-                        map.insert(
-                            variant.name.to_string(),
-                            serialize_record_values(params, value)?,
-                        );
-                        JsonValue::Object(map)
+                        if untagged {
+                            serialize_record_values(params, value)?
+                        } else {
+                            // Externally tagged
+                            let mut map: HashMap<String, JsonValue> = HashMap::new();
+                            map.insert(
+                                variant.name.to_string(),
+                                serialize_record_values(params, value)?,
+                            );
+                            JsonValue::Object(map)
+                        }
                     }
                 }
             }
@@ -152,52 +166,165 @@ impl TryFrom<&ScriptValue> for JsonValue {
 }
 
 fn serialize_tuple_values(value: &Tuple) -> ScriptResult<JsonValue> {
-    let mut map = HashMap::new();
+    if value.items().iter().all(|i| i.name.is_none()) {
+        serialize_array_tuple(value)
+    } else {
+        let mut map = HashMap::new();
 
-    for (i, item) in value.items().iter().enumerate() {
-        let name = item
-            .name
-            .as_ref()
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| i.to_string());
-        map.insert(name, JsonValue::try_from(&item.value)?);
+        for (i, item) in value.items().iter().enumerate() {
+            let name = item
+                .name
+                .as_ref()
+                .map(|n| n.to_string())
+                .unwrap_or_else(|| i.to_string());
+            map.insert(name, JsonValue::try_from(&item.value)?);
+        }
+
+        Ok(JsonValue::Object(map))
     }
-
-    Ok(JsonValue::Object(map))
 }
 
 fn serialize_record_values(params: &TupleType, value: &Tuple) -> ScriptResult<JsonValue> {
-    let mut items = HashMap::new();
+    if params
+        .items()
+        .iter()
+        .all(|i| matches!(get_json_name(i), Ok(None)))
+    {
+        serialize_array_tuple(value)
+    } else {
+        let mut items = HashMap::new();
 
-    for (i, (item, d)) in value.items().iter().zip(params.items()).enumerate() {
-        let name = get_json_name(i, d)?;
-        items.insert(name, JsonValue::try_from(&item.value)?);
+        for (i, (item, d)) in value.items().iter().zip(params.items()).enumerate() {
+            let name = get_json_name(d)?.unwrap_or_else(|| i.to_string());
+            items.insert(name, JsonValue::try_from(&item.value)?);
+        }
+
+        Ok(JsonValue::Object(items))
+    }
+}
+
+fn serialize_array_tuple(value: &Tuple) -> ScriptResult<JsonValue> {
+    let mut list = Vec::new();
+
+    for item in value.items().iter() {
+        list.push(JsonValue::try_from(&item.value)?);
     }
 
-    Ok(JsonValue::Object(items))
+    Ok(JsonValue::Array(list))
 }
 
 fn parse_typed_tuple(params: &TupleType, val: &JsonValue) -> Result<Tuple, ParseError> {
-    let obj: &HashMap<_, _> = val
+    if params
+        .items()
+        .iter()
+        .all(|i| matches!(get_json_name(i), Ok(None)))
+    {
+        parse_array_tuple(params, val)
+    } else {
+        let obj: &HashMap<_, _> = val
+            .get()
+            .ok_or_else(|| parse_error!("Expected a JSON object"))?;
+
+        let mut values = Vec::new();
+        for (i, d) in params.items().iter().enumerate() {
+            let name = get_json_name(d)
+                .map_err(|_| parse_error!("Invalid JSON attribute"))?
+                .unwrap_or_else(|| i.to_string());
+            let val = obj
+                .get(name.as_str())
+                .ok_or_else(|| parse_error!("Attribute '{name}' not found"))?;
+            values.push(TupleItem::new(
+                d.name.clone(),
+                from_json_value(&d.value, val)?,
+            ));
+        }
+
+        Ok(Tuple::new(values))
+    }
+}
+
+fn parse_array_tuple(params: &TupleType, val: &JsonValue) -> Result<Tuple, ParseError> {
+    let arr: &Vec<_> = val
         .get()
-        .ok_or_else(|| parse_error!("Expected a JSON object"))?;
+        .ok_or_else(|| parse_error!("Expected a JSON array"))?;
 
     let mut values = Vec::new();
+
+    // FIXME Assert length, and zip
+
     for (i, d) in params.items().iter().enumerate() {
-        let name = get_json_name(i, d).map_err(|_| parse_error!("Invalid JSON attribute"))?;
-        let val = obj
-            .get(name.as_str())
-            .ok_or_else(|| parse_error!("Attribute '{name}' not found"))?;
-        values.push(TupleItem::new(
-            d.name.clone(),
-            from_json_value(&d.value, val)?,
-        ));
+        let val = arr
+            .get(i)
+            .ok_or_else(|| parse_error!("Attribute '{i}' not found"))?;
+        values.push(TupleItem::unnamed(from_json_value(&d.value, val)?));
     }
 
     Ok(Tuple::new(values))
 }
 
 fn parse_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, ParseError> {
+    // TODO Need something like ArgsIterator for attributes!
+    let json_arg = def.attrs.iter().find(|a| a.name.as_str() == "json");
+    let untagged = json_arg.iter().any(|a| {
+        a.args.iter().any(|t| {
+            t.items()
+                .iter()
+                .any(|v| v.value == ScriptValue::string("untagged"))
+        })
+    });
+
+    if untagged {
+        parse_untagged_union(def, val)
+    } else {
+        parse_tagged_union(def, val)
+    }
+}
+
+fn parse_untagged_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, ParseError> {
+    for (i, var) in def.variants.iter().enumerate() {
+        match val {
+            JsonValue::Array(_) | JsonValue::Object(_) => {
+                if let Some(params) = &var.params {
+                    let t = parse_typed_tuple(params, val);
+                    if let Ok(t) = t {
+                        return Ok(ScriptValue::Union {
+                            def: Arc::clone(def),
+                            index: i,
+                            value: Arc::new(t),
+                        });
+                    }
+                }
+            }
+
+            // TODO Support other types if params is singular
+
+            JsonValue::Null => {
+                // null matches empty variants (e.g. Rust None variant of Option)
+                // TODO Validate that each variant has different type when using untagged
+                if var.params.is_none() {
+                    return Ok(ScriptValue::Union {
+                        def: Arc::clone(def),
+                        index: i,
+                        value: Arc::new(Tuple::identity()),
+                    });
+                }
+            }
+
+            _ => parse_bail!(
+                "Can't parse {} as union variant",
+                val.stringify().unwrap_or_default()
+            ),
+        }
+    }
+
+    parse_bail!(
+        "No matching variant found for {} in {}",
+        val.stringify().unwrap_or_default(),
+        def.name
+    );
+}
+
+fn parse_tagged_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, ParseError> {
     match val {
         JsonValue::String(s) => {
             let Some((i, var)) = def.find_variant(&s.as_str().into()) else {
@@ -247,12 +374,8 @@ fn parse_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, Par
     }
 }
 
-fn get_json_name(i: usize, expr: &TupleItemType) -> ScriptResult<String> {
-    let default_name = expr
-        .name
-        .as_ref()
-        .map(|n| n.to_string())
-        .unwrap_or_else(|| i.to_string());
+fn get_json_name(expr: &TupleItemType) -> ScriptResult<Option<String>> {
+    let default_name = expr.name.as_ref().map(|n| n.to_string());
     let json_attr = expr.attrs.iter().find(|it| it.name.as_str() == "json");
 
     if let Some(attr) = json_attr {
@@ -260,7 +383,7 @@ fn get_json_name(i: usize, expr: &TupleItemType) -> ScriptResult<String> {
             let mut args = args.iter_args();
             if let Some(f) = args.get("name") {
                 let s = f.as_string()?;
-                Ok(s.to_string())
+                Ok(Some(s.to_string()))
             } else {
                 Ok(default_name)
             }

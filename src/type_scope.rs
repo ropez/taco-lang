@@ -59,7 +59,7 @@ impl TypeScope {
     }
 
     pub(crate) fn eval_union(&mut self, def: &UnionExpression) -> TypeResult<()> {
-        let union_type = UnionType::new(
+        let union_type = UnionType::new_with_attrs(
             &def.name,
             def.variants
                 .iter()
@@ -72,6 +72,7 @@ impl TypeScope {
                     Ok(UnionVariantType::new(&v.name, params))
                 })
                 .collect::<TypeResult<Vec<UnionVariantType>>>()?,
+            eval_type_attrs(&def.attrs)?,
         );
 
         self.insert(&def.name, TypeDefinition::UnionDefinition(union_type));

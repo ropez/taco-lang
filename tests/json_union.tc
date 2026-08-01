@@ -85,3 +85,50 @@ fun test_mixed_with_and_without_params() {
     assert parsed == original
 }
 
+fun test_json_union_untagged() {
+    union IPAddr {
+        IPv4 ( int, int, int, int )
+        IPv6 ( str )
+    } @json("untagged")
+
+    # Workaround for not having ::parse on list yet
+    rec IPList([IPAddr])
+
+    original = IPList ([
+        IPAddr::IPv4 ( 192, 168, 125, 100 )
+        IPAddr::IPv6 ( "fx03....ff" )
+    ])
+
+    json_data = json(original)
+    println(json_data) # Can't assert because unpredictable attribute ordering
+
+    assert json_data == """[[[192,168,125,100],["fx03....ff"]]]"""
+
+    parsed = IPList::parse(json_data)!
+
+    assert parsed == original
+}
+
+fun test_json_union_untagged_named() {
+    union Color {
+        RGB ( r: int, g: int, b: int )
+        HSV ( h: int, s: int, v: int )
+    } @json("untagged")
+
+    # Workaround for not having ::parse on list yet
+    rec Colors([Color])
+
+    original = Colors([
+        Color::RGB ( r: 128, g: 128, b: 32 )
+        Color::HSV ( h: 64, s: 255, v: 128 )
+    ])
+
+    json_data = json(original)
+    println(json_data) # Can't assert because unpredictable attribute ordering
+
+    # assert json_data == """[[[192,168,125,100],["fx03....ff"]]]"""
+
+    parsed = Colors::parse(json_data)!
+
+    assert parsed == original
+}

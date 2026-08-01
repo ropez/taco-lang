@@ -203,6 +203,7 @@ pub struct Function {
 pub struct Record {
     pub(crate) name: Ident,
     pub(crate) params: Src<Vec<ParamExpression>>,
+    pub(crate) attrs: Vec<Src<AttributeExpression>>,
 }
 
 #[derive(Debug)]
@@ -222,6 +223,7 @@ pub struct AttributeExpression {
 pub struct UnionExpression {
     pub(crate) name: Ident,
     pub(crate) variants: Vec<VariantExpression>,
+    pub(crate) attrs: Vec<Src<AttributeExpression>>,
 }
 
 #[derive(Debug)]
@@ -502,18 +504,30 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::Rec)?;
                     let (name, _) = self.expect_ident()?;
                     let params = self.parse_params(false)?;
+
+                    let mut attrs = Vec::new();
+                    while let Some(attr) = self.try_parse_type_attr()? {
+                        attrs.push(attr);
+                    }
+
                     self.expect_end_of_line()?;
 
-                    let rec = Arc::new(Record { name, params });
+                    let rec = Arc::new(Record { name, params, attrs });
                     ast.push(Statement::Rec(rec));
                 }
                 TokenKind::Union => {
                     self.expect_kind(TokenKind::Union)?;
                     let (name, _) = self.expect_ident()?;
                     let variants = self.parse_variants()?;
+
+                    let mut attrs = Vec::new();
+                    while let Some(attr) = self.try_parse_type_attr()? {
+                        attrs.push(attr);
+                    }
+
                     self.expect_end_of_line()?;
 
-                    let rec = Arc::new(UnionExpression { name, variants });
+                    let rec = Arc::new(UnionExpression { name, variants, attrs });
                     ast.push(Statement::Union(rec));
                 }
 

@@ -333,6 +333,7 @@ impl RecType {
 pub struct UnionType {
     pub(crate) name: Ident,
     pub(crate) variants: Vec<UnionVariantType>,
+    pub(crate) attrs: Vec<TypeAttribute>,
 }
 
 impl UnionType {
@@ -340,6 +341,19 @@ impl UnionType {
         Arc::new(Self {
             name: name.into(),
             variants: variants.into(),
+            attrs: Vec::new(),
+        })
+    }
+
+    pub fn new_with_attrs(
+        name: impl Into<Ident>,
+        variants: impl Into<Vec<UnionVariantType>>,
+        attrs: Vec<TypeAttribute>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            name: name.into(),
+            variants: variants.into(),
+            attrs,
         })
     }
 
