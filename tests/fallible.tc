@@ -82,8 +82,8 @@ fun test_pattern_matching() {
 }
 
 fun test_fallible_lambda() {
-    fun parse_input(input: [str]): [int] ~ str {
-        numbers = input.map(fun(n): int ~ str {
+    fun parse_input(input: [str]): [int] ~ ParseError {
+        numbers = input.map(fun(n): int ~ ParseError {
             n = int::parse(n)?
             return n
         })?
