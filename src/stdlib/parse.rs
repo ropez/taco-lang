@@ -5,9 +5,10 @@ use crate::{
     error::{ScriptError, ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
-    script_type::{RecType, ScriptType, TupleType},
+    script_type::{ScriptType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib,
+    type_scope::TypeDefinition,
 };
 
 pub fn build(builder: &mut Builder) {
@@ -16,12 +17,12 @@ pub fn build(builder: &mut Builder) {
 }
 
 pub(crate) struct ParseFunc {
-    def: Arc<RecType>,
+    typedef: TypeDefinition,
 }
 
 impl ParseFunc {
-    pub(crate) fn new(def: Arc<RecType>) -> Self {
-        Self { def }
+    pub(crate) fn new(typedef: TypeDefinition) -> Self {
+        Self { typedef }
     }
 }
 
@@ -33,7 +34,11 @@ impl NativeFunction for ParseFunc {
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
         // XXX How to programmatically create a custom error type, or include Taco snippets in stdlib?
         let error_typ = ScriptType::Str;
-        let value_typ = ScriptType::RecInstance(Arc::clone(&self.def));
+
+        let value_typ = match &self.typedef {
+            TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
+            TypeDefinition::UnionDefinition(def) => ScriptType::UnionInstance(Arc::clone(def)),
+        };
 
         Ok(ScriptType::fallible_of(value_typ, error_typ))
     }
@@ -42,18 +47,14 @@ impl NativeFunction for ParseFunc {
         let (input, content_type) = arguments.single()?.as_string_and_type()?;
 
         let parse_result = match content_type {
-            ContentType::Undefined => parse_default(&self.def, &input),
+            ContentType::Undefined => parse_default(&self.typedef, &input),
 
             #[cfg(feature = "json")]
-            ContentType::Json => stdlib::json::parse_json(&self.def, &input),
+            ContentType::Json => stdlib::json::parse_json(&self.typedef, &input),
 
             #[allow(unreachable_patterns)]
             _ => Err(ScriptError::panic("Parser not found"))?,
         }
-        .map(|val| ScriptValue::Rec {
-            def: Arc::clone(&self.def),
-            value: Arc::new(val),
-        })
         .map_err(|err| ScriptValue::string(err.msg));
 
         Ok(parse_result.into())
@@ -78,31 +79,41 @@ impl fmt::Display for ParseError {
     }
 }
 
-fn parse_default(rec: &RecType, input: &str) -> Result<Tuple, ParseError> {
-    let mut values = Vec::new();
-    let mut tokens = input.split_ascii_whitespace();
-    for d in rec.params.items() {
-        values.push(TupleItem::new(
-            d.name.clone(),
-            match &d.value {
-                ScriptType::Int => ScriptValue::Int(
-                    tokens
-                        .next()
-                        .ok_or_else(|| ParseError::new("Expected token"))?
-                        .parse::<i64>()
-                        .map_err(ParseError::new)?,
-                ),
-                ScriptType::Str => ScriptValue::string(
-                    tokens
-                        .next()
-                        .ok_or_else(|| ParseError::new("Expected token"))?,
-                ),
-                o => Err(ParseError::new(format!("Don't know how to parse {o:?}")))?,
-            },
-        ));
-    }
+fn parse_default(typedef: &TypeDefinition, input: &str) -> Result<ScriptValue, ParseError> {
+    match typedef {
+        TypeDefinition::RecDefinition(def) => {
+            let mut values = Vec::new();
+            let mut tokens = input.split_ascii_whitespace();
+            for d in def.params.items() {
+                values.push(TupleItem::new(
+                    d.name.clone(),
+                    match &d.value {
+                        ScriptType::Int => ScriptValue::Int(
+                            tokens
+                                .next()
+                                .ok_or_else(|| ParseError::new("Expected token"))?
+                                .parse::<i64>()
+                                .map_err(ParseError::new)?,
+                        ),
+                        ScriptType::Str => ScriptValue::string(
+                            tokens
+                                .next()
+                                .ok_or_else(|| ParseError::new("Expected token"))?,
+                        ),
+                        o => Err(ParseError::new(format!("Don't know how to parse {o:?}")))?,
+                    },
+                ));
+            }
 
-    Ok(Tuple::new(values))
+            Ok(ScriptValue::Rec {
+                def: Arc::clone(def),
+                value: Arc::new(Tuple::new(values)),
+            })
+        }
+        TypeDefinition::UnionDefinition(_) => Err(ParseError::new(
+            "Default parser doesn't support union parsing",
+        )),
+    }
 }
 
 struct ParseIntFunc;

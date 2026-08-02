@@ -10,6 +10,7 @@ use crate::{
     script_type::{RecType, ScriptType, TupleItemType, TupleType, UnionType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseError},
+    type_scope::TypeDefinition,
 };
 
 pub fn build(builder: &mut Builder) {
@@ -50,9 +51,22 @@ macro_rules! parse_bail {
     }};
 }
 
-pub(crate) fn parse_json(rec: &RecType, input: &str) -> Result<Tuple, ParseError> {
-    let json: JsonValue = input.parse().map_err(ParseError::new)?;
-    parse_typed_tuple(&rec.params, &json)
+pub(crate) fn parse_json(typedef: &TypeDefinition, input: &str) -> Result<ScriptValue, ParseError> {
+    match typedef {
+        TypeDefinition::RecDefinition(def) => {
+            let json: JsonValue = input.parse().map_err(ParseError::new)?;
+            let values = parse_typed_tuple(&def.params, &json)?;
+
+            Ok(ScriptValue::Rec {
+                def: Arc::clone(def),
+                value: Arc::new(values),
+            })
+        }
+        TypeDefinition::UnionDefinition(def) => {
+            let json: JsonValue = input.parse().map_err(ParseError::new)?;
+            parse_union(def, &json)
+        }
+    }
 }
 
 pub(crate) fn from_json_value(

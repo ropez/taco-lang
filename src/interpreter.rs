@@ -439,33 +439,36 @@ impl Interpreter {
             }
             Expression::PrefixedName(prefix, name) => {
                 match scope.types.get(prefix) {
-                    Some(TypeDefinition::RecDefinition(v)) => match name.as_str() {
+                    Some(typedef) => match name.as_str() {
                         "parse" => {
-                            let func = ParseFunc::new(Arc::clone(v));
+                            let func = ParseFunc::new(TypeDefinition::clone(typedef));
                             ScriptValue::NativeFunction(NativeFunctionRef::from(func))
                         }
-                        _ => panic!("Unexpected expression {prefix}::{name}"),
-                    },
-                    Some(TypeDefinition::UnionDefinition(v)) => {
-                        if let Some((index, variant)) =
-                            v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
-                        {
-                            if variant.params.is_none() {
-                                ScriptValue::Union {
-                                    def: Arc::clone(v),
-                                    index,
-                                    value: Arc::new(Tuple::identity()),
+                        _ => {
+                            if let TypeDefinition::UnionDefinition(v) = typedef {
+                                if let Some((index, variant)) =
+                                    v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
+                                {
+                                    if variant.params.is_none() {
+                                        ScriptValue::Union {
+                                            def: Arc::clone(v),
+                                            index,
+                                            value: Arc::new(Tuple::identity()),
+                                        }
+                                    } else {
+                                        ScriptValue::UnionVariant {
+                                            def: Arc::clone(v),
+                                            index,
+                                        }
+                                    }
+                                } else {
+                                    panic!("Union variant not found: {name} in {prefix}");
                                 }
                             } else {
-                                ScriptValue::UnionVariant {
-                                    def: Arc::clone(v),
-                                    index,
-                                }
+                                panic!("Unexpected expression {prefix}::{name}")
                             }
-                        } else {
-                            panic!("Union variant not found: {name} in {prefix}");
                         }
-                    }
+                    },
                     _ => {
                         // XXX Little bit hackish to re-combine the full name like this
                         let full_ident = format!("{prefix}::{name}").into();

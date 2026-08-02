@@ -490,38 +490,42 @@ impl Validator {
                 }
             }
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
-                Some(TypeDefinition::RecDefinition(rec)) => {
-                    // TODO Associated methods like Record::foo()
+                Some(typedef) => {
+                    // TODO Support for defining associated methods like Record::foo()
                     match name.as_str() {
                         "parse" => {
                             // XXX Add to globals somehow
-                            let func =
-                                NativeFunctionRef::new(Arc::new(ParseFunc::new(Arc::clone(rec))));
+                            let func = NativeFunctionRef::new(Arc::new(ParseFunc::new(
+                                TypeDefinition::clone(typedef),
+                            )));
                             Ok(ScriptType::NativeFunction(func))
                         }
-                        _ => Err(TypeError::new(TypeErrorKind::UndefinedMethod {
-                            type_name: rec.name.clone(),
-                            method_name: name.clone(),
-                        })
-                        .at(expr.loc)),
-                    }
-                }
-                Some(TypeDefinition::UnionDefinition(def)) => {
-                    if let Some((_, var)) = def.find_variant(name) {
-                        if let Some(params) = &var.params {
-                            Ok(ScriptType::UnionVariant {
-                                def: Arc::clone(def),
-                                params: params.clone(),
-                            })
-                        } else {
-                            Ok(ScriptType::UnionInstance(Arc::clone(def)))
+                        _ => {
+                            if let TypeDefinition::UnionDefinition(def) = typedef {
+                                if let Some((_, var)) = def.find_variant(name) {
+                                    if let Some(params) = &var.params {
+                                        Ok(ScriptType::UnionVariant {
+                                            def: Arc::clone(def),
+                                            params: params.clone(),
+                                        })
+                                    } else {
+                                        Ok(ScriptType::UnionInstance(Arc::clone(def)))
+                                    }
+                                } else {
+                                    Err(TypeError::new(TypeErrorKind::UndefinedVariant {
+                                        type_name: def.name.clone(),
+                                        variant_name: name.clone(),
+                                    })
+                                    .at(expr.loc))
+                                }
+                            } else {
+                                Err(TypeError::new(TypeErrorKind::UndefinedMethod {
+                                    type_name: prefix.clone(),
+                                    method_name: name.clone(),
+                                })
+                                .at(expr.loc))
+                            }
                         }
-                    } else {
-                        Err(TypeError::new(TypeErrorKind::UndefinedVariant {
-                            type_name: def.name.clone(),
-                            variant_name: name.clone(),
-                        })
-                        .at(expr.loc))
                     }
                 }
                 None => {
@@ -669,11 +673,12 @@ impl Validator {
                 match inner_typ {
                     ScriptType::Opt(inner) => Ok(*inner),
                     ScriptType::Fallible(inner, _) => Ok(*inner),
-                    ScriptType::List(ref item_type) => match item_type.as_ref() {
-                        ScriptType::Opt(inner) => Ok(ScriptType::List(inner.clone())),
-                        ScriptType::Fallible(inner, _) => Ok(ScriptType::List(inner.clone())),
-                        _ => {
-                            Err(TypeError::new(TypeErrorKind::InvalidQuestion(inner_typ)).at(inner.loc))
+                    ScriptType::List(ref item_type) => {
+                        match item_type.as_ref() {
+                            ScriptType::Opt(inner) => Ok(ScriptType::List(inner.clone())),
+                            ScriptType::Fallible(inner, _) => Ok(ScriptType::List(inner.clone())),
+                            _ => Err(TypeError::new(TypeErrorKind::InvalidQuestion(inner_typ))
+                                .at(inner.loc)),
                         }
                     }
                     _ => {

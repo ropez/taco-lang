@@ -60,6 +60,17 @@ fun test_parse_json() {
     assert "$p" == "Point(a: 123, b: 456)"
 }
 
+fun test_parse_array() {
+    input = """[1, 2, 3]""".as_json()
+
+    # The way to parse a JSON array is to define a rec with a single list member
+    rec List([int])
+
+    (items) = List::parse(input)!
+
+    assert items == [1, 2, 3]
+}
+
 fun test_parse_json_with_attrs() {
     input = """{ "foo": 123, "bar": 456 }""".as_json()
 

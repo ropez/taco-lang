@@ -13,10 +13,10 @@ fun test_union_without_values() {
 
     assert json([Position::Goalie, Position::Attacker]) == """["Goalie","Attacker"]"""
 
-    # Workaround for not having ::parse on list/union
-    rec Box([Position])
-    json_data = json(Box([Position::Goalie, Position::Attacker]))
+    json_data = json([Position::Goalie, Position::Attacker])
 
+    # Workaround for not having ::parse on list
+    rec Box([Position])
     (parsed) = Box::parse(json_data)!
     assert parsed == [Position::Goalie, Position::Attacker]
 }
@@ -27,24 +27,19 @@ fun test_json_union_default() {
         Response ( id: str, result: str )
     }
 
-    # Workaround for not having ::parse on union yet
-    rec Context(Message)
-
-    original = Context (
-        Message::Request (
-            id: "..."
-            method: "GET"
-            params: []
-        )
+    original = Message::Request (
+        id: "..."
+        method: "GET"
+        params: []
     )
 
     json_data = json(original)
     println(json_data) # Can't assert because unpredictable attribute ordering
 
-    parsed = Context::parse(json_data)!
+    parsed = Message::parse(json_data)!
 
     assert parsed == original
-    assert "$parsed" == "Context(Request(id: ..., method: GET, params: []))"
+    assert "$parsed" == "Request(id: ..., method: GET, params: [])"
 }
 
 fun test_mixed_with_and_without_params() {
@@ -65,13 +60,10 @@ fun test_mixed_with_and_without_params() {
         TravelTo(Country, City)
     }
 
-    # Workaround for not having ::parse on list/union
-    rec Plans([VacationPlan])
-
-    original = Plans([
+    original = [
         VacationPlan::StayAtHome
         VacationPlan::TravelTo(Country::France, City::Paris)
-    ])
+    ]
 
     json_data = json(original)
 
@@ -80,7 +72,9 @@ fun test_mixed_with_and_without_params() {
     # Can't assert because unpredictable attribute ordering
     println(json_data)
 
-    parsed = Plans::parse(json_data)!
+    # Workaround for not having ::parse on list/union
+    rec Box([VacationPlan])
+    (parsed) = Box::parse(json_data)!
 
     assert parsed == original
 }
@@ -91,20 +85,19 @@ fun test_json_union_untagged() {
         IPv6 ( str )
     } @json("untagged")
 
-    # Workaround for not having ::parse on list yet
-    rec IPList([IPAddr])
-
-    original = IPList ([
+    original = [
         IPAddr::IPv4 ( 192, 168, 125, 100 )
         IPAddr::IPv6 ( "fx03....ff" )
-    ])
+    ]
 
     json_data = json(original)
     println(json_data) # Can't assert because unpredictable attribute ordering
 
     assert json_data == """[[192,168,125,100],"fx03....ff"]"""
 
-    parsed = IPList::parse(json_data)!
+    # Workaround for not having ::parse on list yet
+    rec Box([IPAddr])
+    (parsed) = Box::parse(json_data)!
 
     assert parsed == original
 }
@@ -115,22 +108,11 @@ fun test_json_union_untagged_single() {
         Some(str)
     } @json("untagged")
 
-    # Workaround for not having ::parse on list yet
-    rec Options([Option])
+    assert json([Option::None]) == "[null]"
+    assert json([Option::Some("foo")]) == """["foo"]"""
 
-    original = Options([
-        Option::None
-        Option::Some("foo")
-    ])
-
-    json_data = json(original)
-    println(json_data) # Can't assert because unpredictable attribute ordering
-
-    assert json_data == """[null,"foo"]"""
-
-    parsed = Options::parse(json_data)!
-
-    assert parsed == original
+    assert Option::parse("null".as_json())! == Option::None
+    assert Option::parse(""" "foo" """.as_json())! == Option::Some("foo")
 }
 
 fun test_json_union_untagged_named() {
@@ -139,20 +121,24 @@ fun test_json_union_untagged_named() {
         HSV ( h: int, s: int, v: int )
     } @json("untagged")
 
-    # Workaround for not having ::parse on list yet
-    rec Colors([Color])
+    input = """{"r": 64, "g": 128, "b": 192}""".as_json()
+    assert Color::parse(input)! == Color::RGB(r: 64, g: 128, b: 192)
 
-    original = Colors([
+    input = """{"h": 64, "s": 255, "v": 128}""".as_json()
+    assert Color::parse(input)! == Color::HSV ( h: 64, s: 255, v: 128 )
+
+    original = [
         Color::RGB ( r: 128, g: 128, b: 32 )
         Color::HSV ( h: 64, s: 255, v: 128 )
-    ])
+    ]
 
     json_data = json(original)
     println(json_data) # Can't assert because unpredictable attribute ordering
 
-    # assert json_data == """[[[192,168,125,100],["fx03....ff"]]]"""
-
-    parsed = Colors::parse(json_data)!
+    # Workaround for not having ::parse on list yet
+    rec Box([Color])
+    (parsed) = Box::parse(json_data)!
 
     assert parsed == original
+
 }
