@@ -3,39 +3,54 @@ use std::{fmt, num::ParseIntError, sync::Arc};
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    ext::NativeFunction,
+    ext::{NativeFunction, NativeTypeMethod},
     interpreter::Interpreter,
-    script_type::{ScriptType, TupleType},
+    script_type::{RecType, ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib,
     type_scope::TypeDefinition,
 };
 
 pub fn build(builder: &mut Builder) {
+    let parse_error = RecType::new(
+        "ParseError",
+        TupleType::new(vec![TupleItemType::named("message", ScriptType::Str)]),
+    );
+    builder.add_record("ParseError", Arc::clone(&parse_error));
+
     builder.add_function("int::parse", ParseIntFunc);
     builder.add_function("Range::parse", ParseRangeFunc);
+
+    builder.add_type_method("parse", ParseFunc { parse_error });
 }
 
 pub(crate) struct ParseFunc {
-    typedef: TypeDefinition,
+    parse_error: Arc<RecType>,
 }
 
 impl ParseFunc {
-    pub(crate) fn new(typedef: TypeDefinition) -> Self {
-        Self { typedef }
+    fn fail(&self, error: ParseError) -> ScriptError {
+        let err = ScriptValue::Rec {
+            def: self.parse_error.clone(),
+            value: Arc::new(Tuple::new(vec![TupleItem::named(
+                "message".into(),
+                ScriptValue::string(error.msg),
+            )])),
+        };
+
+        ScriptError::error(err)
     }
 }
 
-impl NativeFunction for ParseFunc {
-    fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
+impl NativeTypeMethod for ParseFunc {
+    fn arguments_type(&self, _: &TypeDefinition) -> TypeResult<TupleType> {
         Ok(TupleType::from_single(ScriptType::Str))
     }
 
-    fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        // XXX How to programmatically create a custom error type, or include Taco snippets in stdlib?
-        let error_typ = ScriptType::Str;
+    fn return_type(&self, typedef: &TypeDefinition, _: &TupleType) -> TypeResult<ScriptType> {
+        let error_typ = ScriptType::RecInstance(Arc::clone(&self.parse_error));
 
-        let value_typ = match &self.typedef {
+        let value_typ = match typedef {
             TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
             TypeDefinition::UnionDefinition(def) => ScriptType::UnionInstance(Arc::clone(def)),
         };
@@ -43,21 +58,26 @@ impl NativeFunction for ParseFunc {
         Ok(ScriptType::fallible_of(value_typ, error_typ))
     }
 
-    fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
+    fn call(
+        &self,
+        _: &Interpreter,
+        typedef: &TypeDefinition,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
         let (input, content_type) = arguments.single()?.as_string_and_type()?;
 
         let parse_result = match content_type {
-            ContentType::Undefined => parse_default(&self.typedef, &input),
+            ContentType::Undefined => parse_default(typedef, &input),
 
             #[cfg(feature = "json")]
-            ContentType::Json => stdlib::json::parse_json(&self.typedef, &input),
+            ContentType::Json => stdlib::json::parse_json(typedef, &input),
 
             #[allow(unreachable_patterns)]
             _ => Err(ScriptError::panic("Parser not found"))?,
         }
-        .map_err(|err| ScriptValue::string(err.msg));
+        .map_err(|err| self.fail(err))?;
 
-        Ok(parse_result.into())
+        Ok(ScriptValue::ok(parse_result))
     }
 }
 

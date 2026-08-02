@@ -2,13 +2,14 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     error::{ScriptError, ScriptResult},
-    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef},
+    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
     interpreter::Scope,
     parser::Function,
     script_type::{FunctionType, RecType, UnionType},
     stdlib::list::List,
+    type_scope::TypeDefinition,
 };
 
 #[derive(Debug, Clone)]
@@ -54,6 +55,7 @@ pub enum ScriptValue {
 
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
+    NativeTypeMethodBound(NativeTypeMethodRef, TypeDefinition),
 
     Ext(
         Arc<dyn ExternalType + Send + Sync>,
@@ -476,4 +478,3 @@ impl From<Result<ScriptValue, ScriptValue>> for ScriptValue {
         }
     }
 }
-

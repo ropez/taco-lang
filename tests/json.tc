@@ -95,4 +95,8 @@ fun test_parse_invalid_json_error() {
     assert res.is_err()
     assert res.error().is_some()
     assert res.value().is_none()
+
+    err = res.error()!
+    assert typeof(err) == "ParseError(message: str)"
+    assert err.message.contains("Invalid character")
 }

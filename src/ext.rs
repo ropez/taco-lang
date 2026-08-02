@@ -8,6 +8,7 @@ use crate::{
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
+    type_scope::TypeDefinition,
 };
 
 pub trait ExternalType {
@@ -96,6 +97,30 @@ pub trait NativeMethod {
     }
 }
 
+pub trait NativeTypeMethod {
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        typedef: &TypeDefinition,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue>;
+
+    fn arguments_type(&self, typedef: &TypeDefinition) -> TypeResult<TupleType> {
+        let _ = typedef;
+        Ok(TupleType::identity())
+    }
+
+    fn return_type(
+        &self,
+        typedef: &TypeDefinition,
+        arguments: &TupleType,
+    ) -> TypeResult<ScriptType> {
+        let _ = typedef;
+        let _ = arguments;
+        Ok(ScriptType::identity())
+    }
+}
+
 #[derive(Clone)]
 pub struct NativeFunctionRef(Arc<dyn NativeFunction + Send + Sync>);
 
@@ -167,6 +192,44 @@ impl fmt::Debug for NativeMethodRef {
 }
 
 impl PartialEq for NativeMethodRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeTypeMethodRef(Arc<dyn NativeTypeMethod + Send + Sync>);
+
+impl<T> From<T> for NativeTypeMethodRef
+where
+    T: NativeTypeMethod + Send + Sync + 'static,
+{
+    fn from(method: T) -> Self {
+        Self::new(Arc::new(method))
+    }
+}
+
+impl NativeTypeMethodRef {
+    pub(crate) fn new(inner: Arc<dyn NativeTypeMethod + Send + Sync>) -> Self {
+        Self(inner)
+    }
+}
+
+impl ops::Deref for NativeTypeMethodRef {
+    type Target = dyn NativeTypeMethod;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl fmt::Debug for NativeTypeMethodRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "[native type method]")
+    }
+}
+
+impl PartialEq for NativeTypeMethodRef {
     fn eq(&self, other: &Self) -> bool {
         Arc::ptr_eq(&self.0, &other.0)
     }

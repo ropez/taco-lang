@@ -2,12 +2,13 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    ext::{ExternalType, NativeFunctionRef, NativeMethodRef},
+    ext::{ExternalType, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
     fmt::fmt_tuple,
     ident::Ident,
     lexer::Src,
     parser::{Function, Literal, MatchPattern},
     script_value::Tuple,
+    type_scope::TypeDefinition,
     validate::Scope,
 };
 
@@ -34,6 +35,7 @@ pub enum ScriptType {
     ScriptFunction(ScriptFunction),
     NativeFunction(NativeFunctionRef),
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
+    NativeTypeMethodBound(NativeTypeMethodRef, TypeDefinition),
 
     // Special type used to represent an inferred inner type, e.g. state(x: ?): [?] is represented as
     // Function ( params: (Infer(1)), ret: List<Infer(1)> }
@@ -226,6 +228,7 @@ impl ScriptType {
             ScriptType::NativeMethodBound(method, subject_typ) => {
                 method.arguments_type(subject_typ)
             }
+            ScriptType::NativeTypeMethodBound(method, typedef) => method.arguments_type(typedef),
             _ => Err(TypeError::new(TypeErrorKind::InvalidCallable(self.clone()))),
         }
     }
@@ -238,6 +241,9 @@ impl ScriptType {
             ScriptType::NativeFunction(func) => func.return_type(arguments),
             ScriptType::NativeMethodBound(method, subject_typ) => {
                 method.return_type(subject_typ, arguments)
+            }
+            ScriptType::NativeTypeMethodBound(method, typedef) => {
+                method.return_type(typedef, arguments)
             }
             _ => Err(TypeError::new(TypeErrorKind::InvalidCallable(self.clone()))),
         }

@@ -2,12 +2,15 @@ use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
 
 use crate::{
     error::Error,
-    ext::{NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef},
+    ext::{
+        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, NativeTypeMethod,
+        NativeTypeMethodRef,
+    },
     ident::Ident,
     interpreter::Interpreter,
     output_adapter::OutputAdapter,
     parser::Parser,
-    script_type::{ScriptType, UnionType},
+    script_type::{RecType, ScriptType, UnionType},
     script_value::{ScriptValue, Tuple},
     type_scope::TypeDefinition,
     validate::Validator,
@@ -200,6 +203,7 @@ struct Builder {
     global_types: HashMap<Ident, ScriptType>,
     global_values: HashMap<Ident, ScriptValue>,
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
+    type_methods: HashMap<Ident, NativeTypeMethodRef>,
 
     // Global types (by name of type)
     types: HashMap<Ident, TypeDefinition>,
@@ -237,6 +241,19 @@ impl Builder {
             .insert((ns.into(), name.into()), NativeMethodRef::from(method));
     }
 
+    pub fn add_type_method<T>(&mut self, name: impl Into<Ident>, method: T)
+    where
+        T: NativeTypeMethod + Send + Sync + 'static,
+    {
+        self.type_methods
+            .insert(name.into(), NativeTypeMethodRef::from(method));
+    }
+
+    pub fn add_record(&mut self, name: impl Into<Ident>, def: Arc<RecType>) {
+        self.types
+            .insert(name.into(), TypeDefinition::RecDefinition(def));
+    }
+
     pub fn add_union(&mut self, name: impl Into<Ident>, def: Arc<UnionType>) {
         self.types
             .insert(name.into(), TypeDefinition::UnionDefinition(def));
@@ -247,6 +264,7 @@ impl Builder {
             .with_types(self.types.clone())
             .with_globals(self.global_types.clone())
             .with_methods(self.methods.clone())
+            .with_type_methods(self.type_methods.clone())
     }
 
     fn build_interpreter(&self) -> Interpreter {
@@ -254,5 +272,6 @@ impl Builder {
             .with_types(self.types.clone())
             .with_globals(self.global_values.clone())
             .with_methods(self.methods.clone())
+            .with_type_methods(self.type_methods.clone())
     }
 }

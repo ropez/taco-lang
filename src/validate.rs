@@ -8,7 +8,7 @@ use async_lock::{Mutex, RwLock};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    ext::{NativeFunctionRef, NativeMethodRef},
+    ext::{NativeMethodRef, NativeTypeMethodRef},
     fmt::fmt_tuple,
     ident::{Ident, global},
     lexer::{Loc, Src},
@@ -17,7 +17,7 @@ use crate::{
         MatchPattern, Statement,
     },
     script_type::{FunctionType, ScriptFunction, ScriptType, TupleItemType, TupleType},
-    stdlib::{self, parse::ParseFunc},
+    stdlib,
     type_scope::{TypeDefinition, TypeScope, eval_params, eval_type_expr},
 };
 
@@ -157,6 +157,7 @@ pub struct Validator {
     types: HashMap<Ident, TypeDefinition>,
     globals: HashMap<Ident, ScriptType>,
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
+    type_methods: HashMap<Ident, NativeTypeMethodRef>,
 
     // Keep track of which function bodies have been visited (evaluated).
     // This is needed to be able to lazily evaluate functions when first called, while making sure
@@ -190,6 +191,16 @@ impl Validator {
         methods.extend(more);
 
         Self { methods, ..self }
+    }
+
+    pub(crate) fn with_type_methods(self, more: HashMap<Ident, NativeTypeMethodRef>) -> Self {
+        let mut type_methods = self.type_methods;
+        type_methods.extend(more);
+
+        Self {
+            type_methods,
+            ..self
+        }
     }
 
     fn get_method(&self, subject: &ScriptType, name: &Ident) -> Option<NativeMethodRef> {
@@ -492,39 +503,35 @@ impl Validator {
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
                 Some(typedef) => {
                     // TODO Support for defining associated methods like Record::foo()
-                    match name.as_str() {
-                        "parse" => {
-                            // XXX Add to globals somehow
-                            let func = NativeFunctionRef::new(Arc::new(ParseFunc::new(
-                                TypeDefinition::clone(typedef),
-                            )));
-                            Ok(ScriptType::NativeFunction(func))
-                        }
-                        _ => {
-                            if let TypeDefinition::UnionDefinition(def) = typedef {
-                                if let Some((_, var)) = def.find_variant(name) {
-                                    if let Some(params) = &var.params {
-                                        Ok(ScriptType::UnionVariant {
-                                            def: Arc::clone(def),
-                                            params: params.clone(),
-                                        })
-                                    } else {
-                                        Ok(ScriptType::UnionInstance(Arc::clone(def)))
-                                    }
-                                } else {
-                                    Err(TypeError::new(TypeErrorKind::UndefinedVariant {
-                                        type_name: def.name.clone(),
-                                        variant_name: name.clone(),
+                    if let Some(m) = self.type_methods.get(name) {
+                        Ok(ScriptType::NativeTypeMethodBound(
+                            m.clone(),
+                            TypeDefinition::clone(typedef),
+                        ))
+                    } else {
+                        if let TypeDefinition::UnionDefinition(def) = typedef {
+                            if let Some((_, var)) = def.find_variant(name) {
+                                if let Some(params) = &var.params {
+                                    Ok(ScriptType::UnionVariant {
+                                        def: Arc::clone(def),
+                                        params: params.clone(),
                                     })
-                                    .at(expr.loc))
+                                } else {
+                                    Ok(ScriptType::UnionInstance(Arc::clone(def)))
                                 }
                             } else {
-                                Err(TypeError::new(TypeErrorKind::UndefinedMethod {
-                                    type_name: prefix.clone(),
-                                    method_name: name.clone(),
+                                Err(TypeError::new(TypeErrorKind::UndefinedVariant {
+                                    type_name: def.name.clone(),
+                                    variant_name: name.clone(),
                                 })
                                 .at(expr.loc))
                             }
+                        } else {
+                            Err(TypeError::new(TypeErrorKind::UndefinedMethod {
+                                type_name: prefix.clone(),
+                                method_name: name.clone(),
+                            })
+                            .at(expr.loc))
                         }
                     }
                 }
@@ -1466,6 +1473,13 @@ fn infer_types(formal: &ScriptType, actual: &ScriptType) -> TypeResult<HashMap<u
             let arguments = TupleType::identity(); // How to get actual args here?
             found.extend(infer_types(&formal.ret, &fun.return_type(&arguments)?)?);
         }
+        (ScriptType::Function(formal), ScriptType::NativeTypeMethodBound(met, typedef)) => {
+            let arguments = TupleType::identity(); // How to get actual args here?
+            found.extend(infer_types(
+                &formal.ret,
+                &met.return_type(typedef, &arguments)?,
+            )?);
+        }
         (ScriptType::Function(formal), ScriptType::UnionVariant { def, .. }) => {
             found.extend(infer_types(
                 &formal.ret,
@@ -1547,6 +1561,16 @@ fn apply_inferred_types(
                 apply_inferred_types_tuple(&met.arguments_type(subj)?, found_types)?;
             let (ret, ret_complete) =
                 apply_inferred_types(&met.return_type(subj, &params)?, found_types)?;
+            (
+                ScriptType::Function(FunctionType::new(params, ret)),
+                params_complete && ret_complete,
+            )
+        }
+        ScriptType::NativeTypeMethodBound(met, typedef) => {
+            let (params, params_complete) =
+                apply_inferred_types_tuple(&met.arguments_type(typedef)?, found_types)?;
+            let (ret, ret_complete) =
+                apply_inferred_types(&met.return_type(typedef, &params)?, found_types)?;
             (
                 ScriptType::Function(FunctionType::new(params, ret)),
                 params_complete && ret_complete,

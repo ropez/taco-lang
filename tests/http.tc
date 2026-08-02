@@ -38,5 +38,8 @@ fun connection_refused() {
     res = Http::fetch("https://localhost:61616/foo")
 
     assert res.is_err()
-    assert res.error() == HttpError::ConnectionRefused
+
+    err = res.error()!
+    assert typeof(err) == "HttpError"
+    assert err == HttpError::ConnectionRefused
 }

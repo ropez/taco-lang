@@ -8,13 +8,13 @@ use async_lock::RwLock;
 
 use crate::{
     error::{ScriptError, ScriptErrorKind, ScriptResult},
-    ext::{NativeFunctionRef, NativeMethodRef},
+    ext::{NativeMethodRef, NativeTypeMethodRef},
     ident::{Ident, global},
     lexer::Src,
     parser::{Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, Statement},
     script_type::{ScriptType, TupleType},
     script_value::{Fallible, ScriptFunction, ScriptValue, Tuple, TupleItem},
-    stdlib::{list::List, parse::ParseFunc, pipe::exec_spawn},
+    stdlib::{list::List, pipe::exec_spawn},
     type_scope::{TypeDefinition, TypeScope, eval_function},
 };
 
@@ -108,6 +108,7 @@ pub struct Interpreter {
     globals: HashMap<Ident, ScriptValue>,
 
     methods: HashMap<(Ident, Ident), NativeMethodRef>,
+    type_methods: HashMap<Ident, NativeTypeMethodRef>,
 
     #[cfg(feature = "pipe")]
     pub(crate) tracker: Tracker,
@@ -137,6 +138,16 @@ impl Interpreter {
         methods.extend(more);
 
         Self { methods, ..self }
+    }
+
+    pub(crate) fn with_type_methods(self, more: HashMap<Ident, NativeTypeMethodRef>) -> Self {
+        let mut type_methods = self.type_methods;
+        type_methods.extend(more);
+
+        Self {
+            type_methods,
+            ..self
+        }
     }
 
     fn get_method(&self, subject: &ScriptValue, name: &Ident) -> Option<NativeMethodRef> {
@@ -439,12 +450,10 @@ impl Interpreter {
             }
             Expression::PrefixedName(prefix, name) => {
                 match scope.types.get(prefix) {
-                    Some(typedef) => match name.as_str() {
-                        "parse" => {
-                            let func = ParseFunc::new(TypeDefinition::clone(typedef));
-                            ScriptValue::NativeFunction(NativeFunctionRef::from(func))
-                        }
-                        _ => {
+                    Some(typedef) => {
+                        if let Some(method) = self.type_methods.get(name) {
+                            ScriptValue::NativeTypeMethodBound(method.clone(), typedef.clone())
+                        } else {
                             if let TypeDefinition::UnionDefinition(v) = typedef {
                                 if let Some((index, variant)) =
                                     v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
@@ -468,7 +477,7 @@ impl Interpreter {
                                 panic!("Unexpected expression {prefix}::{name}")
                             }
                         }
-                    },
+                    }
                     _ => {
                         // XXX Little bit hackish to re-combine the full name like this
                         let full_ident = format!("{prefix}::{name}").into();
@@ -862,6 +871,9 @@ impl Interpreter {
             ScriptValue::NativeFunction(func) => try_wrap_err(func.call(self, arguments))?,
             ScriptValue::NativeMethodBound(method, subject) => {
                 try_wrap_err(method.call(self, *subject, arguments))?
+            }
+            ScriptValue::NativeTypeMethodBound(method, typedef) => {
+                try_wrap_err(method.call(self, &typedef, arguments))?
             }
             _ => panic!("Expected a callable, got: {callable:?}"),
         };
