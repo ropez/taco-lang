@@ -82,12 +82,9 @@ fun test_pattern_matching() {
 }
 
 fun test_fallible_lambda() {
-    # Workaround for int::parse not being fallible
-    rec Num(int)
-
     fun parse_input(input: [str]): [int] ~ str {
         numbers = input.map(fun(n): int ~ str {
-            (n) = Num::parse(n)?
+            n = int::parse(n)?
             return n
         })?
 

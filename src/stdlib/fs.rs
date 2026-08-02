@@ -28,15 +28,16 @@ impl NativeFunction for ReadFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let name = arguments.single()?.as_string()?;
 
-        match fs::read_to_string(name.as_ref()) {
-            Ok(content) => Ok(ScriptValue::ok(ScriptValue::string(content))),
-            Err(err) => {
+        let read_res = fs::read_to_string(name.as_ref())
+            .map(ScriptValue::string)
+            .map_err(|err| {
                 let msg = match err.kind() {
                     ErrorKind::NotFound => "File not found",
                     _ => unimplemented!("Error: {err}"),
                 };
-                Ok(ScriptValue::err(ScriptValue::string(msg)))
-            }
-        }
+                ScriptValue::string(msg)
+            });
+
+        Ok(read_res.into())
     }
 }

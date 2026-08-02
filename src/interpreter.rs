@@ -629,7 +629,24 @@ impl Interpreter {
                         ))
                         .at(expr.loc))?,
                     },
-                    _ => Err(ScriptError::panic("Invalid question operator"))?,
+                    ScriptValue::List(list) => {
+                        let fallible_items = list
+                            .items()
+                            .iter()
+                            .map(|i| Ok(Fallible::clone(i.as_fallible()?)))
+                            .collect::<ScriptResult<Vec<_>>>()?;
+
+                        let items = fallible_items
+                            .into_iter()
+                            .map(|i| match i {
+                                Fallible::Ok(v) => Ok(*v),
+                                Fallible::Err(e) => Err(ScriptError::panic(*e)),
+                            })
+                            .collect::<ScriptResult<Vec<_>>>()?;
+
+                        ScriptValue::List(Arc::new(List::new(items)))
+                    }
+                    _ => Err(ScriptError::panic("Invalid unrwap operator"))?,
                 }
             }
             Expression::Coalesce(lhs, rhs) => {

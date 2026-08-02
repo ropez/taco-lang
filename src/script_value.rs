@@ -467,3 +467,13 @@ impl ScriptFunction {
         }
     }
 }
+
+impl From<Result<ScriptValue, ScriptValue>> for ScriptValue {
+    fn from(value: Result<ScriptValue, ScriptValue>) -> Self {
+        match value {
+            Ok(val) => ScriptValue::ok(val),
+            Err(err) => ScriptValue::err(err),
+        }
+    }
+}
+

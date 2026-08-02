@@ -669,6 +669,13 @@ impl Validator {
                 match inner_typ {
                     ScriptType::Opt(inner) => Ok(*inner),
                     ScriptType::Fallible(inner, _) => Ok(*inner),
+                    ScriptType::List(ref item_type) => match item_type.as_ref() {
+                        ScriptType::Opt(inner) => Ok(ScriptType::List(inner.clone())),
+                        ScriptType::Fallible(inner, _) => Ok(ScriptType::List(inner.clone())),
+                        _ => {
+                            Err(TypeError::new(TypeErrorKind::InvalidQuestion(inner_typ)).at(inner.loc))
+                        }
+                    }
                     _ => {
                         Err(TypeError::new(TypeErrorKind::InvalidQuestion(inner_typ)).at(inner.loc))
                     }

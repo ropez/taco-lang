@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, num::ParseIntError, sync::Arc};
 
 use crate::{
     Builder,
@@ -49,15 +49,14 @@ impl NativeFunction for ParseFunc {
 
             #[allow(unreachable_patterns)]
             _ => Err(ScriptError::panic("Parser not found"))?,
-        };
-
-        Ok(match parse_result {
-            Ok(val) => ScriptValue::ok(ScriptValue::Rec {
-                def: Arc::clone(&self.def),
-                value: Arc::new(val),
-            }),
-            Err(err) => ScriptValue::err(ScriptValue::string(err.msg)),
+        }
+        .map(|val| ScriptValue::Rec {
+            def: Arc::clone(&self.def),
+            value: Arc::new(val),
         })
+        .map_err(|err| ScriptValue::string(err.msg));
+
+        Ok(parse_result.into())
     }
 }
 
@@ -120,9 +119,12 @@ impl NativeFunction for ParseIntFunc {
             .transpose()?
             .unwrap_or(10);
         let base: u32 = base.try_into().map_err(ScriptError::panic)?;
-        let val = i64::from_str_radix(input.as_ref(), base)
-            .map_err(|err| ScriptError::panic(format!("{err}, input: '{input}'")))?;
-        Ok(ScriptValue::Int(val))
+
+        let res = i64::from_str_radix(input.as_ref(), base)
+            .map(ScriptValue::Int)
+            .map_err(|err| ScriptValue::string(format!("{err}, input: '{input}'")));
+
+        Ok(res.into())
     }
 
     fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
@@ -130,8 +132,11 @@ impl NativeFunction for ParseIntFunc {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        // TODO Fallible
-        Ok(ScriptType::Int)
+        // XXX Create a custom error type
+        let error_typ = ScriptType::Str;
+        let value_typ = ScriptType::Int;
+
+        Ok(ScriptType::fallible_of(value_typ, error_typ))
     }
 }
 
@@ -140,15 +145,23 @@ impl NativeFunction for ParseRangeFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let input = arguments.single()?.as_string()?;
 
-        if let Some(n) = input.find('-') {
-            let (l, r) = input.split_at(n);
-            let l = l.parse().map_err(ScriptError::panic)?;
-            let r = r[1..].parse().map_err(ScriptError::panic)?;
+        fn inner(input: &str) -> Result<ScriptValue, ScriptValue> {
+            if let Some(n) = input.find('-') {
+                let (l, r) = input.split_at(n);
+                let l = l
+                    .parse()
+                    .map_err(|err: ParseIntError| ScriptValue::string(err.to_string()))?;
+                let r = r[1..]
+                    .parse()
+                    .map_err(|err: ParseIntError| ScriptValue::string(err.to_string()))?;
 
-            Ok(ScriptValue::Range(l, r))
-        } else {
-            Err(ScriptError::panic("Parse error"))
+                Ok(ScriptValue::Range(l, r))
+            } else {
+                Err(ScriptValue::string("Parse error"))
+            }
         }
+
+        Ok(inner(input.as_ref()).into())
     }
 
     fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
@@ -156,6 +169,10 @@ impl NativeFunction for ParseRangeFunc {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        Ok(ScriptType::Range)
+        // XXX Create a custom error type
+        let error_typ = ScriptType::Str;
+        let value_typ = ScriptType::Range;
+
+        Ok(ScriptType::fallible_of(value_typ, error_typ))
     }
 }

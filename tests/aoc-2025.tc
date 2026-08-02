@@ -43,7 +43,7 @@ fun day1_secret_entrance() {
 fun day2_gift_shop() {
     sample = "11-22,95-115,998-1012,1188511880-1188511890,222220-222224,1698522-1698528,446443-446449,38593856-38593862,565653-565659,824824821-824824827,2121212118-2121212124"
 
-    inputs = sample.split(",").map(Range::parse)
+    inputs = sample.split(",").map(Range::parse)!
 
     fun is_invalid(id: int): bool {
         id_str = "$id"
@@ -94,7 +94,7 @@ fun day3_lobby() {
     "
 
     fun find_max_joltage(bank: str): int? {
-        nums = bank.trim().chars().map(int::parse)
+        nums = bank.trim().chars().map(int::parse)!
         msd = nums.take(nums.len() - 1).max()?
         msd_idx = nums.find_index(msd)?
         lsd = nums.skip(msd_idx + 1).max()?
@@ -253,8 +253,8 @@ fun day5_cafeteria() {
         (lhs, rhs) = split_blank(input.trim().lines())
 
         return (
-            lhs.map(Range::parse)
-            rhs.map(int::parse)
+            lhs.map(Range::parse)!
+            rhs.map(int::parse)!
         )
     }
 
@@ -308,9 +308,9 @@ fun day6_trash_compactor__zip4() {
     assert input.len() == 4
 
     input = List::zip(
-        input.at(0)!.map(int::parse)
-        input.at(1)!.map(int::parse)
-        input.at(2)!.map(int::parse)
+        input.at(0)!.map(int::parse)!
+        input.at(1)!.map(int::parse)!
+        input.at(2)!.map(int::parse)!
         input.at(3)!
     )
 
@@ -337,9 +337,9 @@ fun day6_trash_compactor__list_flip() {
 
     input = input.flip().map(fun(p) {
         (
-            int::parse(p.at(0)!)
-            int::parse(p.at(1)!)
-            int::parse(p.at(2)!)
+            int::parse(p.at(0)!)!
+            int::parse(p.at(1)!)!
+            int::parse(p.at(2)!)!
             p.at(3)!
         )
     })
