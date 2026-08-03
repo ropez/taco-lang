@@ -1,10 +1,10 @@
 use crate::{
     Builder,
-    error::{ScriptResult, TypeError, TypeResult},
+    error::{ScriptError, ScriptResult, TypeError, TypeResult},
     ext::{NativeFunction, NativeMethod},
     ident::global,
     interpreter::Interpreter,
-    script_type::{ScriptType, TupleType},
+    script_type::{FunctionType, ScriptType, TupleType},
     script_value::{Fallible, ScriptValue, Tuple},
 };
 
@@ -15,6 +15,7 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::FALLIBLE, "is_err", IsErrMethod);
     builder.add_method(global::FALLIBLE, "value", ValueMethod);
     builder.add_method(global::FALLIBLE, "error", ErrorMethod);
+    builder.add_method(global::FALLIBLE, "map_err", MapErrMethod);
 }
 
 struct OkFunction;
@@ -114,5 +115,43 @@ impl NativeMethod for ErrorMethod {
         };
 
         Ok(ScriptValue::opt(err))
+    }
+}
+
+struct MapErrMethod;
+impl NativeMethod for MapErrMethod {
+    fn arguments_type(&self, subject: &ScriptType) -> TypeResult<TupleType> {
+        let (_, inner) = subject.as_fallible()?;
+        Ok(TupleType::from_single(ScriptType::Function(
+            FunctionType::new(TupleType::from_single(inner.clone()), ScriptType::Infer(1)),
+        )))
+    }
+
+    fn return_type(&self, subject: &ScriptType, arguments: &TupleType) -> TypeResult<ScriptType> {
+        let (v, inner) = subject.as_fallible()?;
+        let arg = arguments.single()?;
+        let ret = arg.as_callable_ret(&TupleType::from_single(inner.clone()))?;
+
+        Ok(ScriptType::fallible_of(v.clone(), ret))
+    }
+
+    fn call(
+        &self,
+        interpreter: &Interpreter,
+        subject: ScriptValue,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
+        let callable = arguments
+            .iter_args()
+            .next_positional()
+            .ok_or_else(ScriptError::expected_argument)?;
+
+        let fallible = subject.as_fallible()?;
+        if let Fallible::Err(err) = fallible {
+            let value = interpreter.eval_callable(callable.clone(), &err.to_single_argument())?;
+            Ok(ScriptValue::err(value))
+        } else {
+            Ok(subject)
+        }
     }
 }
