@@ -427,43 +427,7 @@ impl<'a> Parser<'a> {
                     ast.push(Statement::Spawn { body: body.into() })
                 }
                 TokenKind::If => {
-                    self.expect_kind(TokenKind::If)?;
-                    if self.peek_is_assignee_followed_by_in() {
-                        let assignee = self.parse_assignee()?;
-                        self.expect_kind(TokenKind::In)?;
-
-                        let value = self.parse_expression(0)?;
-                        let body = self.parse_block(false)?;
-
-                        // XXX DRY
-                        let else_body = self
-                            .next_if_kind(&TokenKind::Else)
-                            .map(|_| self.parse_block(false))
-                            .transpose()?;
-
-                        self.expect_end_of_line()?;
-
-                        ast.push(Statement::IfIn {
-                            assignee,
-                            value,
-                            body,
-                            else_body,
-                        });
-                    } else {
-                        let cond = self.parse_expression(0)?;
-                        let body = self.parse_block(false)?;
-
-                        let else_body = self
-                            .next_if_kind(&TokenKind::Else)
-                            .map(|_| self.parse_block(false))
-                            .transpose()?;
-
-                        ast.push(Statement::Condition {
-                            cond,
-                            body,
-                            else_body,
-                        });
-                    }
+                    ast.push(self.parse_if_statement()?);
                 }
                 TokenKind::While => {
                     self.expect_kind(TokenKind::While)?;
@@ -517,7 +481,11 @@ impl<'a> Parser<'a> {
 
                     self.expect_end_of_line()?;
 
-                    let rec = Arc::new(Record { name, params, attrs });
+                    let rec = Arc::new(Record {
+                        name,
+                        params,
+                        attrs,
+                    });
                     ast.push(Statement::Rec(rec));
                 }
                 TokenKind::Union => {
@@ -532,7 +500,11 @@ impl<'a> Parser<'a> {
 
                     self.expect_end_of_line()?;
 
-                    let rec = Arc::new(UnionExpression { name, variants, attrs });
+                    let rec = Arc::new(UnionExpression {
+                        name,
+                        variants,
+                        attrs,
+                    });
                     ast.push(Statement::Union(rec));
                 }
 
@@ -648,6 +620,54 @@ impl<'a> Parser<'a> {
         };
 
         Ok(expr)
+    }
+
+    fn parse_if_statement(&mut self) -> Result<Statement> {
+        self.expect_kind(TokenKind::If)?;
+
+        if self.peek_is_assignee_followed_by_in() {
+            let assignee = self.parse_assignee()?;
+            self.expect_kind(TokenKind::In)?;
+
+            let value = self.parse_expression(0)?;
+            let body = self.parse_block(false)?;
+
+            let else_body = self.parse_else()?;
+
+            Ok(Statement::IfIn {
+                assignee,
+                value,
+                body,
+                else_body,
+            })
+        } else {
+            let cond = self.parse_expression(0)?;
+            let body = self.parse_block(false)?;
+
+            let else_body = self.parse_else()?;
+
+            Ok(Statement::Condition {
+                cond,
+                body,
+                else_body,
+            })
+        }
+    }
+
+    fn parse_else(&mut self) -> Result<Option<Vec<Statement>>> {
+        // parsing recursively:
+        // if {} else if { ... } else { ... } becomes
+        // if {} else { if { ... } else { ... } }
+
+        self.next_if_kind(&TokenKind::Else)
+            .map(|_| {
+                if let Some(TokenKind::If) = self.peek_kind() {
+                    Ok(vec![self.parse_if_statement()?])
+                } else {
+                    Ok(self.parse_block(false)?)
+                }
+            })
+            .transpose()
     }
 
     fn handle_identifier_expr(

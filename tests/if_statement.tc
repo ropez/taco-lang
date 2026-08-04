@@ -25,6 +25,22 @@ fun test_string_equals_arg() {
     assert test("foobar") == "not equal"
 }
 
+fun test_if_else_chain() {
+    fun test(arg: str): str {
+        if arg == "taco" {
+            return "ok"
+        } else if "nachos" == arg {
+            return "also ok"
+        } else {
+            return "nope"
+        }
+    }
+
+    assert test("taco") == "ok"
+    assert test("nachos") == "also ok"
+    assert test("foobar") == "nope"
+}
+
 fun test_function_returns_true() {
     fun foo(arg: str): bool {
         return arg == "taco"
