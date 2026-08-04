@@ -304,14 +304,11 @@ impl Interpreter {
                     body,
                     else_body,
                 } => {
-                    let val = self.eval_expr(cond, &scope)?;
-                    let ScriptValue::Boolean(val) = val else {
-                        panic!("Not a boolean");
-                    };
+                    let (val, inner_scope) = self.eval_condition_expr(cond, &scope)?;
 
                     let branch = if val { Some(body) } else { else_body.as_ref() };
                     if let Some(block) = branch {
-                        match self.execute_block(block, scope.clone())? {
+                        match self.execute_block(block, inner_scope)? {
                             Completion::ExplicitReturn(val) => {
                                 return Ok(Completion::ExplicitReturn(val));
                             }
@@ -325,14 +322,13 @@ impl Interpreter {
                     }
                 }
                 Statement::While { cond, body } => {
-                    while self.eval_expr(cond, &scope)?.as_boolean()? {
-                        let scope = scope.clone();
-                        match self.execute_block(body, scope)? {
+                    loop {
+                        let (val, inner_scope) = self.eval_condition_expr(cond, &scope)?;
+                        if !val { break }
+
+                        match self.execute_block(body, inner_scope)? {
                             Completion::ExplicitReturn(val) => {
                                 return Ok(Completion::ExplicitReturn(val));
-                            }
-                            Completion::ImpliedReturn(val) if ast.len() == 1 => {
-                                return Ok(Completion::ImpliedReturn(val));
                             }
                             Completion::Break => break,
                             _ => (),
@@ -360,9 +356,6 @@ impl Interpreter {
                     match self.execute_block(body, inner_scope)? {
                         Completion::ExplicitReturn(val) => {
                             return Ok(Completion::ExplicitReturn(val));
-                        }
-                        Completion::ImpliedReturn(val) if ast.len() == 1 => {
-                            return Ok(Completion::ImpliedReturn(val));
                         }
                         Completion::Break => break,
                         _ => (),
@@ -593,6 +586,14 @@ impl Interpreter {
             Expression::GreaterOrEqual(lhs, rhs) => {
                 self.eval_comparison(|a, b| a >= b, lhs, rhs, scope)?
             }
+            Expression::Matches(lhs, pattern) => {
+                let value = self.eval_expr(lhs, scope)?;
+                if let Some(locals) = self.eval_match_pattern(pattern, &value, scope)? {
+                    ScriptValue::Boolean(true)
+                } else {
+                    ScriptValue::Boolean(false)
+                }
+            },
             Expression::Try(inner) => {
                 let val = self.eval_expr(inner, scope)?;
                 match val {
@@ -688,6 +689,32 @@ impl Interpreter {
         Ok(value)
     }
 
+    // Evaluate the expression as a boolean, potentially binding locals to the inner scope
+    fn eval_condition_expr(
+        &self,
+        cond: &Src<Expression>,
+        scope: &Scope
+    ) -> ScriptResult<(bool, Scope)> {
+        let mut inner_scope = scope.clone();
+        let val = if let Expression::Matches(lhs, pattern) = cond.as_ref() {
+            let value = self.eval_expr(lhs, scope)?;
+            if let Some(locals) = self.eval_match_pattern(pattern, &value, scope)? {
+                inner_scope.locals.extend(locals);
+                true
+            } else {
+                false
+            }
+        } else {
+            let val = self.eval_expr(cond, scope)?;
+            let ScriptValue::Boolean(val) = val else {
+                panic!("Not a boolean");
+            };
+            val
+        };
+
+        Ok((val, inner_scope))
+    }
+
     fn eval_assert_expr(&self, expr: &Src<Expression>, scope: &Scope) -> ScriptResult<()> {
         match expr.as_ref() {
             Expression::Equal(lhs, rhs) => {
@@ -730,6 +757,17 @@ impl Interpreter {
             Expression::GreaterOrEqual(lhs, rhs) => self
                 .eval_assert_comparison(|a, b| a >= b, ">=", lhs, rhs, scope)
                 .map_err(|err| err.at(expr.loc)),
+            Expression::Matches(lhs, pattern) => {
+                let value = self.eval_expr(lhs, scope)?;
+                if self.eval_match_pattern(pattern, &value, scope)?.is_some() {
+                    Ok(())
+                } else {
+                    Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
+                        "\n        + {value} does not match the expected pattern"
+                    )))
+                    .at(expr.loc))
+                }
+            }
             _ => {
                 let val = self.eval_expr(expr, scope)?;
                 if val.as_boolean()? {

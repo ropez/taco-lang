@@ -96,3 +96,33 @@ fun test_pattern_matching_destructure_union() {
     assert test(VacationPlan::StayAtHome) == "staying home this year"
     assert test(VacationPlan::TravelTo(Country::France, City::Paris)) == "visiting Paris, France!"
 }
+
+fun test_pattern_matching_operator() {
+    assert int::parse("0") ~= Ok(_)
+    assert int::parse("x") ~= Err(_)
+}
+
+fun test_pattern_matching_operator_variable() {
+    # this is equivalent to:
+    #   match int::parse(42) {
+    #       Ok(v) { ... }
+    #       _ {}
+    #   }
+
+    if int::parse("42") ~= Ok(v) {
+        assert v == 42
+    }
+}
+
+fun test_pattern_matching_operator_variable_returned() {
+    fun foo(s: str): int {
+        if int::parse(s) ~= Ok(v) {
+            return v
+        } else {
+            return -1
+        }
+    }
+
+    assert foo("42") == 42
+    assert foo("xx") == -1
+}

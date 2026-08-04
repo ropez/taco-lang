@@ -100,6 +100,7 @@ pub enum TokenKind {
     GreaterThan,
     LessOrEqual,
     GreaterOrEqual,
+    Matches,
     Comma,
     Colon,
     DoubleColon,
@@ -209,7 +210,13 @@ impl<'a> Tokenizer<'a> {
                 '}' => Some(self.produce(TokenKind::RightBrace)),
                 '[' => Some(self.produce(TokenKind::LeftSquare)),
                 ']' => Some(self.produce(TokenKind::RightSquare)),
-                '~' => Some(self.produce(TokenKind::Tilde)),
+                '~' => {
+                    if self.take_if_eq('=') {
+                        Some(self.produce(TokenKind::Matches))
+                    } else {
+                        Some(self.produce(TokenKind::Tilde))
+                    }
+                }
                 '?' => {
                     if self.take_if_eq('?') {
                         Some(self.produce(TokenKind::Coalesce))

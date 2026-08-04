@@ -95,6 +95,7 @@ pub enum Expression {
     GreaterThan(Box<Src<Expression>>, Box<Src<Expression>>),
     LessOrEqual(Box<Src<Expression>>, Box<Src<Expression>>),
     GreaterOrEqual(Box<Src<Expression>>, Box<Src<Expression>>),
+    Matches(Box<Src<Expression>>, Box<Src<MatchPattern>>),
     Range(Box<Src<Expression>>, Box<Src<Expression>>),
     Negate(Box<Src<Expression>>),
     Addition(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -290,6 +291,10 @@ pub struct Parser<'a> {
 
 mod constants {
     pub(crate) const BP_PIPE: u32 = 1;
+
+    // Low value disallows `if foo() && parse() ~= Ok(v)`
+    pub(crate) const BP_MATCHES: u32 = 4;
+
     pub(crate) const BP_LOGIC_OR: u32 = 7;
     pub(crate) const BP_LOGIC_AND: u32 = 8;
     pub(crate) const BP_EQUAL: u32 = 9;
@@ -721,6 +726,17 @@ impl<'a> Parser<'a> {
                 (_, TokenKind::Modulo) => {
                     self.parse_binary_expr(lhs, Expression::Modulo, BP_DIV, bp)?
                 }
+                (_, TokenKind::Matches) => {
+                    if bp > BP_MATCHES {
+                        lhs
+                    } else {
+                        self.expect_token()?;
+                        let pattern = self.parse_match_pattern()?;
+                        let loc = wrap_locations(lhs.loc, pattern.loc);
+                        let expr = Src::new(Expression::Matches(lhs.into(), pattern.into()), loc);
+                        self.parse_continuation(expr, bp)?
+                    }
+                }
                 (_, TokenKind::Dot) => {
                     if bp >= BP_ACCESS {
                         lhs
@@ -985,7 +1001,7 @@ impl<'a> Parser<'a> {
                     Src::new(MatchPattern::Variant(None, ident, None), loc)
                 }
             }
-            _ => todo!("Invalid pattern"),
+            _ => todo!("Invalid pattern: {token:?}"),
         };
         Ok(pattern)
     }

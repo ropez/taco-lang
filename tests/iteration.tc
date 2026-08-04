@@ -43,6 +43,24 @@ fun test_break_from_range() {
     assert s.get() == 10
 }
 
+fun test_while_with_single_expression() {
+    s = State(0)
+
+    # using a function call as an expression with side-effect
+    fun foo(): int {
+        s.set(s.get() + 1)
+        return s.get()
+    }
+
+    if true {
+        while s.get() < 5 {
+            foo()
+        }
+    }
+
+    assert s.get() == 5
+}
+
 fun test_while_in() {
     s = State(3)
     fun test(): int? {
@@ -52,6 +70,24 @@ fun test_while_in() {
     }
 
     while x in test() {
+        println("$x")
+        s.update(fun(v) { v - 1 })
+    }
+
+    assert s.get() == 0
+}
+
+fun test_while_matches() {
+    s = State(3)
+    fun test(): int ~ str {
+        if s.get() > 0 {
+            return Ok(s.get())
+        } else {
+            return Err("eof")
+        }
+    }
+
+    while test() ~= Ok(x) {
         println("$x")
         s.update(fun(v) { v - 1 })
     }

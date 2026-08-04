@@ -128,7 +128,24 @@ fun test_merge_error_types() {
         return v
     }
 
-    assert process_input("").is_err()
-    assert process_input("-2").error()! == ProcessError::Logic(LogicError::Negative)
-    assert process_input("1").is_ok()
+    fun try_it(input: str): str {
+        match process_input(input) {
+            Ok(s) { "success" }
+            Err(e) {
+                match e {
+                    ::Parse(_) { "parse error" }
+                    ::Logic(_) { "logic error" }
+                }
+            }
+        }
+    }
+
+    assert try_it("xx") == "parse error"
+    assert try_it("-2") == "logic error"
+    assert try_it("10") == "success"
+
+    # Need to support nested unions in pattern matching
+    assert process_input("xx") ~= Err(_)
+    assert process_input("-2") ~= Err(_)
+    assert process_input("10") ~= Ok(_)
 }

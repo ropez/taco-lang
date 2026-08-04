@@ -45,7 +45,7 @@ pub(crate) struct Scope {
     local_functions: Arc<RwLock<HashMap<Ident, ScriptFunction>>>,
 
     types: TypeScope,
-    ret: Option<ScriptType>,
+    allowed_return_type: Option<ScriptType>,
     arguments: TupleType,
 }
 
@@ -55,7 +55,7 @@ impl Clone for Scope {
         Self {
             locals: self.locals.clone(),
             types: self.types.clone(),
-            ret: self.ret.clone(),
+            allowed_return_type: self.allowed_return_type.clone(),
             arguments: self.arguments.clone(),
             local_functions: Default::default(),
         }
@@ -68,7 +68,7 @@ impl Scope {
             locals: globals,
             local_functions: Default::default(),
             types: TypeScope::new(types),
-            ret: None,
+            allowed_return_type: None,
             arguments: TupleType::identity(),
         }
     }
@@ -109,7 +109,7 @@ impl Scope {
             types: self.types.clone(),
             local_functions: self.local_functions.clone(),
             arguments: Default::default(),
-            ret: None,
+            allowed_return_type: None,
         }
     }
 }
@@ -224,195 +224,218 @@ impl Validator {
         Ok(())
     }
 
-    fn validate_block(&self, ast: &[Statement], mut scope: Scope) -> TypeResult<Scope> {
+    fn validate_block(
+        &self,
+        ast: &[Statement],
+        mut scope: Scope,
+    ) -> TypeResult<(Scope, Option<ReturnType>)> {
+        let mut last_return = None;
         for node in ast {
-            match node {
-                Statement::Assignment { assignee, value } => {
-                    let typ = self.validate_expr(value, &scope)?;
-                    self.eval_assignment(assignee, &typ, &mut scope)?;
-                }
-                Statement::Function { name, fun } => {
-                    let function = ScriptFunction {
-                        function: self.eval_function_signature(fun, &scope)?,
-                        source: Arc::clone(fun),
-                        captured_scope: Arc::new(scope.capture()),
-                    };
+            (scope, last_return) = self.eval_statement(node, scope)?;
+        }
 
-                    scope.track_local_function(name, function.clone());
-                    scope.set_local(name, ScriptType::ScriptFunction(function));
-                }
-                Statement::Rec(rec) => {
-                    scope.types.eval_rec(rec)?;
-                }
-                Statement::Union(def) => {
-                    scope.types.eval_union(def)?;
-                }
-                Statement::Iteration {
-                    ident,
-                    iterable,
-                    body,
-                } => {
-                    let iterable_typ = self.validate_expr(iterable, &scope)?;
+        // Ensure all local functions are evaluated (even if never called)
+        for fun in &scope.get_local_functions() {
+            self.eval_function_body(fun)?;
+        }
 
-                    match iterable_typ {
-                        ScriptType::EmptyList => {
-                            return Err(TypeError::new(TypeErrorKind::EmptyList).at(iterable.loc));
-                        }
-                        ScriptType::List(inner) => {
+        // Emit final return type:
+        // - If declared in scope
+        // - Else, if there is exactly one statement
+        // - If statements can only return explicit, and only if return value is declared
+        // - Explicit returns are already checked
+        // - Only expressions can return implicit
+        //
+        // Only two cases?
+        // - The return type is declared
+        // - Return type is not declared, and there is exactly one statement
+        //
+        // What about error if there is no return statement?
+        // - We already check all return statements, we only need to check if the last statement
+        // *is* a return, if required
+
+        // let is_return =
+        // To avoid evaliating the whole thing again, return the 'outcome' from here
+
+        let return_type = match last_return {
+            Some(r) if r.is_explicit => Some(r),
+            Some(r) if ast.len() == 1 => Some(r),
+            _ => None,
+        };
+
+        Ok((scope, return_type))
+    }
+
+    fn eval_statement(
+        &self,
+        node: &Statement,
+        mut scope: Scope,
+    ) -> TypeResult<(Scope, Option<ReturnType>)> {
+        let mut return_type = None;
+
+        match node {
+            Statement::Assignment { assignee, value } => {
+                let typ = self.validate_expr(value, &scope)?;
+                self.eval_assignment(assignee, &typ, &mut scope)?;
+            }
+            Statement::Function { name, fun } => {
+                let function = ScriptFunction {
+                    function: self.eval_function_signature(fun, &scope)?,
+                    source: Arc::clone(fun),
+                    captured_scope: Arc::new(scope.capture()),
+                };
+
+                scope.track_local_function(name, function.clone());
+                scope.set_local(name, ScriptType::ScriptFunction(function));
+            }
+            Statement::Rec(rec) => {
+                scope.types.eval_rec(rec)?;
+            }
+            Statement::Union(def) => {
+                scope.types.eval_union(def)?;
+            }
+            Statement::Iteration {
+                ident,
+                iterable,
+                body,
+            } => {
+                let iterable_typ = self.validate_expr(iterable, &scope)?;
+
+                match iterable_typ {
+                    ScriptType::EmptyList => {
+                        return Err(TypeError::new(TypeErrorKind::EmptyList).at(iterable.loc));
+                    }
+                    ScriptType::List(inner) => {
+                        let mut inner_scope = scope.clone();
+                        inner_scope.set_local(ident, *inner);
+                        self.validate_block(body, inner_scope)?;
+                    }
+                    ScriptType::Range => {
+                        let mut inner_scope = scope.clone();
+                        inner_scope.set_local(ident, ScriptType::Int);
+                        self.validate_block(body, inner_scope)?;
+                    }
+                    ScriptType::Ext(ref ext) => {
+                        if let Some(inner) = ext.as_readable() {
                             let mut inner_scope = scope.clone();
-                            inner_scope.set_local(ident, *inner);
+                            inner_scope.set_local(ident, inner);
                             self.validate_block(body, inner_scope)?;
-                        }
-                        ScriptType::Range => {
-                            let mut inner_scope = scope.clone();
-                            inner_scope.set_local(ident, ScriptType::Int);
-                            self.validate_block(body, inner_scope)?;
-                        }
-                        ScriptType::Ext(ref ext) => {
-                            if let Some(inner) = ext.as_readable() {
-                                let mut inner_scope = scope.clone();
-                                inner_scope.set_local(ident, inner);
-                                self.validate_block(body, inner_scope)?;
-                            } else {
-                                return Err(TypeError::new(TypeErrorKind::InvalidIterable(
-                                    iterable_typ,
-                                ))
-                                .at(iterable.loc));
-                            }
-                        }
-                        _ => {
+                        } else {
                             return Err(TypeError::new(TypeErrorKind::InvalidIterable(
                                 iterable_typ,
                             ))
                             .at(iterable.loc));
                         }
                     }
-                }
-                Statement::While { cond, body } => {
-                    let typ = self.validate_expr(cond, &scope)?;
-                    if !ScriptType::Bool.accepts(&typ) {
-                        return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
-                            expected: ScriptType::Bool,
-                            actual: typ.clone(),
-                        })
-                        .at(cond.loc));
-                    }
-
-                    self.validate_block(body, scope.clone())?;
-                }
-                Statement::Condition {
-                    cond,
-                    body,
-                    else_body,
-                } => {
-                    let typ = self.validate_expr(cond, &scope)?;
-                    if !ScriptType::Bool.accepts(&typ) {
-                        return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
-                            expected: ScriptType::Bool,
-                            actual: typ.clone(),
-                        })
-                        .at(cond.loc));
-                    }
-
-                    self.validate_block(body, scope.clone())?;
-
-                    if let Some(else_body) = else_body.as_ref() {
-                        self.validate_block(else_body, scope.clone())?;
+                    _ => {
+                        return Err(TypeError::new(TypeErrorKind::InvalidIterable(iterable_typ))
+                            .at(iterable.loc));
                     }
                 }
-                Statement::IfIn {
-                    assignee,
-                    value,
-                    body,
-                    else_body,
-                } => {
-                    let opt_typ = self.validate_expr(value, &scope)?;
-                    let ScriptType::Opt(typ) = opt_typ else {
-                        return Err(
-                            TypeError::new(TypeErrorKind::InvalidQuestion(opt_typ)).at(value.loc)
-                        );
-                    };
+            }
+            Statement::While { cond, body } => {
+                let inner_scope = self.eval_condition_expr(cond, &scope)?;
+                self.validate_block(body, inner_scope)?;
+            }
+            Statement::Condition {
+                cond,
+                body,
+                else_body,
+            } => {
+                let inner_scope = self.eval_condition_expr(cond, &scope)?;
 
-                    let mut inner_scope = scope.clone();
-                    self.eval_assignment(assignee, &typ, &mut inner_scope)?;
-                    self.validate_block(body, inner_scope)?;
+                return_type =
+                    self.eval_conditional_body(body, else_body, inner_scope, scope.clone())?;
+            }
+            Statement::IfIn {
+                assignee,
+                value,
+                body,
+                else_body,
+            } => {
+                let opt_typ = self.validate_expr(value, &scope)?;
+                let ScriptType::Opt(typ) = opt_typ else {
+                    return Err(
+                        TypeError::new(TypeErrorKind::InvalidQuestion(opt_typ)).at(value.loc)
+                    );
+                };
 
-                    if let Some(else_body) = else_body.as_ref() {
-                        self.validate_block(else_body, scope.clone())?;
-                    }
-                }
-                Statement::WhileIn {
-                    assignee,
-                    value,
-                    body,
-                } => {
-                    let opt_typ = self.validate_expr(value, &scope)?;
-                    let inner_typ = opt_typ.flatten();
+                let mut inner_scope = scope.clone();
+                self.eval_assignment(assignee, &typ, &mut inner_scope)?;
 
-                    let mut inner_scope = scope.clone();
-                    self.eval_assignment(assignee, inner_typ, &mut inner_scope)?;
-                    self.validate_block(body, inner_scope)?;
-                }
-                Statement::Spawn { body } => {
-                    let mut inner_scope = scope.clone();
-                    inner_scope.ret = None;
-                    self.validate_block(body, inner_scope)?;
-                }
-                Statement::Expression(expr) => {
-                    self.validate_expr(expr, &scope)?;
-                }
-                Statement::Return(expr) => {
-                    if let Some(expr) = expr {
-                        let typ = self.validate_expr(expr, &scope)?;
-                        match &scope.ret {
-                            None => {
+                return_type =
+                    self.eval_conditional_body(body, else_body, inner_scope, scope.clone())?;
+            }
+            Statement::WhileIn {
+                assignee,
+                value,
+                body,
+            } => {
+                let opt_typ = self.validate_expr(value, &scope)?;
+                let inner_typ = opt_typ.flatten();
+
+                let mut inner_scope = scope.clone();
+                self.eval_assignment(assignee, inner_typ, &mut inner_scope)?;
+                self.validate_block(body, inner_scope)?;
+            }
+            Statement::Spawn { body } => {
+                let mut inner_scope = scope.clone();
+                inner_scope.allowed_return_type = None;
+                self.validate_block(body, inner_scope)?;
+            }
+            Statement::Expression(expr) => {
+                let typ = self.validate_expr(expr, &scope)?;
+
+                return_type = Some(ReturnType::implicit(Src::new(typ, expr.loc)));
+            }
+            Statement::Return(expr) => {
+                if let Some(expr) = expr {
+                    let typ = self.validate_expr(expr, &scope)?;
+                    match &scope.allowed_return_type {
+                        None => {
+                            return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
+                                expected: ScriptType::identity(),
+                                actual: typ,
+                            })
+                            .at(expr.loc));
+                        }
+                        Some(r) => {
+                            if !r.accepts(&typ) {
                                 return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
-                                    expected: ScriptType::identity(),
+                                    expected: r.clone(),
                                     actual: typ,
                                 })
                                 .at(expr.loc));
                             }
-                            Some(r) => {
-                                if !r.accepts(&typ) {
-                                    return Err(TypeError::new(TypeErrorKind::InvalidReturnType {
-                                        expected: r.clone(),
-                                        actual: typ,
-                                    })
-                                    .at(expr.loc));
-                                }
-                            }
-                        }
-                    } else {
-                        match &scope.ret {
-                            None => {}
-                            Some(ScriptType::Opt(_)) => {}
-                            Some(_) => {
-                                return Err(TypeError::new(TypeErrorKind::MissingReturnStatement));
-                            }
                         }
                     }
-                }
-                Statement::Assert(expr) => {
-                    let typ = self.validate_expr(expr, &scope)?;
-                    if !matches!(typ, ScriptType::Bool) {
-                        return Err(TypeError::expected_bool(typ).at(expr.loc));
+
+                    return_type = Some(ReturnType::explicit(Src::new(typ, expr.loc)));
+                } else {
+                    match &scope.allowed_return_type {
+                        None => {}
+                        Some(ScriptType::Opt(_)) => {}
+                        Some(_) => {
+                            return Err(TypeError::new(TypeErrorKind::MissingReturnStatement));
+                        }
                     }
 
-                    self.try_static_assert(expr, &scope)?;
+                    // "explicit none" return type??
                 }
-                Statement::Break => {}    // XXX Not allowed outside loop
-                Statement::Continue => {} // XXX Not allowed outside loop
             }
-        }
+            Statement::Assert(expr) => {
+                let typ = self.validate_expr(expr, &scope)?;
+                if !matches!(typ, ScriptType::Bool) {
+                    return Err(TypeError::expected_bool(typ).at(expr.loc));
+                }
 
-        {
-            // Ensure all local functions are evaluated (even if never called)
-            for fun in &scope.get_local_functions() {
-                self.eval_function_body(fun)?;
+                self.try_static_assert(expr, &scope)?;
             }
-        }
+            Statement::Break => {}    // XXX Not allowed outside loop
+            Statement::Continue => {} // XXX Not allowed outside loop
+        };
 
-        Ok(scope)
+        Ok((scope, return_type))
     }
 
     fn eval_expr(&self, expr: &Src<Expression>, scope: &Scope) -> TypeResult<Src<ScriptType>> {
@@ -646,6 +669,13 @@ impl Validator {
 
                 Ok(ScriptType::Bool)
             }
+            Expression::Matches(lhs, pattern) => {
+                let expr_type = self.eval_expr(lhs, scope)?;
+
+                let _ = self.eval_match_pattern(pattern, &expr_type, scope)?;
+
+                Ok(ScriptType::Bool)
+            }
             Expression::Range(lhs, rhs) => {
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
@@ -804,9 +834,9 @@ impl Validator {
             }
         }
         inner.arguments = params.clone();
-        inner.ret = declared_type.clone();
-        let inner = self.validate_block(&fun.body, inner.clone())?;
-        let found_ret_type = self.eval_return_type(&fun.body, &inner)?;
+        inner.allowed_return_type = declared_type.clone();
+
+        let (_, found_ret_type) = self.validate_block(&fun.body, inner.clone())?;
         let found_type = found_ret_type
             .as_ref()
             .map(|r| ScriptType::clone(&r.typ))
@@ -855,9 +885,8 @@ impl Validator {
             }
         }
         inner.arguments = fun.function.params.clone();
-        inner.ret = Some(declared_type.clone());
-        let inner = self.validate_block(&fun.source.body, inner.clone())?;
-        let found_ret_type = self.eval_return_type(&fun.source.body, &inner)?;
+        inner.allowed_return_type = Some(declared_type.clone());
+        let (_, found_ret_type) = self.validate_block(&fun.source.body, inner.clone())?;
         let found_type = found_ret_type
             .as_ref()
             .map(|r| ScriptType::clone(&r.typ))
@@ -889,93 +918,6 @@ impl Validator {
             visited.insert(ptr);
             false
         }
-    }
-
-    fn eval_return_type(&self, ast: &[Statement], scope: &Scope) -> TypeResult<Option<ReturnType>> {
-        let typ = match ast.last() {
-            None => None,
-            Some(Statement::Return(expr)) => {
-                if let Some(expr) = expr {
-                    let typ = self.validate_expr(expr, scope)?;
-                    Some(ReturnType::explicit(Src::new(typ, expr.loc)))
-                } else {
-                    todo!("return without value");
-                }
-            }
-            Some(Statement::Expression(expr)) => {
-                if ast.len() == 1 {
-                    let typ = self.validate_expr(expr, scope)?;
-                    Some(ReturnType::implicit(Src::new(typ, expr.loc)))
-                } else {
-                    None
-                }
-            }
-            Some(Statement::Condition {
-                body, else_body, ..
-            }) => {
-                let body_ret = self.eval_return_type(body, scope)?;
-                let else_ret = else_body
-                    .as_ref()
-                    .map(|else_body| self.eval_return_type(else_body, scope))
-                    .transpose()?
-                    .flatten();
-
-                match (body_ret, else_ret) {
-                    (Some(l), Some(r)) if l.is_explicit && r.is_explicit => {
-                        let types = vec![l.typ.clone(), r.typ.clone()];
-                        let typ = self
-                            .most_specific_type(&types)?
-                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
-                        Some(ReturnType::explicit(typ))
-                    }
-                    (Some(typ), None) | (None, Some(typ)) if typ.is_explicit => {
-                        Some(typ.into_opt())
-                    }
-                    _ => None,
-                }
-            }
-            Some(Statement::IfIn {
-                assignee,
-                value,
-                body,
-                else_body,
-            }) => {
-                let opt_typ = self.validate_expr(value, scope)?;
-                let ScriptType::Opt(typ) = opt_typ else {
-                    return Err(
-                        TypeError::new(TypeErrorKind::InvalidQuestion(opt_typ)).at(value.loc)
-                    );
-                };
-
-                let mut inner_scope = scope.clone();
-                self.eval_assignment(assignee, &typ, &mut inner_scope)?;
-
-                // XXX DRY
-                let body_ret = self.eval_return_type(body, &inner_scope)?;
-                let else_ret = else_body
-                    .as_ref()
-                    .map(|else_body| self.eval_return_type(else_body, scope))
-                    .transpose()?
-                    .flatten();
-
-                match (body_ret, else_ret) {
-                    (Some(l), Some(r)) if l.is_explicit && r.is_explicit => {
-                        let types = vec![l.typ.clone(), r.typ.clone()];
-                        let typ = self
-                            .most_specific_type(&types)?
-                            .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
-                        Some(ReturnType::explicit(typ))
-                    }
-                    (Some(typ), None) | (None, Some(typ)) if typ.is_explicit => {
-                        Some(typ.into_opt())
-                    }
-                    _ => None,
-                }
-            }
-            Some(_) => None,
-        };
-
-        Ok(typ)
     }
 
     fn eval_call_expr(
@@ -1269,15 +1211,78 @@ impl Validator {
         Ok(())
     }
 
+    fn eval_condition_expr(&self, cond: &Src<Expression>, scope: &Scope) -> TypeResult<Scope>
+    {
+            let mut inner_scope = scope.clone();
+
+            // Handle Matches variant specifically here, because validate_expr doesn't have any
+            // way of affecting the scope.
+            if let Expression::Matches(lhs, pattern) = cond.as_ref() {
+                let expr_type = self.eval_expr(lhs, scope)?;
+                inner_scope = self.eval_match_pattern(pattern, &expr_type, scope)?;
+            } else {
+                let typ = self.validate_expr(cond, scope)?;
+                if !ScriptType::Bool.accepts(&typ) {
+                    return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
+                        expected: ScriptType::Bool,
+                        actual: typ.clone(),
+                    })
+                    .at(cond.loc));
+                }
+            }
+
+        Ok(inner_scope)
+    }
+
+    fn eval_conditional_body(
+        &self,
+        body: &Vec<Statement>,
+        else_body: &Option<Vec<Statement>>,
+        body_scope: Scope,
+        else_scope: Scope,
+    ) -> TypeResult<Option<ReturnType>> {
+        let (_, body_ret) = self.validate_block(body, body_scope)?;
+
+        let else_ret = else_body
+            .as_ref()
+            .map(|else_body| self.validate_block(else_body, else_scope))
+            .transpose()?
+            .and_then(|(_, r)| r);
+
+        let return_type = match (body_ret, else_ret) {
+            (Some(l), Some(r)) if l.is_explicit && r.is_explicit => {
+                let types = vec![l.typ.clone(), r.typ.clone()];
+                let typ = self
+                    .most_specific_type(&types)?
+                    .unwrap_or(Src::new(ScriptType::identity(), Loc::new(0, 0)));
+                Some(ReturnType::explicit(typ))
+            }
+            (Some(typ), None) | (None, Some(typ)) if typ.is_explicit => Some(typ.into_opt()),
+            _ => None,
+        };
+
+        Ok(return_type)
+    }
+
     fn eval_match_arm(
         &self,
         arm: &MatchArm,
         expr_type: &ScriptType,
         scope: &Scope,
     ) -> TypeResult<Src<ScriptType>> {
+        let inner_scope = self.eval_match_pattern(&arm.pattern, expr_type, scope)?;
+        self.eval_expr(&arm.expr, &inner_scope)
+    }
+
+    fn eval_match_pattern(
+        &self,
+        pattern: &MatchPattern,
+        expr_type: &ScriptType,
+        scope: &Scope,
+    ) -> TypeResult<Scope> {
         let mut inner_scope = scope.clone();
 
-        match arm.pattern.as_ref().as_ref() {
+        match pattern {
             MatchPattern::Assignee(name) => {
                 inner_scope.set_local(name, expr_type.flatten().clone());
             }
@@ -1334,7 +1339,7 @@ impl Validator {
             _ => (),
         }
 
-        self.eval_expr(&arm.expr, &inner_scope)
+        Ok(inner_scope)
     }
 
     fn try_static_assert(&self, expr: &Src<Expression>, scope: &Scope) -> TypeResult<()> {
@@ -1400,14 +1405,14 @@ impl Validator {
 fn eval_question(expr_type: ScriptType, scope: &Scope) -> TypeResult<ScriptType> {
     match expr_type {
         ScriptType::Opt(inner) => {
-            if let Some(ScriptType::Opt(_)) = &scope.ret {
+            if let Some(ScriptType::Opt(_)) = &scope.allowed_return_type {
                 Ok(*inner)
             } else {
                 Err(TypeError::new(TypeErrorKind::TryNotAllowed))
             }
         }
         ScriptType::Fallible(inner_value, inner_error) => {
-            if let Some(ScriptType::Fallible(_, exp)) = &scope.ret {
+            if let Some(ScriptType::Fallible(_, exp)) = &scope.allowed_return_type {
                 if exp.accepts(&inner_error) {
                     Ok(*inner_value)
                 } else {
@@ -1422,14 +1427,14 @@ fn eval_question(expr_type: ScriptType, scope: &Scope) -> TypeResult<ScriptType>
         }
         ScriptType::List(ref item_type) => match item_type.as_ref() {
             ScriptType::Opt(inner) => {
-                if let Some(ScriptType::Opt(_)) = &scope.ret {
+                if let Some(ScriptType::Opt(_)) = &scope.allowed_return_type {
                     Ok(ScriptType::List(inner.clone()))
                 } else {
                     Err(TypeError::new(TypeErrorKind::TryNotAllowed))
                 }
             }
             ScriptType::Fallible(inner_value, inner_error) => {
-                if let Some(ScriptType::Fallible(_, exp)) = &scope.ret {
+                if let Some(ScriptType::Fallible(_, exp)) = &scope.allowed_return_type {
                     if exp.accepts(inner_error) {
                         Ok(ScriptType::List(inner_value.clone()))
                     } else {

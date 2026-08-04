@@ -102,19 +102,19 @@ fun test_explicit_return_inside_list_iteration() {
 }
 
 fun test_explicit_return_inside_range_iteration() {
-        union Color { Green, Blue }
+    union Color { Green, Blue }
 
-        fun search(r: int): str {
-            for i in 0..100 {
-                if i == r {
-                    return "Found $r"
-                }
+    fun search(r: int): str {
+        for i in 0..100 {
+            if i == r {
+                return "Found $r"
             }
-            return "Not found"
         }
+        return "Not found"
+    }
 
-        assert search(42) == "Found 42"
-        assert search(999) == "Not found"
+    assert search(42) == "Found 42"
+    assert search(999) == "Not found"
 }
 
 fun test_return_from_conditional_at_end() {
@@ -166,13 +166,13 @@ fun test_return_implicit_tuple() {
 }
 
 fun test_return_implicit_tuple_with_arg() {
-        fun foo(arg: str): (str, [int]) {
-            (arg, [42])
-        }
+    fun foo(arg: str): (str, [int]) {
+        (arg, [42])
+    }
 
-        (fruit, count) = foo("banana")
-        assert fruit == "banana"
-        assert count == [42]
+    (fruit, count) = foo("banana")
+    assert fruit == "banana"
+    assert count == [42]
 }
 
 fun test_arguments_access() {
@@ -193,12 +193,12 @@ fun test_manually_destruct_arguments() {
 }
 
 fun test_manually_destruct_named_arguments() {
-        fun foo(fruit: str, count: int): str {
-            (count, fruit) = arguments
-            return "$fruit $count"
-        }
+    fun foo(fruit: str, count: int): str {
+        (count, fruit) = arguments
+        return "$fruit $count"
+    }
 
-        assert foo("banana", 42) == "banana 42"
+    assert foo("banana", 42) == "banana 42"
 }
 
 fun test_apply_params() {
