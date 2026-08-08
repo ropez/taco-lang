@@ -94,6 +94,22 @@ where
     Ok(())
 }
 
+pub fn check(src: &str) -> Result<(), Error> {
+    let out = OutputAdapter::new();
+    let (validator, _) = setup(out);
+
+    let tokens = lexer::tokenize(src).map_err(|err| err.into_source_error(src))?;
+    let ast = Parser::new(src, tokens)
+        .parse()
+        .map_err(|err| err.into_source_error(src))?;
+
+    validator
+        .validate(&ast)
+        .map_err(|err| err.into_source_error(src))?;
+
+    Ok(())
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct TestStats {
     pub succeeded: i32,

@@ -32,8 +32,16 @@ pub enum ScriptType {
     },
     Function(Arc<FunctionType>),
 
+    // We don't need to "bind" the type to a script function, to be able to validate calls,
+    // we only need to know that it is bound. XXX Or maybe if we bound the type, we could validate
+    // that the function is really associated with the correct type, and not just a type with the
+    // same name.
     ScriptFunction(ScriptFunction),
+
     NativeFunction(NativeFunctionRef),
+
+    // We need to bind these to the type during type validation, because they can be called on
+    // different types. E.g. .with can be called on any record type.
     NativeMethodBound(NativeMethodRef, Box<ScriptType>),
     NativeTypeMethodBound(NativeTypeMethodRef, TypeDefinition),
 
@@ -222,7 +230,24 @@ impl ScriptType {
         // XXX Too much cloning
         match &self {
             ScriptType::Function(fun) => Ok(fun.params.clone()),
-            ScriptType::ScriptFunction(fun) => Ok(fun.function.params.clone()),
+            ScriptType::ScriptFunction(fun) => {
+                if fun.is_bound {
+                    // Remove first param
+                    let params = TupleType::new(
+                        fun.function
+                            .params
+                            .items()
+                            .iter()
+                            .skip(1)
+                            .cloned()
+                            .collect(),
+                    );
+
+                    Ok(params)
+                } else {
+                    Ok(fun.function.params.clone())
+                }
+            }
             ScriptType::UnionVariant { params, .. } => Ok(params.clone()),
             ScriptType::NativeFunction(func) => func.arguments_type(given_args),
             ScriptType::NativeMethodBound(method, subject_typ) => {
@@ -522,4 +547,14 @@ pub struct ScriptFunction {
     pub(crate) function: Arc<FunctionType>,
     pub(crate) source: Arc<Function>,
     pub(crate) captured_scope: Arc<Scope>,
+    pub(crate) is_bound: bool,
+}
+
+impl ScriptFunction {
+    pub(crate) fn to_bound(&self) -> Self {
+        Self {
+            is_bound: true,
+            ..Self::clone(self)
+        }
+    }
 }

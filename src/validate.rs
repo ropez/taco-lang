@@ -208,7 +208,8 @@ impl Validator {
             ScriptType::Int => global::INT.into(),
             ScriptType::Str => global::STRING.into(),
             ScriptType::Range => global::RANGE.into(),
-            ScriptType::RecInstance(_) => global::REC.into(), // XXX Should also support user-defined methods on the rec's own name
+            ScriptType::RecInstance(_) => global::REC.into(),
+            ScriptType::UnionInstance(_) => global::UNION.into(),
             ScriptType::Tuple(_) => global::TUPLE.into(),
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
             ScriptType::Opt(_) => global::OPT.into(),
@@ -278,15 +279,23 @@ impl Validator {
                 let typ = self.validate_expr(value, &scope)?;
                 self.eval_assignment(assignee, &typ, &mut scope)?;
             }
-            Statement::Function { name, fun } => {
-                let function = ScriptFunction {
-                    function: self.eval_function_signature(fun, &scope)?,
-                    source: Arc::clone(fun),
-                    captured_scope: Arc::new(scope.capture()),
+            Statement::Function { prefix, name, fun } => {
+                // XXX Tracking methods by name, which is incorrect if a type is redefined in an inner scope
+                let full_name = match prefix {
+                    Some(prefix) => Ident::from(format!("{}::{}", prefix, name)),
+                    None => name.clone(),
                 };
 
-                scope.track_local_function(name, function.clone());
-                scope.set_local(name, ScriptType::ScriptFunction(function));
+                let type_scope = scope.types.resolve_self_type(prefix);
+                let function = ScriptFunction {
+                    function: self.eval_function_signature(fun, &type_scope)?,
+                    source: Arc::clone(fun),
+                    captured_scope: Arc::new(scope.capture()),
+                    is_bound: false,
+                };
+
+                scope.track_local_function(&full_name, function.clone());
+                scope.set_local(&full_name, ScriptType::ScriptFunction(function));
             }
             Statement::Rec(rec) => {
                 scope.types.eval_rec(rec)?;
@@ -526,7 +535,10 @@ impl Validator {
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
                 Some(typedef) => {
                     // TODO Support for defining associated methods like Record::foo()
-                    if let Some(m) = self.type_methods.get(name) {
+                    let prefixed_name = Ident::from(format!("{}::{}", prefix, name));
+                    if let Some(v) = scope.get_local(&prefixed_name) {
+                        Ok(v.clone())
+                    } else if let Some(m) = self.type_methods.get(name) {
                         Ok(ScriptType::NativeTypeMethodBound(
                             m.clone(),
                             TypeDefinition::clone(typedef),
@@ -585,6 +597,32 @@ impl Validator {
                         subject.into(),
                     ))
                 } else {
+                    let prefix = match &subject {
+                        ScriptType::RecInstance(def) => Some(Ident::clone(&def.name)),
+                        ScriptType::UnionInstance(def) => Some(Ident::clone(&def.name)),
+                        _ => None,
+                    };
+
+                    if let Some(prefix) = prefix {
+                        let prefixed_name = Ident::from(format!("{}::{}", prefix, key));
+                        if let Some(local) = scope.get_local(&prefixed_name) {
+                            if let ScriptType::ScriptFunction(f) = local {
+                                if let Some(first) = f.function.params.items().first() {
+                                    if first.value.accepts(&subject) {
+                                        return Ok(ScriptType::ScriptFunction(f.to_bound()));
+                                    } else {
+                                        // XXX Refactor to a single else block
+                                    }
+                                } else {
+                                    // XXX Custom validation error for calling a static
+                                    // function as a method
+                                }
+                            } else {
+                                panic!("Expected a script function here");
+                            }
+                        }
+                    }
+
                     Err(TypeError::new(TypeErrorKind::UndefinedAttribute {
                         subject,
                         attr_name: key.clone(),
@@ -802,13 +840,13 @@ impl Validator {
     fn eval_function_signature(
         &self,
         fun: &Arc<Function>,
-        scope: &Scope,
+        type_scope: &TypeScope,
     ) -> TypeResult<Arc<FunctionType>> {
-        let params = eval_params(&fun.params, &scope.types)?;
+        let params = eval_params(&fun.params, type_scope)?;
         let declared_type = fun
             .type_expr
             .as_ref()
-            .map(|expr| eval_type_expr(expr, &scope.types))
+            .map(|expr| eval_type_expr(expr, type_scope))
             .transpose()?;
 
         let ret = declared_type.unwrap_or(ScriptType::identity());
@@ -872,6 +910,8 @@ impl Validator {
         let declared_type = ScriptType::clone(&fun.function.ret);
 
         let mut inner = Scope::clone(&fun.captured_scope);
+
+        // Sync for copying shared function references to inner scope
         {
             let functions = fun.captured_scope.local_functions.read_blocking();
 
@@ -879,6 +919,7 @@ impl Validator {
                 inner.set_local(name, ScriptType::ScriptFunction(f.clone()));
             }
         }
+
         for arg in fun.function.params.items() {
             if let Some(name) = &arg.name {
                 inner.set_local(name, arg.value.clone());
@@ -1211,25 +1252,24 @@ impl Validator {
         Ok(())
     }
 
-    fn eval_condition_expr(&self, cond: &Src<Expression>, scope: &Scope) -> TypeResult<Scope>
-    {
-            let mut inner_scope = scope.clone();
+    fn eval_condition_expr(&self, cond: &Src<Expression>, scope: &Scope) -> TypeResult<Scope> {
+        let mut inner_scope = scope.clone();
 
-            // Handle Matches variant specifically here, because validate_expr doesn't have any
-            // way of affecting the scope.
-            if let Expression::Matches(lhs, pattern) = cond.as_ref() {
-                let expr_type = self.eval_expr(lhs, scope)?;
-                inner_scope = self.eval_match_pattern(pattern, &expr_type, scope)?;
-            } else {
-                let typ = self.validate_expr(cond, scope)?;
-                if !ScriptType::Bool.accepts(&typ) {
-                    return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
-                        expected: ScriptType::Bool,
-                        actual: typ.clone(),
-                    })
-                    .at(cond.loc));
-                }
+        // Handle Matches variant specifically here, because validate_expr doesn't have any
+        // way of affecting the scope.
+        if let Expression::Matches(lhs, pattern) = cond.as_ref() {
+            let expr_type = self.eval_expr(lhs, scope)?;
+            inner_scope = self.eval_match_pattern(pattern, &expr_type, scope)?;
+        } else {
+            let typ = self.validate_expr(cond, scope)?;
+            if !ScriptType::Bool.accepts(&typ) {
+                return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
+                    expected: ScriptType::Bool,
+                    actual: typ.clone(),
+                })
+                .at(cond.loc));
             }
+        }
 
         Ok(inner_scope)
     }

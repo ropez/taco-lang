@@ -158,6 +158,7 @@ impl Interpreter {
             ScriptValue::List(_) => global::LIST.into(),
             ScriptValue::Tuple(_) => global::TUPLE.into(),
             ScriptValue::Rec { .. } => global::REC.into(),
+            ScriptValue::Union { .. } => global::UNION.into(),
             ScriptValue::Opt(_) => global::OPT.into(),
             ScriptValue::Fallible(_) => global::FALLIBLE.into(),
             ScriptValue::Ext(typ, _) => return typ.get_method(name),
@@ -191,18 +192,25 @@ impl Interpreter {
                     let rhs = self.eval_expr(value, &scope)?;
                     eval_assignment(assignee, &rhs, &mut scope.locals);
                 }
-                Statement::Function { name, fun, .. } => {
-                    let function = eval_function(fun, &scope.types).map_err(ScriptError::panic)?;
+                Statement::Function { prefix, name, fun } => {
+                    // XXX Tracking methods by name, which is incorrect if a type is redefined in an inner scope
+                    let full_name = match prefix {
+                        Some(prefix) => Ident::from(format!("{}::{}", prefix, name)),
+                        None => name.clone(),
+                    };
+
+                    let type_scope = scope.types.resolve_self_type(prefix);
+                    let function = eval_function(fun, &type_scope).map_err(ScriptError::panic)?;
 
                     let script_function =
                         ScriptFunction::new(function, Arc::clone(fun), Arc::new(scope.capture()));
 
                     let fun = ScriptValue::ScriptFunction(script_function.clone());
-                    scope.set_local(name, fun);
+                    scope.set_local(&full_name, fun);
                     scope
                         .local_functions
                         .write_blocking()
-                        .insert(name.clone(), script_function);
+                        .insert(full_name, script_function);
                 }
                 Statement::Rec(rec) => {
                     scope.types.eval_rec(rec).map_err(ScriptError::panic)?;
@@ -321,20 +329,20 @@ impl Interpreter {
                         }
                     }
                 }
-                Statement::While { cond, body } => {
-                    loop {
-                        let (val, inner_scope) = self.eval_condition_expr(cond, &scope)?;
-                        if !val { break }
-
-                        match self.execute_block(body, inner_scope)? {
-                            Completion::ExplicitReturn(val) => {
-                                return Ok(Completion::ExplicitReturn(val));
-                            }
-                            Completion::Break => break,
-                            _ => (),
-                        }
+                Statement::While { cond, body } => loop {
+                    let (val, inner_scope) = self.eval_condition_expr(cond, &scope)?;
+                    if !val {
+                        break;
                     }
-                }
+
+                    match self.execute_block(body, inner_scope)? {
+                        Completion::ExplicitReturn(val) => {
+                            return Ok(Completion::ExplicitReturn(val));
+                        }
+                        Completion::Break => break,
+                        _ => (),
+                    }
+                },
                 Statement::WhileIn {
                     assignee,
                     value,
@@ -444,7 +452,10 @@ impl Interpreter {
             Expression::PrefixedName(prefix, name) => {
                 match scope.types.get(prefix) {
                     Some(typedef) => {
-                        if let Some(method) = self.type_methods.get(name) {
+                        let prefixed_name = Ident::from(format!("{}::{}", prefix, name));
+                        if let Some(v) = scope.locals.get(&prefixed_name) {
+                            v.clone()
+                        } else if let Some(method) = self.type_methods.get(name) {
                             ScriptValue::NativeTypeMethodBound(method.clone(), typedef.clone())
                         } else {
                             if let TypeDefinition::UnionDefinition(v) = typedef {
@@ -494,6 +505,27 @@ impl Interpreter {
                 if let Some(method) = self.get_method(&subject, key) {
                     ScriptValue::NativeMethodBound(method.clone(), subject.into())
                 } else {
+                    let prefix = match &subject {
+                        ScriptValue::Rec { def, .. } => Some(Ident::clone(&def.name)),
+                        ScriptValue::Union { def, .. } => Some(Ident::clone(&def.name)),
+                        _ => None,
+                    };
+
+                    if let Some(prefix) = prefix {
+                        let prefixed_name = Ident::from(format!("{}::{}", prefix, key));
+                        if let Some(local) = scope.locals.get(&prefixed_name) {
+                            if let ScriptValue::ScriptFunction(f) = local {
+                                let bound_args = Tuple::new(vec![TupleItem::unnamed(subject)]);
+                                return Ok(ScriptValue::ScriptFunctionBound(
+                                    f.clone(),
+                                    Arc::new(bound_args),
+                                ));
+                            } else {
+                                panic!("Expected a script function here");
+                            }
+                        }
+                    }
+
                     panic!("No such attribute {key} for {subject}");
                 }
             }
@@ -588,12 +620,12 @@ impl Interpreter {
             }
             Expression::Matches(lhs, pattern) => {
                 let value = self.eval_expr(lhs, scope)?;
-                if let Some(locals) = self.eval_match_pattern(pattern, &value, scope)? {
+                if self.eval_match_pattern(pattern, &value, scope)?.is_some() {
                     ScriptValue::Boolean(true)
                 } else {
                     ScriptValue::Boolean(false)
                 }
-            },
+            }
             Expression::Try(inner) => {
                 let val = self.eval_expr(inner, scope)?;
                 match val {
@@ -693,7 +725,7 @@ impl Interpreter {
     fn eval_condition_expr(
         &self,
         cond: &Src<Expression>,
-        scope: &Scope
+        scope: &Scope,
     ) -> ScriptResult<(bool, Scope)> {
         let mut inner_scope = scope.clone();
         let val = if let Expression::Matches(lhs, pattern) = cond.as_ref() {
@@ -868,6 +900,37 @@ impl Interpreter {
                 let mut inner_scope = self.clone_captured_scope(&f);
 
                 let values = transform_args(&f.function.params, arguments);
+                for item in values.items() {
+                    if let Some(name) = &item.name {
+                        inner_scope.set_local(name, item.value.clone());
+                    }
+                }
+                inner_scope.arguments = Arc::new(values);
+
+                let ret = self
+                    .execute_block(&f.source.body, inner_scope)
+                    .map(|ret| match ret {
+                        Completion::EndOfBlock(_) => ScriptValue::opt(None),
+                        Completion::ExplicitReturn(v) => v,
+                        Completion::ImpliedReturn(v) => v,
+                        _ => panic!("Script function ended with break/continue"),
+                    });
+
+                try_wrap_err(wrap_retval(ret, &f.function.ret))?
+            }
+            ScriptValue::ScriptFunctionBound(f, bound_args) => {
+                let mut inner_scope = self.clone_captured_scope(&f);
+
+                let final_args = Tuple::new(
+                    bound_args
+                        .items()
+                        .iter()
+                        .cloned()
+                        .chain(arguments.items().iter().cloned())
+                        .collect(),
+                );
+
+                let values = transform_args(&f.function.params, &final_args);
                 for item in values.items() {
                     if let Some(name) = &item.name {
                         inner_scope.set_local(name, item.value.clone());

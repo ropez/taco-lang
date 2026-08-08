@@ -26,6 +26,7 @@ pub enum Statement {
     // Are functions expressions?
     // Is this just an assignment?
     Function {
+        prefix: Option<Ident>,
         name: Ident,
         fun: Arc<Function>,
     },
@@ -177,6 +178,7 @@ pub enum TypeExpression {
     Opt(Box<Src<TypeExpression>>),
     Fallible(Box<Src<TypeExpression>>, Box<Src<TypeExpression>>),
     TypeName(Ident),
+    SelfType,
     Infer,
 }
 
@@ -348,7 +350,15 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Fun => {
                     self.expect_kind(TokenKind::Fun)?;
+
                     let (name, _) = self.expect_ident()?;
+                    let (prefix, name) = if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
+                        let (n, _) = self.expect_ident()?;
+                        (Some(name), n)
+                    } else {
+                        (None, name)
+                    };
+
                     let params = self.parse_params(false)?;
 
                     let type_expr = if self.next_if_kind(&TokenKind::Colon).is_some() {
@@ -365,7 +375,7 @@ impl<'a> Parser<'a> {
                         params,
                         type_expr,
                     });
-                    ast.push(Statement::Function { name, fun });
+                    ast.push(Statement::Function { prefix, name, fun });
                 }
                 TokenKind::Return => {
                     self.expect_kind(TokenKind::Return)?;
@@ -906,12 +916,19 @@ impl<'a> Parser<'a> {
                 let name = name.clone();
                 let t = p.expect_token()?;
 
+                // XXX Do not allow 'self' with type
+                // XXX Only allow 'self' as first argument
+
                 if p.next_if_kind(&TokenKind::Colon).is_some() {
                     let type_expr = p.parse_type_expr()?;
                     let param = p.complete_param_expr(Some(name), type_expr)?;
                     Ok(param)
                 } else if infer_types {
                     let type_expr = Src::new(TypeExpression::Infer, t.loc);
+                    let param = p.complete_param_expr(Some(name), type_expr)?;
+                    Ok(param)
+                } else if name.as_str() == "self" {
+                    let type_expr = Src::new(TypeExpression::SelfType, t.loc);
                     let param = p.complete_param_expr(Some(name), type_expr)?;
                     Ok(param)
                 } else {

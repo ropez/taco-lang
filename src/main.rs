@@ -22,9 +22,7 @@ fn main() -> io::Result<()> {
     let mut args = args().peekable();
     let _ = args.next().expect("script name");
 
-    let testing = args.next_if_eq("test").is_some();
-
-    let result = if testing {
+    let result = if args.next_if_eq("test").is_some() {
         testing_main(args.next())?;
 
         Ok(())

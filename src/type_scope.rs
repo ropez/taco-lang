@@ -25,6 +25,7 @@ pub enum TypeDefinition {
 pub(crate) struct TypeScope {
     types: HashMap<Ident, TypeDefinition>,
     expected_type: Option<ScriptType>,
+    self_type: Option<ScriptType>,
 }
 
 impl TypeScope {
@@ -32,6 +33,7 @@ impl TypeScope {
         Self {
             types,
             expected_type: None,
+            self_type: None,
         }
     }
 
@@ -39,6 +41,34 @@ impl TypeScope {
         Self {
             types: self.types.clone(),
             expected_type: exp.into(),
+            self_type: self.self_type.clone(),
+        }
+    }
+
+    pub(crate) fn with_self_type(&self, self_type: impl Into<ScriptType>) -> Self {
+        Self {
+            types: self.types.clone(),
+            expected_type: self.expected_type.clone(),
+            self_type: Some(self_type.into()),
+        }
+    }
+
+    // XXX Must be fallible
+    pub(crate) fn resolve_self_type(&self, self_type_prefix: &Option<Ident>) -> Self {
+        if let Some(prefix) = &self_type_prefix {
+            if let Some(typedef) = self.get(prefix) {
+                let self_type = match typedef {
+                    TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
+                    TypeDefinition::UnionDefinition(def) => {
+                        ScriptType::UnionInstance(Arc::clone(def))
+                    }
+                };
+                self.with_self_type(self_type)
+            } else {
+                todo!("type not found: {}", prefix);
+            }
+        } else {
+            self.clone()
         }
     }
 
@@ -186,6 +216,13 @@ pub(crate) fn eval_type_expr(
                 TypeError::new(TypeErrorKind::UndefinedReference(ident.clone())).at(type_expr.loc),
             ),
         },
+        TypeExpression::SelfType => {
+            if let Some(t) = &scope.self_type {
+                Ok(t.clone())
+            } else {
+                todo!("self not allowed here");
+            }
+        }
         TypeExpression::Infer => {
             if let Some(t) = &scope.expected_type {
                 Ok(t.clone())

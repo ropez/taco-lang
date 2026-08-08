@@ -98,6 +98,55 @@ fun test_pass_record_as_function() {
     ]
 }
 
+fun test_rec_method() {
+    rec Person(first_name: str, last_name: str)
+
+    fun Person::full_name(self): str {
+        "${self.first_name} ${self.last_name}"
+    }
+
+    # Methods can use other names than "self", but then type
+    # annotation is needed, so it's not "idiomatic".
+    fun Person::initials(p: Person): str {
+        "${p.first_name.chars().at(0) ?? '_'}.${p.last_name.chars().at(0) ?? '_'}."
+    }
+
+    p = Person("Bruce", "Wayne")
+
+    assert p.full_name() == "Bruce Wayne"
+    assert p.initials() == "B.W."
+
+    # Function without 'self'
+    fun Person::test(n: int): int {
+        100 + n
+    }
+
+    # assert p.test() == 100
+
+    # This should pass
+    assert Person::test(42) == 142
+
+    # This also passes, which is OK, I guess (same as Rust)
+    assert Person::full_name(p) == "Bruce Wayne"
+
+    # This should not be valid
+    # assert p.test(42) == 142
+}
+
+fun test_mutating_rec_method() {
+    rec Dog(name: str, hungry: bool)
+
+    fun Dog::feed(self): Dog {
+        Dog(self.name, hungry: false)
+    }
+
+    p = Dog("Lola", hungry: true)
+
+    p = p.feed()
+
+    assert p.name == "Lola"
+    assert p.hungry == false
+}
 
 fun test_apply_params() {
     rec Foo(a: int, b: int, c: int, d: int)

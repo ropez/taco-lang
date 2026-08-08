@@ -35,6 +35,7 @@ impl Display for Ident {
 
 pub(crate) mod global {
     pub(crate) const REC: &str = "__rec__";
+    pub(crate) const UNION: &str = "__rec__";
     pub(crate) const TUPLE: &str = "__tuple__";
     pub(crate) const LIST: &str = "__list__";
     pub(crate) const RANGE: &str = "__range__";

@@ -7,7 +7,7 @@ use crate::{
     error::{ScriptError, ScriptResult, TypeResult},
     ext::NativeFunction,
     interpreter::Interpreter,
-    script_type::{RecType, ScriptType, TupleItemType, TupleType, UnionType},
+    script_type::{ScriptType, TupleItemType, TupleType, UnionType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseError},
     type_scope::TypeDefinition,

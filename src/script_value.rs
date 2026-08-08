@@ -46,6 +46,7 @@ pub enum ScriptValue {
     },
 
     ScriptFunction(ScriptFunction),
+    ScriptFunctionBound(ScriptFunction, Arc<Tuple>),
 
     Record(Arc<RecType>),
     UnionVariant {
@@ -470,6 +471,7 @@ impl ScriptFunction {
     }
 }
 
+// XXX This might be unnecessary, because extensions should return Err(ScriptError::error(v))
 impl From<Result<ScriptValue, ScriptValue>> for ScriptValue {
     fn from(value: Result<ScriptValue, ScriptValue>) -> Self {
         match value {

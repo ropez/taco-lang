@@ -103,3 +103,40 @@ fun test_apply_params() {
     assert Union::Foo(1, d: 4, 2, 3) == expected
     assert Union::Foo(1, c: 3, 2, 4) == expected
 }
+
+fun test_union_methods() {
+    union Hero {
+        Fighter(strength: int, speed: int)
+        Mage(magic: int)
+    }
+
+    fun Hero::power(self): int {
+        match self {
+            ::Fighter(strength, speed) { strength + speed }
+            ::Mage(magic) { magic * 2 }
+        }
+    }
+
+    fun Hero::stronger_than(self, other: Hero): bool {
+        self.power() > other.power()
+    }
+
+    # Can make this confusing if we want to,
+    # The subject is always the first argument. The only thing special about "self",
+    # is that the type is inferred from the scope.
+    fun Hero::weaker_than(main_hero: Hero, self): bool {
+        main_hero.power() < self.power()
+    }
+
+    fighter = Hero::Fighter(strength: 80, speed: 65)
+    assert fighter.power() == 145
+
+    mage = Hero::Mage(magic: 75)
+    assert mage.power() == 150
+
+    assert fighter.stronger_than(mage) == false
+    assert mage.stronger_than(fighter) == true
+
+    assert mage.weaker_than(fighter) == false
+}
+
