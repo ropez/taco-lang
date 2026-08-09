@@ -974,12 +974,24 @@ impl Validator {
         }
 
         if let ScriptType::NativeFunction(f) = subject.as_ref() {
-            // XXX Support destructure
             let args = match arguments {
-                CallExpression::Inline(inline) => self.eval_tuple(inline, scope),
-                CallExpression::Destructure(src) => todo!(),
-                CallExpression::DestructureImplicit(loc) => todo!(),
-            }?;
+                CallExpression::Inline(inline) => self.eval_tuple(inline, scope)?,
+                CallExpression::Destructure(src) => {
+                    let t = self.eval_expr(src, scope)?;
+                    if let ScriptType::Tuple(tuple) = t.as_ref() {
+                        tuple.clone()
+                    } else {
+                        Err(
+                            TypeError::new(TypeErrorKind::InvalidDestructure(t.cloned()))
+                                .at(src.loc),
+                        )?
+                    }
+                }
+                CallExpression::DestructureImplicit(_) => scope.arguments.clone(),
+            };
+
+            // XXX Native functions don't support pointing out specifically with argument failed.
+            // We don't pass "Loc" to NativeFunction trait.
 
             let params = subject.as_callable_params(&args)?;
 

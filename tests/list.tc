@@ -247,7 +247,9 @@ fun test_cartesian_2() {
     letters = ["a", "b"]
     numbers = [1, 2, 3]
 
-    cart = List::cartesian(letters, numbers)
+    args = (letters, numbers)
+
+    cart = List::cartesian(=args)
 
     assert cart == [
         ("a", 1)
@@ -260,7 +262,12 @@ fun test_cartesian_2() {
 }
 
 fun test_cartesian_3() {
-    cart = List::cartesian([1, 2], ['a', 'b'], [true, false])
+    # destructing wrapper
+    fun wrap([int], [char], [bool]): [(int, char, bool)] {
+        return List::cartesian(=)
+    }
+
+    cart = wrap([1, 2], ['a', 'b'], [true, false])
 
     assert cart == [
         (1, 'a', true)
