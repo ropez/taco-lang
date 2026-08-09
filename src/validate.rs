@@ -280,9 +280,8 @@ impl Validator {
                 self.eval_assignment(assignee, &typ, &mut scope)?;
             }
             Statement::FunctionDefinition { prefix, name, fun } => {
-                // XXX Tracking methods by name, which is incorrect if a type is redefined in an inner scope
-                let full_name = match prefix {
-                    Some(prefix) => Ident::from(format!("{}::{}", prefix.cloned(), name)),
+                let ident = match prefix {
+                    Some(prefix) => Ident::qualified_name(prefix, name),
                     None => name.clone(),
                 };
 
@@ -294,8 +293,8 @@ impl Validator {
                     is_bound: false,
                 };
 
-                scope.track_local_function(&full_name, function.clone());
-                scope.set_local(&full_name, ScriptType::ScriptFunction(function));
+                scope.track_local_function(&ident, function.clone());
+                scope.set_local(&ident, ScriptType::ScriptFunction(function));
             }
             Statement::Rec(rec) => {
                 scope.types.eval_rec(rec)?;
@@ -534,10 +533,9 @@ impl Validator {
             }
             Expression::PrefixedName(prefix, name) => match scope.types.get(prefix) {
                 Some(typedef) => {
-                    // TODO Support for defining associated methods like Record::foo()
-                    let prefixed_name = Ident::from(format!("{}::{}", prefix, name));
-                    if let Some(v) = scope.get_local(&prefixed_name) {
-                        Ok(v.clone())
+                    let qualified_name = Ident::qualified_name(prefix, name);
+                    if let Some(value) = scope.get_local(&qualified_name) {
+                        Ok(value.clone())
                     } else if let Some(m) = self.type_methods.get(name) {
                         Ok(ScriptType::NativeTypeMethodBound(
                             m.clone(),
@@ -572,8 +570,8 @@ impl Validator {
                 }
                 None => {
                     // XXX Little bit hackish to re-combine the full name like this
-                    let full_ident = format!("{prefix}::{name}").into();
-                    if let Some(value) = scope.locals.get(&full_ident) {
+                    let qualified_name = Ident::qualified_name(prefix, name);
+                    if let Some(value) = scope.get_local(&qualified_name) {
                         Ok(value.clone())
                     } else {
                         Err(
@@ -603,9 +601,9 @@ impl Validator {
                         _ => None,
                     };
 
-                    if let Some(prefix) = prefix {
-                        let prefixed_name = Ident::from(format!("{}::{}", prefix, key));
-                        if let Some(local) = scope.get_local(&prefixed_name) {
+                    if let Some(prefix) = &prefix {
+                        let qualified_name = Ident::qualified_name(prefix, key);
+                        if let Some(local) = scope.get_local(&qualified_name) {
                             if let ScriptType::ScriptFunction(f) = local {
                                 if let Some(first) = f.function.params.items().first() {
                                     if first.value.accepts(&subject) {

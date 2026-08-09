@@ -25,6 +25,11 @@ impl Ident {
     pub fn as_str(&self) -> &str {
         self.0.as_ref()
     }
+
+    // XXX Need to generate mangled prefix, to emiliminate type shadowing issues
+    pub fn qualified_name(prefix: &Self, name: &Self) -> Self {
+        Self::from(format!("{}::{}", prefix, name))
+    }
 }
 
 impl Display for Ident {

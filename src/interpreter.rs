@@ -194,8 +194,8 @@ impl Interpreter {
                 }
                 Statement::FunctionDefinition { prefix, name, fun } => {
                     // XXX Tracking methods by name, which is incorrect if a type is redefined in an inner scope
-                    let full_name = match prefix {
-                        Some(prefix) => Ident::from(format!("{}::{}", prefix.cloned(), name)),
+                    let ident = match prefix {
+                        Some(prefix) => Ident::qualified_name(prefix, name),
                         None => name.clone(),
                     };
 
@@ -209,11 +209,11 @@ impl Interpreter {
                         ScriptFunction::new(function, Arc::clone(fun), Arc::new(scope.capture()));
 
                     let fun = ScriptValue::ScriptFunction(script_function.clone());
-                    scope.set_local(&full_name, fun);
+                    scope.set_local(&ident, fun);
                     scope
                         .local_functions
                         .write_blocking()
-                        .insert(full_name, script_function);
+                        .insert(ident, script_function);
                 }
                 Statement::Rec(rec) => {
                     scope.types.eval_rec(rec).map_err(ScriptError::panic)?;
@@ -455,8 +455,8 @@ impl Interpreter {
             Expression::PrefixedName(prefix, name) => {
                 match scope.types.get(prefix) {
                     Some(typedef) => {
-                        let prefixed_name = Ident::from(format!("{}::{}", prefix, name));
-                        if let Some(v) = scope.locals.get(&prefixed_name) {
+                        let qualified_name = Ident::qualified_name(prefix, name);
+                        if let Some(v) = scope.locals.get(&qualified_name) {
                             v.clone()
                         } else if let Some(method) = self.type_methods.get(name) {
                             ScriptValue::NativeTypeMethodBound(method.clone(), typedef.clone())
@@ -481,17 +481,17 @@ impl Interpreter {
                                     panic!("Union variant not found: {name} in {prefix}");
                                 }
                             } else {
-                                panic!("Unexpected expression {prefix}::{name}")
+                                panic!("Unexpected expression {qualified_name}")
                             }
                         }
                     }
                     _ => {
                         // XXX Little bit hackish to re-combine the full name like this
-                        let full_ident = format!("{prefix}::{name}").into();
-                        if let Some(value) = scope.locals.get(&full_ident) {
+                        let qualified_name = Ident::qualified_name(prefix, name);
+                        if let Some(value) = scope.locals.get(&qualified_name) {
                             value.clone()
                         } else {
-                            panic!("Union not found: {prefix}")
+                            panic!("Name not found: {qualified_name}")
                         }
                     }
                 }
@@ -514,9 +514,9 @@ impl Interpreter {
                         _ => None,
                     };
 
-                    if let Some(prefix) = prefix {
-                        let prefixed_name = Ident::from(format!("{}::{}", prefix, key));
-                        if let Some(local) = scope.locals.get(&prefixed_name) {
+                    if let Some(prefix) = &prefix {
+                        let qualified_name = Ident::qualified_name(prefix, key);
+                        if let Some(local) = scope.locals.get(&qualified_name) {
                             if let ScriptValue::ScriptFunction(f) = local {
                                 let bound_args = Tuple::new(vec![TupleItem::unnamed(subject)]);
                                 return Ok(ScriptValue::ScriptFunctionBound(
