@@ -117,25 +117,26 @@ fun test_union_methods() {
         }
     }
 
-    fun Hero::stronger_than(self, other: Hero): bool {
-        self.power() > other.power()
-    }
-
-    # Can make this confusing if we want to,
-    # The subject is always the first argument. The only thing special about "self",
-    # is that the type is inferred from the scope.
-    fun Hero::weaker_than(main_hero: Hero, self): bool {
-        main_hero.power() < self.power()
-    }
-
     fighter = Hero::Fighter(strength: 80, speed: 65)
     assert fighter.power() == 145
 
     mage = Hero::Mage(magic: 75)
     assert mage.power() == 150
 
+    # Methods can take other arguments (like other instances)
+    fun Hero::stronger_than(self, other: Hero): bool {
+        self.power() > other.power()
+    }
+
     assert fighter.stronger_than(mage) == false
     assert mage.stronger_than(fighter) == true
+
+    # Can make this confusing if we want to,
+    # The subject is always the first argument. The only thing special about "self",
+    # is that the type is inferred from the scope. This is not idiomatic Taco!
+    fun Hero::weaker_than(main_hero: Hero, self): bool {
+        main_hero.power() < self.power()
+    }
 
     assert mage.weaker_than(fighter) == false
 }

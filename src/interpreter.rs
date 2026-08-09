@@ -192,14 +192,14 @@ impl Interpreter {
                     let rhs = self.eval_expr(value, &scope)?;
                     eval_assignment(assignee, &rhs, &mut scope.locals);
                 }
-                Statement::Function { prefix, name, fun } => {
+                Statement::FunctionDefinition { prefix, name, fun } => {
                     // XXX Tracking methods by name, which is incorrect if a type is redefined in an inner scope
                     let full_name = match prefix {
-                        Some(prefix) => Ident::from(format!("{}::{}", prefix, name)),
+                        Some(prefix) => Ident::from(format!("{}::{}", prefix.cloned(), name)),
                         None => name.clone(),
                     };
 
-                    let type_scope = scope.types.resolve_self_type(prefix);
+                    let type_scope = scope.types.resolve_self_type(prefix).map_err(ScriptError::panic)?;
                     let function = eval_function(fun, &type_scope).map_err(ScriptError::panic)?;
 
                     let script_function =

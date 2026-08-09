@@ -23,10 +23,8 @@ pub enum Statement {
         value: Src<Expression>,
     },
 
-    // Are functions expressions?
-    // Is this just an assignment?
-    Function {
-        prefix: Option<Ident>,
+    FunctionDefinition {
+        prefix: Option<Src<Ident>>,
         name: Ident,
         fun: Arc<Function>,
     },
@@ -351,10 +349,10 @@ impl<'a> Parser<'a> {
                 TokenKind::Fun => {
                     self.expect_kind(TokenKind::Fun)?;
 
-                    let (name, _) = self.expect_ident()?;
+                    let (name, loc) = self.expect_ident()?;
                     let (prefix, name) = if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
                         let (n, _) = self.expect_ident()?;
-                        (Some(name), n)
+                        (Some(Src::new(name, loc)), n)
                     } else {
                         (None, name)
                     };
@@ -375,7 +373,7 @@ impl<'a> Parser<'a> {
                         params,
                         type_expr,
                     });
-                    ast.push(Statement::Function { prefix, name, fun });
+                    ast.push(Statement::FunctionDefinition { prefix, name, fun });
                 }
                 TokenKind::Return => {
                     self.expect_kind(TokenKind::Return)?;

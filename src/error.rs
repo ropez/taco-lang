@@ -80,6 +80,7 @@ pub enum TypeErrorKind {
     InvalidExpression,
     InvalidStaticExpression,
     UndefinedReference(Ident),
+    TypeNotFound(Ident),
     UndefinedMethod {
         type_name: Ident,
         method_name: Ident,
@@ -130,6 +131,7 @@ pub enum TypeErrorKind {
         actual: ScriptType,
     },
     TryNotAllowed,
+    SelfNotAllowed,
     TypeNotInferred,
     MissingReturnStatement,
     EmptyList,
@@ -188,6 +190,7 @@ impl TypeError {
     pub(crate) fn into_source_error(self, source: &str) -> Error {
         let msg = match self.kind {
             TypeErrorKind::UndefinedReference(ident) => format!("Undefined reference: {ident}"),
+            TypeErrorKind::TypeNotFound(ident) => format!("Type not found: {ident}"),
             TypeErrorKind::UndefinedMethod {
                 type_name,
                 method_name,
@@ -261,6 +264,7 @@ impl TypeError {
                 format!("Expected a list of tuples, found '{actual}'")
             }
             TypeErrorKind::TryNotAllowed => "Question operator not allowed here".into(),
+            TypeErrorKind::SelfNotAllowed => "Self argument not allowed here".into(),
             TypeErrorKind::TypeNotInferred => "Type can not be inferred".into(),
             TypeErrorKind::TypeAssertionFailed(msg) => {
                 format!("Assertion failed during static analysis.\n\t{msg}")

@@ -54,7 +54,7 @@ impl TypeScope {
     }
 
     // XXX Must be fallible
-    pub(crate) fn resolve_self_type(&self, self_type_prefix: &Option<Ident>) -> Self {
+    pub(crate) fn resolve_self_type(&self, self_type_prefix: &Option<Src<Ident>>) -> TypeResult<Self> {
         if let Some(prefix) = &self_type_prefix {
             if let Some(typedef) = self.get(prefix) {
                 let self_type = match typedef {
@@ -63,12 +63,12 @@ impl TypeScope {
                         ScriptType::UnionInstance(Arc::clone(def))
                     }
                 };
-                self.with_self_type(self_type)
+                Ok(self.with_self_type(self_type))
             } else {
-                todo!("type not found: {}", prefix);
+                Err(TypeError::new(TypeErrorKind::TypeNotFound(prefix.cloned())).at(prefix.loc))
             }
         } else {
-            self.clone()
+            Ok(self.clone())
         }
     }
 
@@ -220,7 +220,7 @@ pub(crate) fn eval_type_expr(
             if let Some(t) = &scope.self_type {
                 Ok(t.clone())
             } else {
-                todo!("self not allowed here");
+                Err(TypeError::new(TypeErrorKind::SelfNotAllowed).at(type_expr.loc))
             }
         }
         TypeExpression::Infer => {

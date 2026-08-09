@@ -279,14 +279,14 @@ impl Validator {
                 let typ = self.validate_expr(value, &scope)?;
                 self.eval_assignment(assignee, &typ, &mut scope)?;
             }
-            Statement::Function { prefix, name, fun } => {
+            Statement::FunctionDefinition { prefix, name, fun } => {
                 // XXX Tracking methods by name, which is incorrect if a type is redefined in an inner scope
                 let full_name = match prefix {
-                    Some(prefix) => Ident::from(format!("{}::{}", prefix, name)),
+                    Some(prefix) => Ident::from(format!("{}::{}", prefix.cloned(), name)),
                     None => name.clone(),
                 };
 
-                let type_scope = scope.types.resolve_self_type(prefix);
+                let type_scope = scope.types.resolve_self_type(prefix)?;
                 let function = ScriptFunction {
                     function: self.eval_function_signature(fun, &type_scope)?,
                     source: Arc::clone(fun),
