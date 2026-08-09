@@ -199,7 +199,10 @@ impl Interpreter {
                         None => name.clone(),
                     };
 
-                    let type_scope = scope.types.resolve_self_type(prefix).map_err(ScriptError::panic)?;
+                    let type_scope = scope
+                        .types
+                        .resolve_self_type(prefix)
+                        .map_err(ScriptError::panic)?;
                     let function = eval_function(fun, &type_scope).map_err(ScriptError::panic)?;
 
                     let script_function =
@@ -896,32 +899,9 @@ impl Interpreter {
         arguments: &Tuple,
     ) -> ScriptResult<ScriptValue> {
         let return_value = match callable {
-            ScriptValue::ScriptFunction(f) => {
-                let mut inner_scope = self.clone_captured_scope(&f);
-
-                let values = transform_args(&f.function.params, arguments);
-                for item in values.items() {
-                    if let Some(name) = &item.name {
-                        inner_scope.set_local(name, item.value.clone());
-                    }
-                }
-                inner_scope.arguments = Arc::new(values);
-
-                let ret = self
-                    .execute_block(&f.source.body, inner_scope)
-                    .map(|ret| match ret {
-                        Completion::EndOfBlock(_) => ScriptValue::opt(None),
-                        Completion::ExplicitReturn(v) => v,
-                        Completion::ImpliedReturn(v) => v,
-                        _ => panic!("Script function ended with break/continue"),
-                    });
-
-                try_wrap_err(wrap_retval(ret, &f.function.ret))?
-            }
-            ScriptValue::ScriptFunctionBound(f, bound_args) => {
-                let mut inner_scope = self.clone_captured_scope(&f);
-
-                let final_args = Tuple::new(
+            ScriptValue::ScriptFunction(fun) => self.eval_script_function(&fun, arguments)?,
+            ScriptValue::ScriptFunctionBound(fun, bound_args) => {
+                let arguments = Tuple::new(
                     bound_args
                         .items()
                         .iter()
@@ -930,24 +910,7 @@ impl Interpreter {
                         .collect(),
                 );
 
-                let values = transform_args(&f.function.params, &final_args);
-                for item in values.items() {
-                    if let Some(name) = &item.name {
-                        inner_scope.set_local(name, item.value.clone());
-                    }
-                }
-                inner_scope.arguments = Arc::new(values);
-
-                let ret = self
-                    .execute_block(&f.source.body, inner_scope)
-                    .map(|ret| match ret {
-                        Completion::EndOfBlock(_) => ScriptValue::opt(None),
-                        Completion::ExplicitReturn(v) => v,
-                        Completion::ImpliedReturn(v) => v,
-                        _ => panic!("Script function ended with break/continue"),
-                    });
-
-                try_wrap_err(wrap_retval(ret, &f.function.ret))?
+                self.eval_script_function(&fun, &arguments)?
             }
             ScriptValue::Record(rec) => {
                 let values = transform_args(&rec.params, arguments);
@@ -980,6 +943,34 @@ impl Interpreter {
         };
 
         Ok(return_value)
+    }
+
+    fn eval_script_function(
+        &self,
+        fun: &ScriptFunction,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
+        let mut inner_scope = self.clone_captured_scope(fun);
+
+        let values = transform_args(&fun.function.params, arguments);
+        for item in values.items() {
+            if let Some(name) = &item.name {
+                inner_scope.set_local(name, item.value.clone());
+            }
+        }
+        inner_scope.arguments = Arc::new(values);
+
+        let ret = self
+            .execute_block(&fun.source.body, inner_scope)
+            .map(|ret| match ret {
+                Completion::EndOfBlock(_) => ScriptValue::opt(None),
+                Completion::ExplicitReturn(v) => v,
+                Completion::ImpliedReturn(v) => v,
+                Completion::Break => panic!("Script function ended with break"),
+                Completion::Continue => panic!("Script function ended with continue"),
+            });
+
+        try_wrap_err(wrap_retval(ret, &fun.function.ret))
     }
 
     fn clone_captured_scope(&self, fun: &ScriptFunction) -> Scope {
