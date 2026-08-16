@@ -5,7 +5,7 @@ use smol::{
     net::TcpStream,
 };
 use std::{net::ToSocketAddrs, sync::Arc};
-use url::Url;
+use url::{Url, UrlQuery};
 
 use crate::{
     Builder,
@@ -103,11 +103,16 @@ impl NativeFunction for FetchFunc {
             TupleItemType::named("name", ScriptType::Str),
             TupleItemType::named("value", ScriptType::Str),
         ]));
+        let param_tuple = ScriptType::Tuple(TupleType::new(vec![
+            TupleItemType::named("name", ScriptType::Str),
+            TupleItemType::named("value", ScriptType::Str),
+        ]));
         let args = vec![
             TupleItemType::unnamed(ScriptType::Str),
-            TupleItemType::optional("mathod", ScriptType::Str),
+            TupleItemType::optional("method", ScriptType::Str),
             TupleItemType::optional("body", ScriptType::Str),
             TupleItemType::optional("headers", ScriptType::list_of(header_tuple)),
+            TupleItemType::optional("params", ScriptType::list_of(param_tuple)),
         ];
 
         Ok(TupleType::new(args))
@@ -136,14 +141,36 @@ impl NativeFunction for FetchFunc {
             .unwrap_or_else(|| "GET".into());
         let body = args.get("body").map(|val| val.as_string()).transpose()?;
         let extra_headers = args.get("headers").map(|val| val.as_iterable());
+        let params = args.get("params").map(|val| val.as_iterable());
 
-        let url = Url::parse(&url).map_err(|err| self.fail("UrlError"))?;
+        let mut url = Url::parse(&url).map_err(|err| self.fail("UrlError"))?;
+
+        // Add query params
+        if let Some(params) = params {
+            for p in &params {
+                let tup = p
+                    .as_tuple()
+                    .ok_or_else(|| ScriptError::panic("Expected tuple"))?;
+                let mut args = tup.iter_args();
+                url.query_pairs_mut()
+                    .append_pair(
+                        args.get("name").unwrap().as_string().unwrap().as_ref(),
+                        args.get("value").unwrap().as_string().unwrap().as_ref()
+                    );
+            }
+        }
+
         let hostname = url.host_str().ok_or_else(|| self.fail("UrlError"))?;
         let port = url.port().unwrap_or(443);
         let path = url.path();
 
+        let path_and_query = match url.query() {
+            None => path.to_string(),
+            Some(query) => format!("{}?{}", path, query),
+        };
+
         let mut headers = vec![
-            format!("{method} {path} HTTP/1.1"),
+            format!("{method} {path_and_query} HTTP/1.1"),
             format!("Host: {hostname}"),
             "Connection: close".to_string(),
             "User-Agent: Taco/0.1".to_string(),
