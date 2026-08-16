@@ -17,6 +17,7 @@ pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::STRING, "trim", StringTrim);
     builder.add_method(global::STRING, "chars", StringChars);
     builder.add_method(global::STRING, "contains", StringContains);
+    builder.add_method(global::STRING, "starts_with", StringStartsWith);
     builder.add_method(global::STRING, "split", StringSplit);
     builder.add_method(global::STRING, "split_at", StringSplitAt);
     builder.add_method(global::STRING, "as_json", StringAsType(ContentType::Json));
@@ -104,6 +105,28 @@ impl NativeMethod for StringContains {
         let subject = subject.as_string()?;
         let c = arguments.single()?.as_string()?;
         Ok(ScriptValue::Boolean(subject.contains(c.as_ref())))
+    }
+
+    fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {
+        Ok(TupleType::from_single(ScriptType::Str))
+    }
+
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Bool)
+    }
+}
+
+pub(crate) struct StringStartsWith;
+impl NativeMethod for StringStartsWith {
+    fn call(
+        &self,
+        _: &Interpreter,
+        subject: ScriptValue,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
+        let subject = subject.as_string()?;
+        let c = arguments.single()?.as_string()?;
+        Ok(ScriptValue::Boolean(subject.starts_with(c.as_ref())))
     }
 
     fn arguments_type(&self, _: &ScriptType) -> TypeResult<TupleType> {

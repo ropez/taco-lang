@@ -74,6 +74,15 @@ fun test_chars_unicode() {
     assert "Юлія☃".chars() == ['Ю', 'л', 'і', 'я', '☃']
 }
 
+fun test_starts_with() {
+    assert "foobar".starts_with("foo") == true
+    assert "foobar".starts_with("") == true
+    assert "foobar".starts_with("bar") == false
+    assert "foobar".starts_with("foobar") == true
+    assert "foobar".starts_with("foobarfoo") == false
+    assert "foobar".starts_with(" foo ") == false
+}
+
 fun test_char_type() {
     fun test(a: char): [char] {
         return [a]

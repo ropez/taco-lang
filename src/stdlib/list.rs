@@ -13,6 +13,7 @@ use crate::{
 pub(crate) fn build(builder: &mut Builder) {
     builder.add_method(global::LIST, "len", ListLen);
     builder.add_method(global::LIST, "push", ListPush);
+    builder.add_method(global::LIST, "insert", ListInsert);
     builder.add_method(global::LIST, "at", ListAt);
     builder.add_method(global::LIST, "skip", ListSkip);
     builder.add_method(global::LIST, "take", ListTake);
@@ -62,6 +63,10 @@ impl List {
     pub fn push(&mut self, item: ScriptValue) {
         self.0.push(item);
     }
+
+    pub fn insert(&mut self, index: usize, item: ScriptValue) {
+        self.0.insert(index, item);
+    }
 }
 
 impl From<List> for ScriptValue {
@@ -104,6 +109,33 @@ impl ListMethod for ListPush {
 
     fn list_arguments_type(&self, inner: &ScriptType) -> TypeResult<TupleType> {
         // XXX Variadic args not supported (but allowed in call)
+        Ok(TupleType::from_single(inner.clone()))
+    }
+
+    fn list_return_type(&self, inner: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::list_of(inner.clone()))
+    }
+
+    fn empty_list_return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
+        let arg = arguments.single()?;
+        Ok(ScriptType::list_of(arg.clone()))
+    }
+}
+
+pub(crate) struct ListInsert;
+impl ListMethod for ListInsert {
+    fn list_call(
+        &self,
+        _: &Interpreter,
+        mut subject: Arc<List>,
+        arguments: &Tuple,
+    ) -> ScriptResult<ScriptValue> {
+        let arg = arguments.single()?;
+        Arc::make_mut(&mut subject).insert(0, arg.clone());
+        Ok(ScriptValue::List(subject))
+    }
+
+    fn list_arguments_type(&self, inner: &ScriptType) -> TypeResult<TupleType> {
         Ok(TupleType::from_single(inner.clone()))
     }
 
