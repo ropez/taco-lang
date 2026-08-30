@@ -7,12 +7,13 @@ edition = "2024"
 crate-type = ["cdylib", "rlib"]
 
 [features]
-default = ["fs", "net", "http", "process", "json"]
+default = ["fs", "net", "http", "process", "json", "datetime"]
 fs = []
 net = ["dep:smol"]
 http = ["dep:smol", "dep:url", "dep:httparse", "dep:rustls", "dep:webpki-roots"]
 process = ["pipe"]
 json = ["dep:tinyjson"]
+datetime = ["jiff"]
 pipe = ["dep:smol"]
 
 [dependencies]
@@ -25,6 +26,7 @@ rustls = { version = "0.23.35", features = ["std", "ring"], default-features = f
 webpki-roots = { version = "1.0.4", optional = true }
 url = { version = "2.5.7", optional = true }
 httparse = { version = "1.10.1", optional = true }
+jiff = { version = "0.2.35", optional = true }
 
 [target.wasm32-unknown-unknown.dependencies]
 wasm-bindgen = "0.2"

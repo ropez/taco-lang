@@ -5,7 +5,7 @@ use smol::{
     net::TcpStream,
 };
 use std::{net::ToSocketAddrs, sync::Arc};
-use url::{Url, UrlQuery};
+use url::Url;
 
 use crate::{
     Builder,
@@ -31,6 +31,9 @@ pub fn build(builder: &mut Builder) {
         ],
     );
     builder.add_union("HttpError", Arc::clone(&http_error));
+
+    // XXX Need a way to register an ExternalType so that we can refer to it in scripts.
+    // e.g. fun fetch_foo(): Response
 
     builder.add_function("Http::fetch", FetchFunc { http_error });
 }
@@ -152,11 +155,10 @@ impl NativeFunction for FetchFunc {
                     .as_tuple()
                     .ok_or_else(|| ScriptError::panic("Expected tuple"))?;
                 let mut args = tup.iter_args();
-                url.query_pairs_mut()
-                    .append_pair(
-                        args.get("name").unwrap().as_string().unwrap().as_ref(),
-                        args.get("value").unwrap().as_string().unwrap().as_ref()
-                    );
+                url.query_pairs_mut().append_pair(
+                    args.get("name").unwrap().as_string().unwrap().as_ref(),
+                    args.get("value").unwrap().as_string().unwrap().as_ref(),
+                );
             }
         }
 

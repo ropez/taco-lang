@@ -342,6 +342,14 @@ impl ScriptError {
     }
 }
 
+impl<T> From<T> for ScriptError
+    where T: error::Error
+{
+    fn from(err: T) -> Self {
+        ScriptError::panic(err)
+    }
+}
+
 pub type TypeResult<T> = result::Result<T, TypeError>;
 pub type ScriptResult<T> = result::Result<T, ScriptError>;
 

@@ -35,6 +35,9 @@ pub(crate) mod process;
 #[cfg(feature = "json")]
 pub(crate) mod json;
 
+#[cfg(feature = "datetime")]
+pub(crate) mod datetime;
+
 pub fn build<O>(builder: &mut Builder, out: Arc<Mutex<O>>)
 where
     O: io::Write + Send + Sync + 'static,
@@ -69,4 +72,7 @@ where
 
     #[cfg(feature = "json")]
     json::build(builder);
+
+    #[cfg(feature = "datetime")]
+    datetime::build(builder);
 }

@@ -1,0 +1,61 @@
+
+fun test_utc_now_to_iso() {
+    dt_now = DateTime::utc_now()
+
+    iso_now = dt_now.to_iso()
+
+    println(iso_now)
+
+    # Can't check exact output, but we can make some assertions
+    assert typeof(iso_now) == "str"
+    assert iso_now.len() >= 20
+    assert iso_now.starts_with("20")
+}
+
+fun test_start_of() {
+    dt = DateTime::parse("2026-08-28T13:14:05.123+02:00")!
+
+    assert dt.start_of_second().to_iso() == "2026-08-28T13:14:05+02:00"
+    assert dt.start_of_minute().to_iso() == "2026-08-28T13:14:00+02:00"
+    assert dt.start_of_hour().to_iso() == "2026-08-28T13:00:00+02:00"
+    assert dt.start_of_day().to_iso() == "2026-08-28T00:00:00+02:00"
+    assert dt.start_of_week().to_iso() == "2026-08-24T00:00:00+02:00"
+}
+
+fun test_end_of() {
+    dt = DateTime::parse("2026-08-28T13:14:05.123+02:00")!
+
+    assert dt.end_of_second().to_iso() == "2026-08-28T13:14:06+02:00"
+    assert dt.end_of_minute().to_iso() == "2026-08-28T13:15:00+02:00"
+    assert dt.end_of_hour().to_iso() == "2026-08-28T14:00:00+02:00"
+    assert dt.end_of_day().to_iso() == "2026-08-29T00:00:00+02:00"
+    assert dt.end_of_week().to_iso() == "2026-08-31T00:00:00+02:00"
+}
+
+fun test_add() {
+    dt = DateTime::parse("2026-08-28T13:14:05.123+02:00")!
+
+    assert dt.add(seconds: 90).to_iso() == "2026-08-28T13:15:35.123+02:00"
+    assert dt.add(minutes: 90).to_iso() == "2026-08-28T14:44:05.123+02:00"
+    assert dt.add(hours: 24).to_iso() == "2026-08-29T13:14:05.123+02:00"
+    assert dt.add(days: 7).to_iso() == "2026-09-04T13:14:05.123+02:00"
+    assert dt.add(weeks: 4).to_iso() == "2026-09-25T13:14:05.123+02:00"
+    assert dt.add(months: 3).to_iso() == "2026-11-28T13:14:05.123+01:00"
+    assert dt.add(years: 10).to_iso() == "2036-08-28T13:14:05.123+02:00"
+
+    assert dt.add(hours: 24, minutes: 90, seconds: 15).to_iso() == "2026-08-29T14:44:20.123+02:00"
+}
+
+fun test_add_negative() {
+    dt = DateTime::parse("2026-08-28T13:14:05.123+02:00")!
+
+    assert dt.add(seconds: -90).to_iso() == "2026-08-28T13:12:35.123+02:00"
+    assert dt.add(minutes: -90).to_iso() == "2026-08-28T11:44:05.123+02:00"
+    assert dt.add(hours: -24).to_iso() == "2026-08-27T13:14:05.123+02:00"
+    assert dt.add(days: -7).to_iso() == "2026-08-21T13:14:05.123+02:00"
+    assert dt.add(weeks: -4).to_iso() == "2026-07-31T13:14:05.123+02:00"
+    assert dt.add(months: -3).to_iso() == "2026-05-28T13:14:05.123+02:00"
+    assert dt.add(years: -10).to_iso() == "2016-08-28T13:14:05.123+02:00"
+
+    assert dt.add(hours: 24, minutes: 90, seconds: 15).to_iso() == "2026-08-29T14:44:20.123+02:00"
+}
