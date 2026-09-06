@@ -35,6 +35,12 @@ impl ExternalType for DateTimeType {
 
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
         match name.as_str() {
+            "year" => Some(NativeMethodRef::new(Arc::new(GetYearMethod))),
+            "month" => Some(NativeMethodRef::new(Arc::new(GetMonthMethod))),
+            "day" => Some(NativeMethodRef::new(Arc::new(GetDayMethod))),
+            "hour" => Some(NativeMethodRef::new(Arc::new(GetHourMethod))),
+            "minute" => Some(NativeMethodRef::new(Arc::new(GetMinuteMethod))),
+            "second" => Some(NativeMethodRef::new(Arc::new(GetSecondMethod))),
             "to_iso" => Some(NativeMethodRef::new(Arc::new(ToIsoMethod))),
             "add" => Some(NativeMethodRef::new(Arc::new(AddMethod))),
             "start_of_day" => Some(NativeMethodRef::new(Arc::new(SimpleRoundMethod(
@@ -138,6 +144,78 @@ impl NativeFunction for UtcNowFunc {
     }
 }
 
+struct GetYearMethod;
+impl NativeMethod for GetYearMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Int)
+    }
+
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let DateTimeValue(val) = s.downcast_ext()?;
+        Ok(ScriptValue::Int(val.year() as i64))
+    }
+}
+
+struct GetMonthMethod;
+impl NativeMethod for GetMonthMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Int)
+    }
+
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let DateTimeValue(val) = s.downcast_ext()?;
+        Ok(ScriptValue::Int(val.month() as i64))
+    }
+}
+
+struct GetDayMethod;
+impl NativeMethod for GetDayMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Int)
+    }
+
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let DateTimeValue(val) = s.downcast_ext()?;
+        Ok(ScriptValue::Int(val.day() as i64))
+    }
+}
+
+struct GetHourMethod;
+impl NativeMethod for GetHourMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Int)
+    }
+
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let DateTimeValue(val) = s.downcast_ext()?;
+        Ok(ScriptValue::Int(val.hour() as i64))
+    }
+}
+
+struct GetMinuteMethod;
+impl NativeMethod for GetMinuteMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Int)
+    }
+
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let DateTimeValue(val) = s.downcast_ext()?;
+        Ok(ScriptValue::Int(val.minute() as i64))
+    }
+}
+
+struct GetSecondMethod;
+impl NativeMethod for GetSecondMethod {
+    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(ScriptType::Int)
+    }
+
+    fn call(&self, _: &Interpreter, s: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
+        let DateTimeValue(val) = s.downcast_ext()?;
+        Ok(ScriptValue::Int(val.second() as i64))
+    }
+}
+
 struct ToIsoMethod;
 impl NativeMethod for ToIsoMethod {
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
@@ -156,9 +234,8 @@ impl NativeMethod for ToIsoMethod {
 
 struct SimpleRoundMethod(ZonedRound);
 impl NativeMethod for SimpleRoundMethod {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
-        // Fixme, reuse type
-        Ok(ScriptType::Ext(Arc::new(DateTimeType)))
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(subject.clone())
     }
 
     fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {
@@ -171,9 +248,8 @@ impl NativeMethod for SimpleRoundMethod {
 
 struct WeekRoundMethod(i32);
 impl NativeMethod for WeekRoundMethod {
-    fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
-        // Fixme, reuse type
-        Ok(ScriptType::Ext(Arc::new(DateTimeType)))
+    fn return_type(&self, subject: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
+        Ok(subject.clone())
     }
 
     fn call(&self, _: &Interpreter, subject: ScriptValue, _: &Tuple) -> ScriptResult<ScriptValue> {

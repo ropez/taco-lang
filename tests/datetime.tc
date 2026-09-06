@@ -12,6 +12,17 @@ fun test_utc_now_to_iso() {
     assert iso_now.starts_with("20")
 }
 
+fun test_fields() {
+    dt = DateTime::parse("2026-08-28T13:14:05.123+02:00")!
+
+    assert dt.year() == 2026
+    assert dt.month() == 8
+    assert dt.day() == 28
+    assert dt.hour() == 13
+    assert dt.minute() == 14
+    assert dt.second() == 5
+}
+
 fun test_start_of() {
     dt = DateTime::parse("2026-08-28T13:14:05.123+02:00")!
 
