@@ -177,7 +177,6 @@ impl NativeFunction for ParseIntFunc {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        // XXX Create a custom error type
         let error_typ = ScriptType::RecInstance(Arc::clone(&self.parse_error));
         let value_typ = ScriptType::Int;
 

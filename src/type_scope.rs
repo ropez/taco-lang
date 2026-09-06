@@ -81,7 +81,11 @@ impl TypeScope {
     }
 
     pub(crate) fn eval_rec(&mut self, rec: &Record) -> TypeResult<()> {
-        let rec_type = RecType::new(&rec.name, eval_params(&rec.params, self)?);
+        let rec_type = RecType::new_with_attrs(
+            &rec.name,
+            eval_params(&rec.params, self)?,
+            eval_type_attrs(&rec.attrs)?,
+        );
 
         self.insert(&rec.name, TypeDefinition::RecDefinition(rec_type));
 

@@ -349,6 +349,7 @@ impl FunctionType {
 pub struct RecType {
     pub(crate) name: Ident,
     pub(crate) params: TupleType,
+    pub(crate) attrs: Vec<TypeAttribute>,
 }
 
 impl RecType {
@@ -356,6 +357,19 @@ impl RecType {
         Arc::new(Self {
             name: name.into(),
             params: params.into(),
+            attrs: Vec::new(),
+        })
+    }
+
+    pub fn new_with_attrs(
+        name: impl Into<Ident>,
+        params: impl Into<TupleType>,
+        attrs: Vec<TypeAttribute>,
+    ) -> Arc<Self> {
+        Arc::new(Self {
+            name: name.into(),
+            params: params.into(),
+            attrs,
         })
     }
 }

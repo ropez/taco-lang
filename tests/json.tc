@@ -100,3 +100,61 @@ fun test_parse_invalid_json_error() {
     assert typeof(err) == "ParseError(message: str)"
     assert err.message.contains("Invalid character")
 }
+
+fun test_kebab_casing() {
+    rec Test(
+        snake_case: int
+        camelCase: int
+        PascalCase: int
+    ) @json(casing: "kebab")
+
+    city = Test(1, 2, 3)
+
+    assert json(city).contains(""""snake-case":1""")
+    assert json(city).contains(""""camel-case":2""")
+    assert json(city).contains(""""pascal-case":3""")
+
+    back = Test::parse(json(city))!
+    assert back.snake_case == 1
+    assert back.camelCase == 2
+    assert back.PascalCase == 3
+}
+
+fun test_camel_casing() {
+    rec Test(
+        snake_case: int
+        camelCase: int
+        PascalCase: int
+    ) @json(casing: "camel")
+
+    city = Test(1, 2, 3)
+
+    assert json(city).contains(""""snakeCase":1""")
+    assert json(city).contains(""""camelCase":2""")
+    assert json(city).contains(""""pascalCase":3""")
+
+    back = Test::parse(json(city))!
+    assert back.snake_case == 1
+    assert back.camelCase == 2
+    assert back.PascalCase == 3
+}
+
+fun test_pascal_casing() {
+    rec Test(
+        snake_case: int
+        camelCase: int
+        PascalCase: int
+    ) @json(casing: "pascal")
+
+    city = Test(1, 2, 3)
+
+    assert json(city).contains(""""SnakeCase":1""")
+    assert json(city).contains(""""CamelCase":2""")
+    assert json(city).contains(""""PascalCase":3""")
+
+    back = Test::parse(json(city))!
+    assert back.snake_case == 1
+    assert back.camelCase == 2
+    assert back.PascalCase == 3
+}
+
