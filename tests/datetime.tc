@@ -70,3 +70,25 @@ fun test_add_negative() {
 
     assert dt.add(hours: 24, minutes: 90, seconds: 15).to_iso() == "2026-08-29T14:44:20.123+02:00"
 }
+
+fun test_implicit_return_datetime() {
+    list = [0]
+    list = list.map(fun(_) { DateTime::local().start_of_day() })
+
+    assert list.at(0)!.to_iso().starts_with("20")
+    assert typeof(list) == "[DateTime]"
+}
+
+fun test_explicit_return_datetime() {
+    fun today(): DateTime {
+        # dt = DateTime::parse("2026-08-28T13:14:05.123+02:00")!
+        # return dt
+        dt = DateTime::utc_now()
+        return dt
+        # return DateTime::local().start_of_day()
+    }
+
+    assert today().to_iso().starts_with("20")
+    assert typeof(today) == "fun(): DateTime"
+}
+

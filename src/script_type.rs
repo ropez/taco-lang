@@ -77,7 +77,6 @@ impl ScriptType {
 
     pub fn accepts(&self, other: &ScriptType) -> bool {
         match (self, other) {
-            (ScriptType::Ext(_), _) => false,
             (ScriptType::Infer(_), _) => true,
             (ScriptType::Unknown, _) => true,
             (ScriptType::Int, ScriptType::Int) => true,
@@ -121,6 +120,10 @@ impl ScriptType {
             // i.e. only allowing (Opt(_), Opt(Unknown)) etc
             (_, ScriptType::Infer(_)) => true,
             (_, ScriptType::Unknown) => true,
+
+            // Native types only accepts exact matches
+            (ScriptType::Ext(l), ScriptType::Ext(r)) => Arc::ptr_eq(l, r),
+            (ScriptType::Ext(_), _) => false,
 
             _ => false,
         }
@@ -304,6 +307,16 @@ impl ScriptType {
     }
 }
 
+impl From<&TypeDefinition> for ScriptType {
+    fn from(value: &TypeDefinition) -> Self {
+        match value {
+            TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
+            TypeDefinition::UnionDefinition(def) => ScriptType::UnionInstance(Arc::clone(def)),
+            TypeDefinition::NativeType(n) => ScriptType::Ext(Arc::clone(n)),
+        }
+    }
+}
+
 impl fmt::Display for ScriptType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -327,7 +340,7 @@ impl fmt::Display for ScriptType {
             }
             Self::Infer(n) => write!(f, "<{n}>"),
             Self::Unknown => write!(f, "{{unknown}}"),
-            Self::Ext(e) => write!(f, "{{{}}}", e.name()),
+            Self::Ext(e) => write!(f, "{}", e.name()),
             _ => write!(f, "{:?}", self),
         }
     }

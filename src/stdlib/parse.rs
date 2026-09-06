@@ -41,11 +41,7 @@ impl NativeTypeMethod for ParseFunc {
 
     fn return_type(&self, typedef: &TypeDefinition, _: &TupleType) -> TypeResult<ScriptType> {
         let error_typ = ScriptType::RecInstance(Arc::clone(&self.parse_error));
-
-        let value_typ = match typedef {
-            TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
-            TypeDefinition::UnionDefinition(def) => ScriptType::UnionInstance(Arc::clone(def)),
-        };
+        let value_typ = ScriptType::from(typedef);
 
         Ok(ScriptType::fallible_of(value_typ, error_typ))
     }
@@ -136,6 +132,9 @@ fn parse_default(typedef: &TypeDefinition, input: &str) -> Result<ScriptValue, P
         }
         TypeDefinition::UnionDefinition(_) => Err(ParseError::new(
             "Default parser doesn't support union parsing",
+        )),
+        TypeDefinition::NativeType(n) => Err(ParseError::new(
+            format!("Default parser doesn't support {}", n.name())
         )),
     }
 }

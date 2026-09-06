@@ -32,16 +32,19 @@ pub fn build(builder: &mut Builder) {
     );
     builder.add_union("HttpError", Arc::clone(&http_error));
 
-    // XXX Need a way to register an ExternalType so that we can refer to it in scripts.
-    // e.g. fun fetch_foo(): Response
+    let http_response: Arc<dyn ExternalType + Send + Sync> = Arc::new(ResponseType);
+    builder.add_native_type("HttpResponse", Arc::clone(&http_response));
 
-    builder.add_function("Http::fetch", FetchFunc { http_error });
+    builder.add_function(
+        "Http::fetch",
+        FetchFunc::new(http_error, Arc::clone(&http_response)),
+    );
 }
 
 struct ResponseType;
 impl ExternalType for ResponseType {
     fn name(&self) -> Ident {
-        "Response".into()
+        "HttpResponse".into()
     }
 
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef> {
@@ -79,9 +82,17 @@ impl ExternalValue for ResponseValue {
 
 struct FetchFunc {
     http_error: Arc<UnionType>,
+    http_response: Arc<dyn ExternalType + Send + Sync>,
 }
 
 impl FetchFunc {
+    fn new(http_error: Arc<UnionType>, http_response: Arc<dyn ExternalType + Send + Sync>) -> Self {
+        Self {
+            http_error,
+            http_response,
+        }
+    }
+
     fn fail(&self, variant: impl Into<Ident>) -> ScriptError {
         let err = ScriptValue::variant(&self.http_error, &variant.into());
         match err {
@@ -122,7 +133,7 @@ impl NativeFunction for FetchFunc {
     }
 
     fn return_type(&self, _arguments: &TupleType) -> TypeResult<ScriptType> {
-        let res = ScriptType::Ext(Arc::new(ResponseType));
+        let res = ScriptType::Ext(Arc::clone(&self.http_response));
         Ok(ScriptType::fallible_of(
             res,
             ScriptType::UnionInstance(Arc::clone(&self.http_error)),
@@ -255,7 +266,7 @@ impl NativeFunction for FetchFunc {
                 let response = ResponseValue::new(code, body);
 
                 Ok(ScriptValue::ok(ScriptValue::Ext(
-                    Arc::new(ResponseType),
+                    Arc::clone(&self.http_response),
                     Arc::new(response),
                 )))
             }

@@ -43,3 +43,11 @@ fun connection_refused() {
     assert typeof(err) == "HttpError"
     assert err == HttpError::ConnectionRefused
 }
+
+fun method_return_response() {
+    fun use_api(path: str): HttpResponse ~ HttpError {
+        return Http::fetch("https://foobar.test$path")
+    }
+
+    assert typeof(use_api) == "fun(path: str): HttpResponse ~ HttpError"
+}

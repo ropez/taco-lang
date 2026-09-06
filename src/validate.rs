@@ -520,7 +520,7 @@ impl Validator {
                                 ret,
                             )))
                         }
-                        TypeDefinition::UnionDefinition(_) => {
+                        _ => {
                             Err(TypeError::new(TypeErrorKind::InvalidExpression).at(expr.loc))
                         }
                     }

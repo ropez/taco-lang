@@ -2,6 +2,7 @@ use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
+    ext::ExternalType,
     ident::Ident,
     lexer::Src,
     parser::{
@@ -19,6 +20,7 @@ use crate::{
 pub enum TypeDefinition {
     RecDefinition(Arc<RecType>),
     UnionDefinition(Arc<UnionType>),
+    NativeType(Arc<dyn ExternalType + Send + Sync>),
 }
 
 #[derive(Clone)]
@@ -53,16 +55,13 @@ impl TypeScope {
         }
     }
 
-    // XXX Must be fallible
-    pub(crate) fn resolve_self_type(&self, self_type_prefix: &Option<Src<Ident>>) -> TypeResult<Self> {
+    pub(crate) fn resolve_self_type(
+        &self,
+        self_type_prefix: &Option<Src<Ident>>,
+    ) -> TypeResult<Self> {
         if let Some(prefix) = &self_type_prefix {
             if let Some(typedef) = self.get(prefix) {
-                let self_type = match typedef {
-                    TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
-                    TypeDefinition::UnionDefinition(def) => {
-                        ScriptType::UnionInstance(Arc::clone(def))
-                    }
-                };
+                let self_type = ScriptType::from(typedef);
                 Ok(self.with_self_type(self_type))
             } else {
                 Err(TypeError::new(TypeErrorKind::TypeNotFound(prefix.cloned())).at(prefix.loc))
@@ -210,12 +209,7 @@ pub(crate) fn eval_type_expr(
             Ok(ScriptType::fallible_of(inner_value, inner_error))
         }
         TypeExpression::TypeName(ident) => match scope.get(ident) {
-            Some(TypeDefinition::RecDefinition(rec)) => {
-                Ok(ScriptType::RecInstance(Arc::clone(rec)))
-            }
-            Some(TypeDefinition::UnionDefinition(def)) => {
-                Ok(ScriptType::UnionInstance(Arc::clone(def)))
-            }
+            Some(typedef) => Ok(ScriptType::from(typedef)),
             None => Err(
                 TypeError::new(TypeErrorKind::UndefinedReference(ident.clone())).at(type_expr.loc),
             ),

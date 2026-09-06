@@ -56,6 +56,9 @@ impl ScriptValue {
                 let params = variant.params.as_ref().expect("union variant has params");
                 format!("fun{}: {}", params, def.name)
             }
+            ScriptValue::Ext(t, _) => {
+                format!("{}", t.name())
+            }
             _ => todo!("to_type for {self:?}"),
         }
     }

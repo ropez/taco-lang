@@ -3,8 +3,8 @@ use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
 use crate::{
     error::Error,
     ext::{
-        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, NativeTypeMethod,
-        NativeTypeMethodRef,
+        ExternalType, NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
+        NativeTypeMethod, NativeTypeMethodRef,
     },
     ident::Ident,
     interpreter::Interpreter,
@@ -273,6 +273,15 @@ impl Builder {
     pub fn add_union(&mut self, name: impl Into<Ident>, def: Arc<UnionType>) {
         self.types
             .insert(name.into(), TypeDefinition::UnionDefinition(def));
+    }
+
+    pub fn add_native_type(
+        &mut self,
+        name: impl Into<Ident>,
+        t: Arc<dyn ExternalType + Send + Sync>,
+    ) {
+        self.types
+            .insert(name.into(), TypeDefinition::NativeType(t));
     }
 
     fn build_validator(&self) -> Validator {

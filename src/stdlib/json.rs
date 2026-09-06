@@ -68,6 +68,7 @@ pub(crate) fn parse_json(typedef: &TypeDefinition, input: &str) -> Result<Script
             let json: JsonValue = input.parse().map_err(ParseError::new)?;
             parse_union(def, &json)
         }
+        TypeDefinition::NativeType(e) => parse_bail!("Can't parse {}", e.name()),
     }
 }
 

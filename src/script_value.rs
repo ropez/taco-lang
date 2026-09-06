@@ -230,6 +230,21 @@ impl ScriptValue {
             Err(ScriptError::panic("tried to downcast non-ext value"))
         }
     }
+
+    pub fn downcast_ext2<T>(&self) -> ScriptResult<(&Arc<dyn ExternalType + Send + Sync + 'static>, &T)>
+    where
+        T: ExternalValue + 'static,
+    {
+        if let ScriptValue::Ext(t, value) = self {
+            let v = value
+                .as_any()
+                .downcast_ref::<T>()
+                .ok_or_else(|| ScriptError::panic("invalid downcast"))?;
+            Ok((t, v))
+        } else {
+            Err(ScriptError::panic("tried to downcast non-ext value"))
+        }
+    }
 }
 
 impl PartialEq for ScriptValue {
