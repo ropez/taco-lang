@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    ext::{ExternalType, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
+    native::{NativeType, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
     fmt::fmt_tuple,
     ident::Ident,
     lexer::Src,
@@ -54,7 +54,7 @@ pub enum ScriptType {
     // resolved to a known type, otherwise it's an error.
     Unknown,
 
-    Ext(Arc<dyn ExternalType + Send + Sync>),
+    Native(Arc<dyn NativeType + Send + Sync>),
 }
 
 impl ScriptType {
@@ -122,8 +122,8 @@ impl ScriptType {
             (_, ScriptType::Unknown) => true,
 
             // Native types only accepts exact matches
-            (ScriptType::Ext(l), ScriptType::Ext(r)) => Arc::ptr_eq(l, r),
-            (ScriptType::Ext(_), _) => false,
+            (ScriptType::Native(l), ScriptType::Native(r)) => Arc::ptr_eq(l, r),
+            (ScriptType::Native(_), _) => false,
 
             _ => false,
         }
@@ -206,7 +206,7 @@ impl ScriptType {
     }
 
     pub fn as_readable(&self) -> Option<ScriptType> {
-        if let Self::Ext(ext) = self {
+        if let Self::Native(ext) = self {
             ext.as_readable()
         } else {
             todo!("Called as_readable on {self}, expected an extension type")
@@ -214,7 +214,7 @@ impl ScriptType {
     }
 
     pub fn as_writable(&self) -> Option<ScriptType> {
-        if let Self::Ext(ext) = self {
+        if let Self::Native(ext) = self {
             ext.as_writable()
         } else {
             todo!("Called as_writable on {self}, expected an extension type")
@@ -289,9 +289,9 @@ impl ScriptType {
 
     pub fn downcast_ext<T>(&self, expexted: impl Into<String>) -> TypeResult<&T>
     where
-        T: ExternalType + 'static,
+        T: NativeType + 'static,
     {
-        if let ScriptType::Ext(value) = self {
+        if let ScriptType::Native(value) = self {
             value.as_any().downcast_ref::<T>().ok_or_else(|| {
                 TypeError::new(TypeErrorKind::InvalidArgument {
                     expected: expexted.into(),
@@ -312,7 +312,7 @@ impl From<&TypeDefinition> for ScriptType {
         match value {
             TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
             TypeDefinition::UnionDefinition(def) => ScriptType::UnionInstance(Arc::clone(def)),
-            TypeDefinition::NativeType(n) => ScriptType::Ext(Arc::clone(n)),
+            TypeDefinition::NativeType(n) => ScriptType::Native(Arc::clone(n)),
         }
     }
 }
@@ -340,7 +340,7 @@ impl fmt::Display for ScriptType {
             }
             Self::Infer(n) => write!(f, "<{n}>"),
             Self::Unknown => write!(f, "{{unknown}}"),
-            Self::Ext(e) => write!(f, "{}", e.name()),
+            Self::Native(e) => write!(f, "{}", e.name()),
             _ => write!(f, "{:?}", self),
         }
     }

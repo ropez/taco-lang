@@ -2,8 +2,8 @@ use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
 
 use crate::{
     error::Error,
-    ext::{
-        ExternalType, NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
+    native::{
+        NativeType, NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
         NativeTypeMethod, NativeTypeMethodRef,
     },
     ident::Ident,
@@ -22,7 +22,7 @@ use async_lock::Mutex;
 use wasm_bindgen::prelude::*;
 
 pub mod error;
-pub mod ext;
+pub mod native;
 pub mod ident;
 pub mod interpreter;
 pub mod lexer;
@@ -278,7 +278,7 @@ impl Builder {
     pub fn add_native_type(
         &mut self,
         name: impl Into<Ident>,
-        t: Arc<dyn ExternalType + Send + Sync>,
+        t: Arc<dyn NativeType + Send + Sync>,
     ) {
         self.types
             .insert(name.into(), TypeDefinition::NativeType(t));

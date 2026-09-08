@@ -8,7 +8,7 @@ use async_lock::{Mutex, RwLock};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    ext::{NativeMethodRef, NativeTypeMethodRef},
+    native::{NativeMethodRef, NativeTypeMethodRef},
     fmt::fmt_tuple,
     ident::{Ident, global},
     lexer::{Loc, Src},
@@ -214,7 +214,7 @@ impl Validator {
             ScriptType::EmptyList | ScriptType::List(_) => global::LIST.into(),
             ScriptType::Opt(_) => global::OPT.into(),
             ScriptType::Fallible(_, _) => global::FALLIBLE.into(),
-            ScriptType::Ext(ext) => return ext.get_method(name),
+            ScriptType::Native(ext) => return ext.get_method(name),
             _ => todo!("NS for {subject}"),
         };
         self.methods.get(&(ns, name.clone())).cloned()
@@ -323,7 +323,7 @@ impl Validator {
                         inner_scope.set_local(ident, ScriptType::Int);
                         self.validate_block(body, inner_scope)?;
                     }
-                    ScriptType::Ext(ref ext) => {
+                    ScriptType::Native(ref ext) => {
                         if let Some(inner) = ext.as_readable() {
                             let mut inner_scope = scope.clone();
                             inner_scope.set_local(ident, inner);
@@ -475,7 +475,7 @@ impl Validator {
                             .at(part.loc)
                             .at_offset(*offset));
                         }
-                        ScriptType::Ext(_) => {
+                        ScriptType::Native(_) => {
                             return Err(TypeError::new(TypeErrorKind::InvalidArgument {
                                 expected: "printable value".into(),
                                 actual: typ,
@@ -672,7 +672,7 @@ impl Validator {
 
                 let pipe = stdlib::pipe::PipeType::new(l.as_writable(), r.as_readable());
 
-                Ok(ScriptType::Ext(Arc::new(pipe)))
+                Ok(ScriptType::Native(Arc::new(pipe)))
             }
             #[cfg(not(feature = "pipe"))]
             Expression::Pipe(_, _) => Err(TypeError::new(TypeErrorKind::InvalidExpression))?,

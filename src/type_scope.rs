@@ -2,7 +2,7 @@ use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    ext::ExternalType,
+    native::NativeType,
     ident::Ident,
     lexer::Src,
     parser::{
@@ -20,7 +20,7 @@ use crate::{
 pub enum TypeDefinition {
     RecDefinition(Arc<RecType>),
     UnionDefinition(Arc<UnionType>),
-    NativeType(Arc<dyn ExternalType + Send + Sync>),
+    NativeType(Arc<dyn NativeType + Send + Sync>),
 }
 
 #[derive(Clone)]

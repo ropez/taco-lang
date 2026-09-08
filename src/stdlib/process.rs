@@ -15,8 +15,8 @@ use smol::{
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    ext::{
-        ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
+    native::{
+        NativeType, NativeValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
         Writable,
     },
     ident::Ident,
@@ -35,7 +35,7 @@ where
 }
 
 struct ProcessType;
-impl ExternalType for ProcessType {
+impl NativeType for ProcessType {
     fn name(&self) -> Ident {
         "Process".into()
     }
@@ -86,7 +86,7 @@ impl Process {
     }
 }
 
-impl ExternalValue for Process {
+impl NativeValue for Process {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -147,10 +147,10 @@ impl Writable for Process {
     }
 }
 
-struct ExecFunc(Arc<dyn ExternalType + Sync + Send>);
+struct ExecFunc(Arc<dyn NativeType + Sync + Send>);
 
 impl ExecFunc {
-    fn get_type(&self) -> Arc<dyn ExternalType + Sync + Send> {
+    fn get_type(&self) -> Arc<dyn NativeType + Sync + Send> {
         Arc::clone(&self.0)
     }
 }
@@ -184,7 +184,7 @@ impl NativeFunction for ExecFunc {
             .spawn()
             .map_err(ScriptError::panic)?;
 
-        Ok(ScriptValue::Ext(
+        Ok(ScriptValue::Native(
             self.get_type(),
             Arc::new(Process::new(child)),
         ))
@@ -195,7 +195,7 @@ impl NativeFunction for ExecFunc {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        Ok(ScriptType::Ext(self.get_type()))
+        Ok(ScriptType::Native(self.get_type()))
     }
 }
 

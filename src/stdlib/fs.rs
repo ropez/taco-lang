@@ -3,7 +3,7 @@ use std::{fs, io::ErrorKind};
 use crate::{
     Builder,
     error::{ScriptResult, TypeResult},
-    ext::NativeFunction,
+    native::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},

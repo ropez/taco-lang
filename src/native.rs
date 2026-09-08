@@ -11,7 +11,7 @@ use crate::{
     type_scope::TypeDefinition,
 };
 
-pub trait ExternalType {
+pub trait NativeType {
     fn name(&self) -> Ident;
     fn get_method(&self, name: &Ident) -> Option<NativeMethodRef>;
     fn as_any(&self) -> &dyn Any;
@@ -24,13 +24,13 @@ pub trait ExternalType {
     }
 }
 
-impl fmt::Debug for dyn ExternalType + Send + Sync {
+impl fmt::Debug for dyn NativeType + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{{{}}}", self.name())
     }
 }
 
-pub trait ExternalValue {
+pub trait NativeValue {
     fn as_any(&self) -> &dyn Any;
 
     fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
@@ -41,7 +41,7 @@ pub trait ExternalValue {
     }
 }
 
-impl fmt::Debug for dyn ExternalValue + Send + Sync {
+impl fmt::Debug for dyn NativeValue + Send + Sync {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let t = self.type_id();
         write!(f, "[extern {t:?}]")

@@ -1,7 +1,7 @@
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeError, TypeResult},
-    ext::NativeMethod,
+    native::NativeMethod,
     ident::global,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},

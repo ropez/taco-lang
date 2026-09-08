@@ -3,7 +3,7 @@ use std::{fmt, num::ParseIntError, sync::Arc};
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    ext::{NativeFunction, NativeTypeMethod},
+    native::{NativeFunction, NativeTypeMethod},
     interpreter::Interpreter,
     script_type::{RecType, ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},

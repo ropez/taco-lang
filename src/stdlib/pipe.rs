@@ -7,7 +7,7 @@ use smol::channel;
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeError, TypeResult},
-    ext::{ExternalType, ExternalValue, NativeFunction, NativeMethodRef, Readable, Writable},
+    native::{NativeType, NativeValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
     interpreter::{Interpreter, Scope},
     parser::Statement,
@@ -32,7 +32,7 @@ impl PipeType {
     }
 }
 
-impl ExternalType for PipeType {
+impl NativeType for PipeType {
     fn name(&self) -> Ident {
         "Pipe".into()
     }
@@ -56,14 +56,14 @@ impl ExternalType for PipeType {
 
 #[derive(Clone)]
 pub(crate) struct PipeImpl {
-    src: Arc<dyn ExternalValue + Send + Sync>,
-    dst: Arc<dyn ExternalValue + Send + Sync>,
+    src: Arc<dyn NativeValue + Send + Sync>,
+    dst: Arc<dyn NativeValue + Send + Sync>,
 }
 
 impl PipeImpl {
     pub(crate) fn new(
-        src: Arc<dyn ExternalValue + Send + Sync>,
-        dst: Arc<dyn ExternalValue + Send + Sync>,
+        src: Arc<dyn NativeValue + Send + Sync>,
+        dst: Arc<dyn NativeValue + Send + Sync>,
     ) -> Self {
         Self { src, dst }
     }
@@ -71,8 +71,8 @@ impl PipeImpl {
 
 pub(crate) fn exec_pipe(
     interpreter: &Interpreter,
-    lhs: Arc<dyn ExternalValue + Send + Sync>,
-    rhs: Arc<dyn ExternalValue + Send + Sync>,
+    lhs: Arc<dyn NativeValue + Send + Sync>,
+    rhs: Arc<dyn NativeValue + Send + Sync>,
 ) -> ScriptResult<()> {
     // XXX Cloning the interpreter feels wrong
     let i = interpreter.clone();
@@ -126,7 +126,7 @@ pub(crate) fn exec_spawn(
     Ok(())
 }
 
-impl ExternalValue for PipeImpl {
+impl NativeValue for PipeImpl {
     fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
         self.dst.as_readable()
     }
@@ -159,7 +159,7 @@ impl NativeFunction for ActorFunc {
             // Not really a pipe, but the type works here
             let pipe = PipeType::new(Some(lhs.clone()), Some(fun.ret.clone()));
 
-            Ok(ScriptType::Ext(Arc::new(pipe)))
+            Ok(ScriptType::Native(Arc::new(pipe)))
         } else {
             Err(TypeError::invalid_argument("function", arg))
         }
@@ -170,12 +170,12 @@ impl NativeFunction for ActorFunc {
 
         let t = Arc::new(ActorType(ScriptType::Infer(1), ScriptType::Infer(2))); // Dummy arguments, not used
         let v = Actor::new(callable);
-        Ok(ScriptValue::Ext(t, Arc::new(v)))
+        Ok(ScriptValue::Native(t, Arc::new(v)))
     }
 }
 
 struct ActorType(ScriptType, ScriptType);
-impl ExternalType for ActorType {
+impl NativeType for ActorType {
     fn name(&self) -> Ident {
         "Actor".into()
     }
@@ -215,7 +215,7 @@ impl Actor {
     }
 }
 
-impl ExternalValue for Actor {
+impl NativeValue for Actor {
     fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
         Some(self)
     }

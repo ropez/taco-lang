@@ -2,7 +2,7 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     error::{ScriptError, ScriptResult},
-    ext::{ExternalType, ExternalValue, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
+    native::{NativeType, NativeValue, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
     interpreter::Scope,
@@ -58,9 +58,9 @@ pub enum ScriptValue {
     NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
     NativeTypeMethodBound(NativeTypeMethodRef, TypeDefinition),
 
-    Ext(
-        Arc<dyn ExternalType + Send + Sync>,
-        Arc<dyn ExternalValue + Send + Sync>,
+    Native(
+        Arc<dyn NativeType + Send + Sync>,
+        Arc<dyn NativeValue + Send + Sync>,
     ),
 }
 
@@ -206,9 +206,9 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_ext(&self) -> ScriptResult<Arc<dyn ExternalValue + Send + Sync>> {
+    pub fn as_ext(&self) -> ScriptResult<Arc<dyn NativeValue + Send + Sync>> {
         match self {
-            Self::Ext(_, ext) => Ok(Arc::clone(ext)),
+            Self::Native(_, ext) => Ok(Arc::clone(ext)),
             _ => Err(ScriptError::panic("Not readable")),
         }
     }
@@ -219,9 +219,9 @@ impl ScriptValue {
 
     pub fn downcast_ext<T>(&self) -> ScriptResult<&T>
     where
-        T: ExternalValue + 'static,
+        T: NativeValue + 'static,
     {
-        if let ScriptValue::Ext(_, value) = self {
+        if let ScriptValue::Native(_, value) = self {
             value
                 .as_any()
                 .downcast_ref::<T>()
@@ -231,11 +231,11 @@ impl ScriptValue {
         }
     }
 
-    pub fn downcast_ext2<T>(&self) -> ScriptResult<(&Arc<dyn ExternalType + Send + Sync + 'static>, &T)>
+    pub fn downcast_ext2<T>(&self) -> ScriptResult<(&Arc<dyn NativeType + Send + Sync + 'static>, &T)>
     where
-        T: ExternalValue + 'static,
+        T: NativeValue + 'static,
     {
-        if let ScriptValue::Ext(t, value) = self {
+        if let ScriptValue::Native(t, value) = self {
             let v = value
                 .as_any()
                 .downcast_ref::<T>()
@@ -331,7 +331,7 @@ impl fmt::Display for ScriptValue {
                 Fallible::Ok(v) => write!(f, "Ok({v})"),
                 Fallible::Err(v) => write!(f, "Err({v})"),
             },
-            ScriptValue::Ext(t, _) => write!(f, "{{{}}}", t.name()),
+            ScriptValue::Native(t, _) => write!(f, "{{{}}}", t.name()),
             _ => todo!("Display impl for {self:?}"),
         }
     }

@@ -8,7 +8,7 @@ use async_lock::RwLock;
 
 use crate::{
     error::{ScriptError, ScriptErrorKind, ScriptResult},
-    ext::{NativeMethodRef, NativeTypeMethodRef},
+    native::{NativeMethodRef, NativeTypeMethodRef},
     ident::{Ident, global},
     lexer::Src,
     parser::{Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, Statement},
@@ -20,7 +20,7 @@ use crate::{
 
 #[cfg(feature = "pipe")]
 use crate::{
-    ext::ReadableExt,
+    native::ReadableExt,
     stdlib::pipe::{PipeImpl, PipeType, Tracker, exec_pipe},
 };
 
@@ -161,7 +161,7 @@ impl Interpreter {
             ScriptValue::Union { .. } => global::UNION.into(),
             ScriptValue::Opt(_) => global::OPT.into(),
             ScriptValue::Fallible(_) => global::FALLIBLE.into(),
-            ScriptValue::Ext(typ, _) => return typ.get_method(name),
+            ScriptValue::Native(typ, _) => return typ.get_method(name),
             _ => todo!("NS for {subject}"),
         };
         self.methods.get(&(ns, name.clone())).cloned()
@@ -255,7 +255,7 @@ impl Interpreter {
                             }
                         }
                         #[cfg(feature = "pipe")]
-                        ScriptValue::Ext(_, val) => {
+                        ScriptValue::Native(_, val) => {
                             if let Some(readable) = val.as_readable() {
                                 while let Some(v) = readable
                                     .blocking_read_next(self)
@@ -597,7 +597,7 @@ impl Interpreter {
 
                 exec_pipe(self, lhs.as_ext()?, rhs.as_ext()?).map_err(|err| err.at(expr.loc))?;
 
-                ScriptValue::Ext(
+                ScriptValue::Native(
                     Arc::new(PipeType::new(None, None)), // XXX Type not really used in runtine
                     Arc::new(PipeImpl::new(lhs.as_ext()?, rhs.as_ext()?)),
                 )

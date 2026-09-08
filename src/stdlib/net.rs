@@ -12,8 +12,8 @@ use smol::{
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    ext::{
-        ExternalType, ExternalValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
+    native::{
+        NativeType, NativeValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
         Writable,
     },
     ident::Ident,
@@ -30,7 +30,7 @@ pub fn build(builder: &mut Builder) {
 
 struct UdpSocketType;
 
-impl ExternalType for UdpSocketType {
+impl NativeType for UdpSocketType {
     fn name(&self) -> Ident {
         "UdpSocket".into()
     }
@@ -79,7 +79,7 @@ impl UdpSocketValue {
     }
 }
 
-impl ExternalValue for UdpSocketValue {
+impl NativeValue for UdpSocketValue {
     fn as_readable(&self) -> Option<&(dyn Readable + Send + Sync)> {
         Some(self)
     }
@@ -111,7 +111,7 @@ impl NativeFunction for UdpBind {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let ext = ScriptType::Ext(Arc::new(UdpSocketType));
+        let ext = ScriptType::Native(Arc::new(UdpSocketType));
         Ok(ScriptType::fallible_of(ext, ScriptType::Str))
     }
 
@@ -120,7 +120,7 @@ impl NativeFunction for UdpBind {
         smol::block_on(async move {
             match UdpSocketValue::bind(&addr).await {
                 Ok(value) => {
-                    let ext = ScriptValue::Ext(Arc::new(UdpSocketType), Arc::new(value));
+                    let ext = ScriptValue::Native(Arc::new(UdpSocketType), Arc::new(value));
                     Ok(ScriptValue::ok(ext))
                 }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
@@ -225,7 +225,7 @@ impl NativeMethod for RecvFromMethod {
 }
 
 struct TcpListenerType;
-impl ExternalType for TcpListenerType {
+impl NativeType for TcpListenerType {
     fn name(&self) -> Ident {
         "TcpListener".into()
     }
@@ -243,7 +243,7 @@ impl ExternalType for TcpListenerType {
 }
 
 struct TcpStreamType;
-impl ExternalType for TcpStreamType {
+impl NativeType for TcpStreamType {
     fn name(&self) -> Ident {
         "TcpStream".into()
     }
@@ -271,7 +271,7 @@ impl ExternalType for TcpStreamType {
 
 struct TcpListenerValue(TcpListener);
 
-impl ExternalValue for TcpListenerValue {
+impl NativeValue for TcpListenerValue {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -328,7 +328,7 @@ impl TcpStreamValue {
     }
 }
 
-impl ExternalValue for TcpStreamValue {
+impl NativeValue for TcpStreamValue {
     fn as_any(&self) -> &dyn Any {
         self
     }
@@ -380,7 +380,7 @@ impl NativeFunction for TcpConnect {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let ext = ScriptType::Ext(Arc::new(TcpStreamType));
+        let ext = ScriptType::Native(Arc::new(TcpStreamType));
         Ok(ScriptType::fallible_of(ext, ScriptType::Str))
     }
 
@@ -395,7 +395,7 @@ impl NativeFunction for TcpConnect {
         smol::block_on(async move {
             match TcpStreamValue::connect(&addr, timeout).await {
                 Ok(value) => {
-                    let ext = ScriptValue::Ext(Arc::new(TcpStreamType), Arc::new(value));
+                    let ext = ScriptValue::Native(Arc::new(TcpStreamType), Arc::new(value));
                     Ok(ScriptValue::ok(ext))
                 }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
@@ -411,7 +411,7 @@ impl NativeFunction for TcpListen {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let ext = ScriptType::Ext(Arc::new(TcpListenerType));
+        let ext = ScriptType::Native(Arc::new(TcpListenerType));
         Ok(ScriptType::fallible_of(ext, ScriptType::Str))
     }
 
@@ -420,7 +420,7 @@ impl NativeFunction for TcpListen {
         smol::block_on(async move {
             match TcpListenerValue::listen(&addr).await {
                 Ok(value) => {
-                    let ext = ScriptValue::Ext(Arc::new(TcpListenerType), Arc::new(value));
+                    let ext = ScriptValue::Native(Arc::new(TcpListenerType), Arc::new(value));
                     Ok(ScriptValue::ok(ext))
                 }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
@@ -437,7 +437,7 @@ impl NativeMethod for AcceptMethod {
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         // FIXME Should use a rec here
-        let ext = ScriptType::Ext(Arc::new(TcpStreamType));
+        let ext = ScriptType::Native(Arc::new(TcpStreamType));
         let tuple = ScriptType::Tuple(TupleType::new(vec![
             TupleItemType::unnamed(ext),
             TupleItemType::unnamed(ScriptType::Str),
@@ -452,7 +452,7 @@ impl NativeMethod for AcceptMethod {
         smol::block_on(async move {
             match listener.0.accept().await {
                 Ok((stream, b)) => {
-                    let ext = ScriptValue::Ext(
+                    let ext = ScriptValue::Native(
                         Arc::new(TcpStreamType),
                         Arc::new(TcpStreamValue::new(stream)),
                     );

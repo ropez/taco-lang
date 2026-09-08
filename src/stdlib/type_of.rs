@@ -3,7 +3,7 @@ use std::fmt::{self, Write};
 use crate::{
     Builder,
     error::{ScriptResult, TypeResult},
-    ext::NativeFunction,
+    native::NativeFunction,
     interpreter::Interpreter,
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
@@ -56,7 +56,7 @@ impl ScriptValue {
                 let params = variant.params.as_ref().expect("union variant has params");
                 format!("fun{}: {}", params, def.name)
             }
-            ScriptValue::Ext(t, _) => {
+            ScriptValue::Native(t, _) => {
                 format!("{}", t.name())
             }
             _ => todo!("to_type for {self:?}"),
