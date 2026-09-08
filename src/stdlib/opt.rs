@@ -1,9 +1,9 @@
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    native::{NativeFunction, NativeMethod},
     ident::global,
     interpreter::Interpreter,
+    native::{NativeFunction, NativeMethod},
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
 };

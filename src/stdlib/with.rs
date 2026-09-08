@@ -3,9 +3,9 @@ use std::sync::Arc;
 use crate::{
     Builder,
     error::{ScriptResult, TypeResult},
-    native::NativeMethod,
     ident::global,
     interpreter::Interpreter,
+    native::NativeMethod,
     script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ScriptValue, Tuple},
 };

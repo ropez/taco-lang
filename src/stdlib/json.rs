@@ -6,8 +6,8 @@ use tinyjson::JsonValue;
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    native::NativeFunction,
     interpreter::Interpreter,
+    native::NativeFunction,
     script_type::{RecType, ScriptType, TupleItemType, TupleType, UnionType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseError},

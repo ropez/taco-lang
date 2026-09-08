@@ -24,12 +24,6 @@ pub trait NativeType {
     }
 }
 
-impl fmt::Debug for dyn NativeType + Send + Sync {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{{{}}}", self.name())
-    }
-}
-
 pub trait NativeValue {
     fn as_any(&self) -> &dyn Any;
 
@@ -38,13 +32,6 @@ pub trait NativeValue {
     }
     fn as_writable(&self) -> Option<&(dyn Writable + Send + Sync)> {
         None
-    }
-}
-
-impl fmt::Debug for dyn NativeValue + Send + Sync {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let t = self.type_id();
-        write!(f, "[extern {t:?}]")
     }
 }
 
@@ -118,6 +105,83 @@ pub trait NativeTypeMethod {
         let _ = typedef;
         let _ = arguments;
         Ok(ScriptType::identity())
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeTypeRef(Arc<dyn NativeType + Send + Sync>);
+
+impl<T> From<T> for NativeTypeRef
+where
+    T: NativeType + Send + Sync + 'static,
+{
+    fn from(value: T) -> Self {
+        Self::new(Arc::new(value))
+    }
+}
+
+impl NativeTypeRef {
+    pub fn new(native_type: Arc<dyn NativeType + Send + Sync>) -> Self {
+        Self(native_type)
+    }
+}
+
+impl ops::Deref for NativeTypeRef {
+    type Target = dyn NativeType;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl fmt::Debug for NativeTypeRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{{{}}}", self.name())
+    }
+}
+
+impl PartialEq for NativeTypeRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
+    }
+}
+
+#[derive(Clone)]
+pub struct NativeValueRef(Arc<dyn NativeValue + Send + Sync>);
+
+impl<T> From<T> for NativeValueRef
+where
+    T: NativeValue + Send + Sync + 'static,
+{
+    fn from(value: T) -> Self {
+        Self::new(Arc::new(value))
+    }
+}
+
+impl NativeValueRef {
+    pub fn new(native_type: Arc<dyn NativeValue + Send + Sync>) -> Self {
+        Self(native_type)
+    }
+}
+
+impl ops::Deref for NativeValueRef {
+    type Target = dyn NativeValue;
+
+    fn deref(&self) -> &Self::Target {
+        &*self.0
+    }
+}
+
+impl fmt::Debug for NativeValueRef {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let t = self.type_id();
+        write!(f, "[native: {t:?}]")
+    }
+}
+
+impl PartialEq for NativeValueRef {
+    fn eq(&self, other: &Self) -> bool {
+        Arc::ptr_eq(&self.0, &other.0)
     }
 }
 

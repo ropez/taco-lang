@@ -10,9 +10,11 @@ use url::Url;
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    native::{NativeType, NativeValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
+    native::{
+        NativeFunction, NativeMethod, NativeMethodRef, NativeType, NativeTypeRef, NativeValue,
+    },
     script_type::{ScriptType, TupleItemType, TupleType, UnionType, UnionVariantType},
     script_value::{ContentType, ScriptValue, Tuple},
     stdlib::http::tls_stream::TlsStream,
@@ -32,12 +34,12 @@ pub fn build(builder: &mut Builder) {
     );
     builder.add_union("HttpError", Arc::clone(&http_error));
 
-    let http_response: Arc<dyn NativeType + Send + Sync> = Arc::new(ResponseType);
-    builder.add_native_type("HttpResponse", Arc::clone(&http_response));
+    let http_response = NativeTypeRef::from(ResponseType);
+    builder.add_native_type("HttpResponse", http_response.clone());
 
     builder.add_function(
         "Http::fetch",
-        FetchFunc::new(http_error, Arc::clone(&http_response)),
+        FetchFunc::new(http_error, http_response.clone()),
     );
 }
 
@@ -82,11 +84,11 @@ impl NativeValue for ResponseValue {
 
 struct FetchFunc {
     http_error: Arc<UnionType>,
-    http_response: Arc<dyn NativeType + Send + Sync>,
+    http_response: NativeTypeRef,
 }
 
 impl FetchFunc {
-    fn new(http_error: Arc<UnionType>, http_response: Arc<dyn NativeType + Send + Sync>) -> Self {
+    fn new(http_error: Arc<UnionType>, http_response: NativeTypeRef) -> Self {
         Self {
             http_error,
             http_response,
@@ -133,7 +135,7 @@ impl NativeFunction for FetchFunc {
     }
 
     fn return_type(&self, _arguments: &TupleType) -> TypeResult<ScriptType> {
-        let res = ScriptType::Native(Arc::clone(&self.http_response));
+        let res = ScriptType::Native(self.http_response.clone());
         Ok(ScriptType::fallible_of(
             res,
             ScriptType::UnionInstance(Arc::clone(&self.http_error)),
@@ -266,8 +268,8 @@ impl NativeFunction for FetchFunc {
                 let response = ResponseValue::new(code, body);
 
                 Ok(ScriptValue::ok(ScriptValue::Native(
-                    Arc::clone(&self.http_response),
-                    Arc::new(response),
+                    self.http_response.clone(),
+                    response.into(),
                 )))
             }
             httparse::Status::Partial => todo!("Partially parsed"),

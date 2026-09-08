@@ -12,12 +12,12 @@ use smol::{
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    native::{
-        NativeType, NativeValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
-        Writable,
-    },
     ident::Ident,
     interpreter::Interpreter,
+    native::{
+        NativeFunction, NativeMethod, NativeMethodRef, NativeType, NativeTypeRef, NativeValue,
+        NativeValueRef, Readable, Writable,
+    },
     script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
 };
@@ -111,17 +111,17 @@ impl NativeFunction for UdpBind {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let ext = ScriptType::Native(Arc::new(UdpSocketType));
-        Ok(ScriptType::fallible_of(ext, ScriptType::Str))
+        let value_type = ScriptType::Native(NativeTypeRef::from(UdpSocketType));
+        Ok(ScriptType::fallible_of(value_type, ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let addr = arguments.single()?.as_string()?;
         smol::block_on(async move {
             match UdpSocketValue::bind(&addr).await {
-                Ok(value) => {
-                    let ext = ScriptValue::Native(Arc::new(UdpSocketType), Arc::new(value));
-                    Ok(ScriptValue::ok(ext))
+                Ok(val) => {
+                    let value = ScriptValue::Native(NativeTypeRef::from(UdpSocketType), val.into());
+                    Ok(ScriptValue::ok(value))
                 }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
@@ -380,8 +380,8 @@ impl NativeFunction for TcpConnect {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let ext = ScriptType::Native(Arc::new(TcpStreamType));
-        Ok(ScriptType::fallible_of(ext, ScriptType::Str))
+        let value_type = ScriptType::Native(NativeTypeRef::from(TcpStreamType));
+        Ok(ScriptType::fallible_of(value_type, ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
@@ -394,9 +394,9 @@ impl NativeFunction for TcpConnect {
 
         smol::block_on(async move {
             match TcpStreamValue::connect(&addr, timeout).await {
-                Ok(value) => {
-                    let ext = ScriptValue::Native(Arc::new(TcpStreamType), Arc::new(value));
-                    Ok(ScriptValue::ok(ext))
+                Ok(val) => {
+                    let value = ScriptValue::Native(NativeTypeRef::from(TcpStreamType), val.into());
+                    Ok(ScriptValue::ok(value))
                 }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
@@ -411,17 +411,18 @@ impl NativeFunction for TcpListen {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let ext = ScriptType::Native(Arc::new(TcpListenerType));
-        Ok(ScriptType::fallible_of(ext, ScriptType::Str))
+        let value_type = ScriptType::Native(NativeTypeRef::from(TcpListenerType));
+        Ok(ScriptType::fallible_of(value_type, ScriptType::Str))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let addr = arguments.single()?.as_string()?;
         smol::block_on(async move {
             match TcpListenerValue::listen(&addr).await {
-                Ok(value) => {
-                    let ext = ScriptValue::Native(Arc::new(TcpListenerType), Arc::new(value));
-                    Ok(ScriptValue::ok(ext))
+                Ok(val) => {
+                    let value =
+                        ScriptValue::Native(NativeTypeRef::from(TcpListenerType), val.into());
+                    Ok(ScriptValue::ok(value))
                 }
                 Err(err) => Ok(ScriptValue::err(ScriptValue::string(err.to_string()))),
             }
@@ -437,9 +438,9 @@ impl NativeMethod for AcceptMethod {
 
     fn return_type(&self, _: &ScriptType, _: &TupleType) -> TypeResult<ScriptType> {
         // FIXME Should use a rec here
-        let ext = ScriptType::Native(Arc::new(TcpStreamType));
+        let value_type = ScriptType::Native(NativeTypeRef::from(TcpStreamType));
         let tuple = ScriptType::Tuple(TupleType::new(vec![
-            TupleItemType::unnamed(ext),
+            TupleItemType::unnamed(value_type),
             TupleItemType::unnamed(ScriptType::Str),
         ]));
 
@@ -452,13 +453,13 @@ impl NativeMethod for AcceptMethod {
         smol::block_on(async move {
             match listener.0.accept().await {
                 Ok((stream, b)) => {
-                    let ext = ScriptValue::Native(
-                        Arc::new(TcpStreamType),
-                        Arc::new(TcpStreamValue::new(stream)),
+                    let value = ScriptValue::Native(
+                        NativeTypeRef::from(TcpStreamType),
+                        NativeValueRef::from(TcpStreamValue::new(stream)),
                     );
 
                     let tuple = Arc::new(Tuple::new(vec![
-                        TupleItem::unnamed(ext),
+                        TupleItem::unnamed(value),
                         TupleItem::unnamed(ScriptValue::string(b.to_string())),
                     ]));
                     Ok(ScriptValue::ok(ScriptValue::Tuple(tuple)))

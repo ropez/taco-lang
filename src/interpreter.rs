@@ -8,9 +8,9 @@ use async_lock::RwLock;
 
 use crate::{
     error::{ScriptError, ScriptErrorKind, ScriptResult},
-    native::{NativeMethodRef, NativeTypeMethodRef},
     ident::{Ident, global},
     lexer::Src,
+    native::{NativeMethodRef, NativeTypeMethodRef},
     parser::{Assignee, CallExpression, Expression, Literal, MatchArm, MatchPattern, Statement},
     script_type::{ScriptType, TupleType},
     script_value::{Fallible, ScriptFunction, ScriptValue, Tuple, TupleItem},
@@ -592,14 +592,16 @@ impl Interpreter {
             }
             #[cfg(feature = "pipe")]
             Expression::Pipe(lhs, rhs) => {
+                use crate::native::{NativeTypeRef, NativeValueRef};
+
                 let lhs = self.eval_expr(lhs, scope).map_err(|err| err.at(lhs.loc))?;
                 let rhs = self.eval_expr(rhs, scope).map_err(|err| err.at(rhs.loc))?;
 
                 exec_pipe(self, lhs.as_ext()?, rhs.as_ext()?).map_err(|err| err.at(expr.loc))?;
 
                 ScriptValue::Native(
-                    Arc::new(PipeType::new(None, None)), // XXX Type not really used in runtine
-                    Arc::new(PipeImpl::new(lhs.as_ext()?, rhs.as_ext()?)),
+                    NativeTypeRef::from(PipeType::new(None, None)), // XXX Type not really used in runtine
+                    NativeValueRef::from(PipeImpl::new(lhs.as_ext()?, rhs.as_ext()?)),
                 )
             }
             #[cfg(not(feature = "pipe"))]

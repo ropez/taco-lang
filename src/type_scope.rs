@@ -2,9 +2,9 @@ use std::{collections::HashMap, fmt::Write, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    native::NativeType,
     ident::Ident,
     lexer::Src,
+    native::{NativeType, NativeTypeRef},
     parser::{
         AttributeExpression, Expression, Function, Literal, ParamExpression, Record,
         TypeExpression, UnionExpression,
@@ -20,7 +20,7 @@ use crate::{
 pub enum TypeDefinition {
     RecDefinition(Arc<RecType>),
     UnionDefinition(Arc<UnionType>),
-    NativeType(Arc<dyn NativeType + Send + Sync>),
+    NativeType(NativeTypeRef),
 }
 
 #[derive(Clone)]

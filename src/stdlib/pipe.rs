@@ -7,9 +7,12 @@ use smol::channel;
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeError, TypeResult},
-    native::{NativeType, NativeValue, NativeFunction, NativeMethodRef, Readable, Writable},
     ident::Ident,
     interpreter::{Interpreter, Scope},
+    native::{
+        NativeFunction, NativeMethodRef, NativeType, NativeTypeRef, NativeValue, NativeValueRef,
+        Readable, Writable,
+    },
     parser::Statement,
     script_type::{FunctionType, ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
@@ -56,23 +59,20 @@ impl NativeType for PipeType {
 
 #[derive(Clone)]
 pub(crate) struct PipeImpl {
-    src: Arc<dyn NativeValue + Send + Sync>,
-    dst: Arc<dyn NativeValue + Send + Sync>,
+    src: NativeValueRef,
+    dst: NativeValueRef,
 }
 
 impl PipeImpl {
-    pub(crate) fn new(
-        src: Arc<dyn NativeValue + Send + Sync>,
-        dst: Arc<dyn NativeValue + Send + Sync>,
-    ) -> Self {
+    pub(crate) fn new(src: NativeValueRef, dst: NativeValueRef) -> Self {
         Self { src, dst }
     }
 }
 
 pub(crate) fn exec_pipe(
     interpreter: &Interpreter,
-    lhs: Arc<dyn NativeValue + Send + Sync>,
-    rhs: Arc<dyn NativeValue + Send + Sync>,
+    lhs: NativeValueRef,
+    rhs: NativeValueRef,
 ) -> ScriptResult<()> {
     // XXX Cloning the interpreter feels wrong
     let i = interpreter.clone();
@@ -159,7 +159,7 @@ impl NativeFunction for ActorFunc {
             // Not really a pipe, but the type works here
             let pipe = PipeType::new(Some(lhs.clone()), Some(fun.ret.clone()));
 
-            Ok(ScriptType::Native(Arc::new(pipe)))
+            Ok(ScriptType::Native(NativeTypeRef::from(pipe)))
         } else {
             Err(TypeError::invalid_argument("function", arg))
         }
@@ -168,9 +168,9 @@ impl NativeFunction for ActorFunc {
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let callable = arguments.single().cloned()?;
 
-        let t = Arc::new(ActorType(ScriptType::Infer(1), ScriptType::Infer(2))); // Dummy arguments, not used
+        let t = NativeTypeRef::from(ActorType(ScriptType::Infer(1), ScriptType::Infer(2))); // Dummy arguments, not used
         let v = Actor::new(callable);
-        Ok(ScriptValue::Native(t, Arc::new(v)))
+        Ok(ScriptValue::Native(t, v.into()))
     }
 }
 

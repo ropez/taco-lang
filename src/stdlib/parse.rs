@@ -3,8 +3,8 @@ use std::{fmt, num::ParseIntError, sync::Arc};
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    native::{NativeFunction, NativeTypeMethod},
     interpreter::Interpreter,
+    native::{NativeFunction, NativeTypeMethod},
     script_type::{RecType, ScriptType, TupleItemType, TupleType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib,
@@ -133,9 +133,10 @@ fn parse_default(typedef: &TypeDefinition, input: &str) -> Result<ScriptValue, P
         TypeDefinition::UnionDefinition(_) => Err(ParseError::new(
             "Default parser doesn't support union parsing",
         )),
-        TypeDefinition::NativeType(n) => Err(ParseError::new(
-            format!("Default parser doesn't support {}", n.name())
-        )),
+        TypeDefinition::NativeType(n) => Err(ParseError::new(format!(
+            "Default parser doesn't support {}",
+            n.name()
+        ))),
     }
 }
 

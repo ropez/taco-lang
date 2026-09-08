@@ -3,8 +3,8 @@ use std::fmt::{self, Write};
 use crate::{
     Builder,
     error::{ScriptResult, TypeResult},
-    native::NativeFunction,
     interpreter::Interpreter,
+    native::NativeFunction,
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple, TupleItem},
 };

@@ -5,8 +5,8 @@ use async_lock::Mutex;
 use crate::{
     Builder,
     error::{ScriptResult, TypeResult},
-    native::NativeFunction,
     interpreter::Interpreter,
+    native::NativeFunction,
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
 };

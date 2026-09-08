@@ -2,10 +2,13 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     error::{ScriptError, ScriptResult},
-    native::{NativeType, NativeValue, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
     fmt::{fmt_inner_list, fmt_tuple},
     ident::Ident,
     interpreter::Scope,
+    native::{
+        NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef, NativeTypeRef, NativeValue,
+        NativeValueRef,
+    },
     parser::Function,
     script_type::{FunctionType, RecType, UnionType},
     stdlib::list::List,
@@ -58,10 +61,7 @@ pub enum ScriptValue {
     NativeMethodBound(NativeMethodRef, Box<ScriptValue>),
     NativeTypeMethodBound(NativeTypeMethodRef, TypeDefinition),
 
-    Native(
-        Arc<dyn NativeType + Send + Sync>,
-        Arc<dyn NativeValue + Send + Sync>,
-    ),
+    Native(NativeTypeRef, NativeValueRef),
 }
 
 impl ScriptValue {
@@ -206,9 +206,9 @@ impl ScriptValue {
         }
     }
 
-    pub fn as_ext(&self) -> ScriptResult<Arc<dyn NativeValue + Send + Sync>> {
+    pub fn as_ext(&self) -> ScriptResult<NativeValueRef> {
         match self {
-            Self::Native(_, ext) => Ok(Arc::clone(ext)),
+            Self::Native(_, ext) => Ok(ext.clone()),
             _ => Err(ScriptError::panic("Not readable")),
         }
     }
@@ -231,7 +231,7 @@ impl ScriptValue {
         }
     }
 
-    pub fn downcast_ext2<T>(&self) -> ScriptResult<(&Arc<dyn NativeType + Send + Sync + 'static>, &T)>
+    pub fn downcast_ext2<T>(&self) -> ScriptResult<(&NativeTypeRef, &T)>
     where
         T: NativeValue + 'static,
     {

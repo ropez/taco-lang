@@ -9,9 +9,11 @@ use jiff::{
 use crate::{
     Builder,
     error::{ScriptResult, TypeResult},
-    native::{NativeType, NativeValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
+    native::{
+        NativeFunction, NativeMethod, NativeMethodRef, NativeType, NativeTypeRef, NativeValue,
+    },
     script_type::{ScriptType, TupleItemType, TupleType},
     script_value::{ScriptValue, Tuple},
 };
@@ -20,14 +22,14 @@ pub fn build(builder: &mut Builder) {
     // XXX Need a way to register an ExternalType so that we can refer to it in scripts.
     // e.g. rec Foo(date: DateTime)
 
-    let typ: Arc<dyn NativeType + Send + Sync> = Arc::new(DateTimeType);
-    builder.add_native_type("DateTime", Arc::clone(&typ));
+    let typ = NativeTypeRef::from(DateTimeType);
+    builder.add_native_type("DateTime", typ.clone());
 
     // Now that we have native type, register associated functions like get_method?
 
-    builder.add_function("DateTime::parse", ParseFunc::new(Arc::clone(&typ)));
-    builder.add_function("DateTime::utc_now", UtcNowFunc::new(Arc::clone(&typ)));
-    builder.add_function("DateTime::local", LocalNowFunc::new(Arc::clone(&typ)));
+    builder.add_function("DateTime::parse", ParseFunc::new(typ.clone()));
+    builder.add_function("DateTime::utc_now", UtcNowFunc::new(typ.clone()));
+    builder.add_function("DateTime::local", LocalNowFunc::new(typ.clone()));
 }
 
 const ZERO_TIME: civil::Time = civil::time(0, 0, 0, 0);
@@ -91,32 +93,32 @@ impl NativeValue for DateTimeValue {
 }
 
 struct LocalNowFunc {
-    typ: Arc<dyn NativeType + Send + Sync>,
+    typ: NativeTypeRef,
 }
 
 impl LocalNowFunc {
-    fn new(typ: Arc<dyn NativeType + Send + Sync>) -> Self {
+    fn new(typ: NativeTypeRef) -> Self {
         Self { typ }
     }
 }
 
 impl NativeFunction for LocalNowFunc {
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        Ok(ScriptType::Native(Arc::clone(&self.typ)))
+        Ok(ScriptType::Native(self.typ.clone()))
     }
 
     fn call(&self, _: &Interpreter, _: &Tuple) -> ScriptResult<ScriptValue> {
         let val = DateTimeValue(Zoned::now());
-        Ok(ScriptValue::Native(Arc::clone(&self.typ), Arc::new(val)))
+        Ok(ScriptValue::Native(self.typ.clone(), val.into()))
     }
 }
 
 struct ParseFunc {
-    typ: Arc<dyn NativeType + Send + Sync>,
+    typ: NativeTypeRef,
 }
 
 impl ParseFunc {
-    fn new(typ: Arc<dyn NativeType + Send + Sync>) -> Self {
+    fn new(typ: NativeTypeRef) -> Self {
         Self { typ }
     }
 }
@@ -129,7 +131,7 @@ impl NativeFunction for ParseFunc {
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        let value_type = ScriptType::Native(Arc::clone(&self.typ));
+        let value_type = ScriptType::Native(self.typ.clone());
         let error_type = ScriptType::Str; // TODO Error type
         Ok(ScriptType::fallible_of(value_type, error_type))
     }
@@ -141,10 +143,13 @@ impl NativeFunction for ParseFunc {
         let tz = Zoned::now().time_zone().clone();
 
         match arg.parse::<Timestamp>() {
-            Ok(val) => Ok(ScriptValue::ok(ScriptValue::Native(
-                Arc::clone(&self.typ),
-                Arc::new(DateTimeValue(val.to_zoned(tz))),
-            ))),
+            Ok(val) => {
+                let value = DateTimeValue(val.to_zoned(tz));
+                Ok(ScriptValue::ok(ScriptValue::Native(
+                    self.typ.clone(),
+                    value.into(),
+                )))
+            }
             Err(err) => Ok(ScriptValue::err(ScriptValue::string(format!(
                 "Parse error: {err}"
             )))),
@@ -153,23 +158,23 @@ impl NativeFunction for ParseFunc {
 }
 
 struct UtcNowFunc {
-    typ: Arc<dyn NativeType + Send + Sync>,
+    typ: NativeTypeRef,
 }
 
 impl UtcNowFunc {
-    fn new(typ: Arc<dyn NativeType + Send + Sync>) -> Self {
+    fn new(typ: NativeTypeRef) -> Self {
         Self { typ }
     }
 }
 
 impl NativeFunction for UtcNowFunc {
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {
-        Ok(ScriptType::Native(Arc::clone(&self.typ)))
+        Ok(ScriptType::Native(self.typ.clone()))
     }
 
     fn call(&self, _: &Interpreter, _: &Tuple) -> ScriptResult<ScriptValue> {
         let val = DateTimeValue(Timestamp::now().to_zoned(TimeZone::UTC));
-        Ok(ScriptValue::Native(Arc::clone(&self.typ), Arc::new(val)))
+        Ok(ScriptValue::Native(self.typ.clone(), val.into()))
     }
 }
 
@@ -271,7 +276,7 @@ impl NativeMethod for SimpleRoundMethod {
         let SimpleRoundMethod(round) = self;
         let (t, DateTimeValue(val)) = subject.downcast_ext2()?;
         let new_val = DateTimeValue(val.round(*round)?);
-        Ok(ScriptValue::Native(Arc::clone(t), Arc::new(new_val)))
+        Ok(ScriptValue::Native(t.clone(), new_val.into()))
     }
 }
 
@@ -288,7 +293,7 @@ impl NativeMethod for WeekRoundMethod {
         let date = if *nth < 0 { date.tomorrow()? } else { date };
         let new_val = date.nth_weekday(*nth, Weekday::Monday)?;
         let new_val = DateTimeValue(new_val);
-        Ok(ScriptValue::Native(Arc::clone(t), Arc::new(new_val)))
+        Ok(ScriptValue::Native(t.clone(), new_val.into()))
     }
 }
 
@@ -359,6 +364,6 @@ impl NativeMethod for AddMethod {
 
         let new_val = DateTimeValue(val.checked_add(span)?);
 
-        Ok(ScriptValue::Native(Arc::clone(t), Arc::new(new_val)))
+        Ok(ScriptValue::Native(t.clone(), new_val.into()))
     }
 }

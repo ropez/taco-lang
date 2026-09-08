@@ -8,10 +8,10 @@ use async_lock::{Mutex, RwLock};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    native::{NativeMethodRef, NativeTypeMethodRef},
     fmt::fmt_tuple,
     ident::{Ident, global},
     lexer::{Loc, Src},
+    native::{NativeMethodRef, NativeTypeMethodRef},
     parser::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, Literal, MatchArm,
         MatchPattern, Statement,
@@ -520,9 +520,7 @@ impl Validator {
                                 ret,
                             )))
                         }
-                        _ => {
-                            Err(TypeError::new(TypeErrorKind::InvalidExpression).at(expr.loc))
-                        }
+                        _ => Err(TypeError::new(TypeErrorKind::InvalidExpression).at(expr.loc)),
                     }
                 } else {
                     Err(
@@ -655,6 +653,8 @@ impl Validator {
             }
             #[cfg(feature = "pipe")]
             Expression::Pipe(lhs, rhs) => {
+                use crate::native::NativeTypeRef;
+
                 let l = self.validate_expr(lhs, scope)?;
                 let r = self.validate_expr(rhs, scope)?;
 
@@ -672,7 +672,7 @@ impl Validator {
 
                 let pipe = stdlib::pipe::PipeType::new(l.as_writable(), r.as_readable());
 
-                Ok(ScriptType::Native(Arc::new(pipe)))
+                Ok(ScriptType::Native(NativeTypeRef::from(pipe)))
             }
             #[cfg(not(feature = "pipe"))]
             Expression::Pipe(_, _) => Err(TypeError::new(TypeErrorKind::InvalidExpression))?,

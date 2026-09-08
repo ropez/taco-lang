@@ -5,9 +5,12 @@ use async_lock::{RwLock, RwLockReadGuard, RwLockWriteGuard};
 use crate::{
     Builder,
     error::{ScriptResult, TypeResult},
-    native::{NativeType, NativeValue, NativeFunction, NativeMethod, NativeMethodRef},
     ident::Ident,
     interpreter::Interpreter,
+    native::{
+        NativeFunction, NativeMethod, NativeMethodRef, NativeType, NativeTypeRef, NativeValue,
+        NativeValueRef,
+    },
     script_type::{FunctionType, ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
 };
@@ -109,15 +112,15 @@ impl NativeFunction for MakeState {
     fn return_type(&self, arguments: &TupleType) -> TypeResult<ScriptType> {
         let arg = arguments.single().cloned()?;
         let typ = StateType::new(arg);
-        Ok(ScriptType::Native(Arc::new(typ)))
+        Ok(ScriptType::Native(NativeTypeRef::from(typ)))
     }
 
     fn call(&self, _: &Interpreter, arguments: &Tuple) -> ScriptResult<ScriptValue> {
         let value = arguments.single().cloned()?;
         Ok(ScriptValue::Native(
             // Dummy type, not used here, only for get_methods
-            Arc::new(StateType::new(ScriptType::Unknown)),
-            Arc::new(StateValue::new(value)),
+            NativeTypeRef::from(StateType::new(ScriptType::Unknown)),
+            NativeValueRef::from(StateValue::new(value)),
         ))
     }
 }

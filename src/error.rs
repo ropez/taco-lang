@@ -343,7 +343,8 @@ impl ScriptError {
 }
 
 impl<T> From<T> for ScriptError
-    where T: error::Error
+where
+    T: error::Error,
 {
     fn from(err: T) -> Self {
         ScriptError::panic(err)

@@ -2,12 +2,12 @@ use std::{collections::HashMap, io::Write, path::PathBuf, sync::Arc};
 
 use crate::{
     error::Error,
-    native::{
-        NativeType, NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
-        NativeTypeMethod, NativeTypeMethodRef,
-    },
     ident::Ident,
     interpreter::Interpreter,
+    native::{
+        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, NativeType,
+        NativeTypeMethod, NativeTypeMethodRef, NativeTypeRef,
+    },
     output_adapter::OutputAdapter,
     parser::Parser,
     script_type::{RecType, ScriptType, UnionType},
@@ -22,10 +22,10 @@ use async_lock::Mutex;
 use wasm_bindgen::prelude::*;
 
 pub mod error;
-pub mod native;
 pub mod ident;
 pub mod interpreter;
 pub mod lexer;
+pub mod native;
 pub mod parser;
 pub mod script_type;
 pub mod script_value;
@@ -275,11 +275,7 @@ impl Builder {
             .insert(name.into(), TypeDefinition::UnionDefinition(def));
     }
 
-    pub fn add_native_type(
-        &mut self,
-        name: impl Into<Ident>,
-        t: Arc<dyn NativeType + Send + Sync>,
-    ) {
+    pub fn add_native_type(&mut self, name: impl Into<Ident>, t: NativeTypeRef) {
         self.types
             .insert(name.into(), TypeDefinition::NativeType(t));
     }

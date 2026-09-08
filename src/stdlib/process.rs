@@ -15,12 +15,12 @@ use smol::{
 use crate::{
     Builder,
     error::{ScriptError, ScriptResult, TypeResult},
-    native::{
-        NativeType, NativeValue, NativeFunction, NativeMethod, NativeMethodRef, Readable,
-        Writable,
-    },
     ident::Ident,
     interpreter::Interpreter,
+    native::{
+        NativeFunction, NativeMethod, NativeMethodRef, NativeType, NativeTypeRef, NativeValue,
+        Readable, Writable,
+    },
     script_type::{ScriptType, TupleType},
     script_value::{ScriptValue, Tuple},
 };
@@ -31,7 +31,7 @@ where
 {
     let _ = out; // XXX Send stdout to this stream
 
-    builder.add_function("exec", ExecFunc(Arc::new(ProcessType)));
+    builder.add_function("exec", ExecFunc(NativeTypeRef::from(ProcessType)));
 }
 
 struct ProcessType;
@@ -147,11 +147,11 @@ impl Writable for Process {
     }
 }
 
-struct ExecFunc(Arc<dyn NativeType + Sync + Send>);
+struct ExecFunc(NativeTypeRef);
 
 impl ExecFunc {
-    fn get_type(&self) -> Arc<dyn NativeType + Sync + Send> {
-        Arc::clone(&self.0)
+    fn get_type(&self) -> NativeTypeRef {
+        self.0.clone()
     }
 }
 
@@ -186,7 +186,7 @@ impl NativeFunction for ExecFunc {
 
         Ok(ScriptValue::Native(
             self.get_type(),
-            Arc::new(Process::new(child)),
+            Process::new(child).into(),
         ))
     }
 

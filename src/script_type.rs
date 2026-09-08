@@ -2,10 +2,10 @@ use std::{fmt, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
-    native::{NativeType, NativeFunctionRef, NativeMethodRef, NativeTypeMethodRef},
     fmt::fmt_tuple,
     ident::Ident,
     lexer::Src,
+    native::{NativeFunctionRef, NativeMethodRef, NativeType, NativeTypeMethodRef, NativeTypeRef},
     parser::{Function, Literal, MatchPattern},
     script_value::Tuple,
     type_scope::TypeDefinition,
@@ -54,7 +54,7 @@ pub enum ScriptType {
     // resolved to a known type, otherwise it's an error.
     Unknown,
 
-    Native(Arc<dyn NativeType + Send + Sync>),
+    Native(NativeTypeRef),
 }
 
 impl ScriptType {
@@ -122,7 +122,7 @@ impl ScriptType {
             (_, ScriptType::Unknown) => true,
 
             // Native types only accepts exact matches
-            (ScriptType::Native(l), ScriptType::Native(r)) => Arc::ptr_eq(l, r),
+            (ScriptType::Native(l), ScriptType::Native(r)) => l == r,
             (ScriptType::Native(_), _) => false,
 
             _ => false,
@@ -312,7 +312,7 @@ impl From<&TypeDefinition> for ScriptType {
         match value {
             TypeDefinition::RecDefinition(def) => ScriptType::RecInstance(Arc::clone(def)),
             TypeDefinition::UnionDefinition(def) => ScriptType::UnionInstance(Arc::clone(def)),
-            TypeDefinition::NativeType(n) => ScriptType::Native(Arc::clone(n)),
+            TypeDefinition::NativeType(n) => ScriptType::Native(n.clone()),
         }
     }
 }
