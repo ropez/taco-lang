@@ -67,8 +67,7 @@ where
 {
     let (validator, interpreter) = setup(out);
 
-    let tokens = lexer::tokenize(src).map_err(|err| err.into_source_error(src))?;
-    let ast = Parser::new(src, tokens)
+    let ast = Parser::new(src)
         .parse()
         .map_err(|err| err.into_source_error(src))?;
 
@@ -98,8 +97,7 @@ pub fn check(src: &str) -> Result<(), Error> {
     let out = OutputAdapter::new();
     let (validator, _) = setup(out);
 
-    let tokens = lexer::tokenize(src).map_err(|err| err.into_source_error(src))?;
-    let ast = Parser::new(src, tokens)
+    let ast = Parser::new(src)
         .parse()
         .map_err(|err| err.into_source_error(src))?;
 
@@ -152,8 +150,7 @@ pub fn run_tests(src: &str) -> Result<TestStats, Error> {
 
     let (validator, interpreter) = setup(stdout.clone());
 
-    let tokens = lexer::tokenize(src).map_err(|err| err.into_source_error(src))?;
-    let ast = Parser::new(src, tokens)
+    let ast = Parser::new(src)
         .parse()
         .map_err(|err| err.into_source_error(src))?;
 

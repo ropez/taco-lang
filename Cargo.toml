@@ -17,7 +17,6 @@ datetime = ["jiff"]
 pipe = ["dep:smol"]
 
 [dependencies]
-multipeek = "0.1.2"
 async-lock = "3.4.2"
 async-trait = "0.1.89"
 smol = { version = "2.0.2", optional = true }

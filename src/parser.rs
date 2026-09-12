@@ -2,16 +2,13 @@ use std::{
     cmp::{self},
     result,
     sync::Arc,
-    vec::IntoIter,
 };
-
-use multipeek::{IteratorExt, MultiPeek};
 
 use crate::{
     error::{ParseError, ParseErrorKind},
     ident::Ident,
     interpolation::{self, StringTokenKind},
-    lexer::{self, Loc, Src, Token, TokenKind},
+    lexer::{self, Loc, PeekableTokenizer, Src, Token, TokenKind},
 };
 
 type Result<T> = result::Result<T, ParseError>;
@@ -286,7 +283,7 @@ impl MatchPattern {
 
 pub struct Parser<'a> {
     src: &'a str,
-    iter: MultiPeek<IntoIter<Token>>,
+    iter: PeekableTokenizer<'a>,
 }
 
 mod constants {
@@ -312,10 +309,11 @@ mod constants {
 }
 
 impl<'a> Parser<'a> {
-    pub fn new(src: &'a str, tokens: Vec<Token>) -> Self {
+    pub fn new(src: &'a str) -> Self {
+        let tokenizer = lexer::Tokenizer::new(src);
         Self {
             src,
-            iter: tokens.into_iter().multipeek(),
+            iter: PeekableTokenizer::new(tokenizer),
         }
     }
 
@@ -326,7 +324,7 @@ impl<'a> Parser<'a> {
     pub fn parse_single_expression(&mut self) -> Result<Src<Expression>> {
         let expr = self.parse_expression(0)?;
 
-        if let Some(token) = self.iter.next() {
+        if let Some(token) = self.iter.next_token()? {
             return Err(ParseError::unexpected_token().at(token.loc));
         }
 
@@ -340,7 +338,7 @@ impl<'a> Parser<'a> {
             self.expect_kind(TokenKind::LeftBrace)?;
         }
 
-        while let Some(token) = self.discard_and_peek_next() {
+        while let Some(token) = self.discard_and_peek_next()? {
             match token {
                 TokenKind::RightBrace if !root => {
                     self.expect_token()?;
@@ -350,7 +348,7 @@ impl<'a> Parser<'a> {
                     self.expect_kind(TokenKind::Fun)?;
 
                     let (name, loc) = self.expect_ident()?;
-                    let (prefix, name) = if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
+                    let (prefix, name) = if self.next_if_kind(&TokenKind::DoubleColon)?.is_some() {
                         let (n, _) = self.expect_ident()?;
                         (Some(Src::new(name, loc)), n)
                     } else {
@@ -359,7 +357,7 @@ impl<'a> Parser<'a> {
 
                     let params = self.parse_params(false)?;
 
-                    let type_expr = if self.next_if_kind(&TokenKind::Colon).is_some() {
+                    let type_expr = if self.next_if_kind(&TokenKind::Colon)?.is_some() {
                         Some(self.parse_type_expr()?)
                     } else {
                         None
@@ -377,7 +375,9 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::Return => {
                     self.expect_kind(TokenKind::Return)?;
-                    if let Some(TokenKind::NewLine | TokenKind::RightBrace) = self.peek_kind() {
+                    if let Some(TokenKind::NewLine | TokenKind::RightBrace) =
+                        self.iter.peek_kind()?
+                    {
                         ast.push(Statement::Return(None));
                     } else {
                         let expr = self.parse_expression(0)?;
@@ -402,7 +402,7 @@ impl<'a> Parser<'a> {
                     ast.push(Statement::Continue);
                 }
                 TokenKind::Identifier(name) => {
-                    if let Some(TokenKind::Assign) = self.peek_kind_nth(1) {
+                    if let Some(TokenKind::Assign) = self.iter.peek_nth_kind(1)? {
                         let token = self.expect_token()?;
                         self.expect_kind(TokenKind::Assign)?;
                         let assignee = Assignee::scalar(name.clone());
@@ -416,7 +416,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 TokenKind::LeftParen => {
-                    if let Some(TokenKind::Assign) = self.peek_after_paren() {
+                    if let Some(TokenKind::Assign) = self.peek_after_paren()? {
                         let assignee = self.parse_destructuring_pattern(None)?;
                         self.expect_kind(TokenKind::Assign)?;
                         let value = self.parse_expression(0)?;
@@ -439,7 +439,7 @@ impl<'a> Parser<'a> {
                 }
                 TokenKind::While => {
                     self.expect_kind(TokenKind::While)?;
-                    if self.peek_is_assignee_followed_by_in() {
+                    if self.peek_is_assignee_followed_by_in()? {
                         let assignee = self.parse_assignee()?;
                         self.expect_kind(TokenKind::In)?;
 
@@ -571,7 +571,7 @@ impl<'a> Parser<'a> {
             TokenKind::Fun => {
                 let params = self.parse_params(true)?;
 
-                let type_expr = if self.next_if_kind(&TokenKind::Colon).is_some() {
+                let type_expr = if self.next_if_kind(&TokenKind::Colon)?.is_some() {
                     Some(self.parse_type_expr()?)
                 } else {
                     None
@@ -609,7 +609,7 @@ impl<'a> Parser<'a> {
                 self.parse_continuation(expr, 0)?
             }
             TokenKind::Match => {
-                let is_opt = self.next_if_kind(&TokenKind::Question).is_some();
+                let is_opt = self.next_if_kind(&TokenKind::Question)?.is_some();
                 let expr = self.parse_expression(0)?;
                 self.expect_kind(TokenKind::LeftBrace)?;
                 let arms = self.parse_match_arms()?;
@@ -633,7 +633,7 @@ impl<'a> Parser<'a> {
     fn parse_if_statement(&mut self) -> Result<Statement> {
         self.expect_kind(TokenKind::If)?;
 
-        if self.peek_is_assignee_followed_by_in() {
+        if self.peek_is_assignee_followed_by_in()? {
             let assignee = self.parse_assignee()?;
             self.expect_kind(TokenKind::In)?;
 
@@ -667,9 +667,9 @@ impl<'a> Parser<'a> {
         // if {} else if { ... } else { ... } becomes
         // if {} else { if { ... } else { ... } }
 
-        self.next_if_kind(&TokenKind::Else)
+        self.next_if_kind(&TokenKind::Else)?
             .map(|_| {
-                if let Some(TokenKind::If) = self.peek_kind() {
+                if let Some(TokenKind::If) = self.iter.peek_kind()? {
                     Ok(vec![self.parse_if_statement()?])
                 } else {
                     Ok(self.parse_block(false)?)
@@ -687,7 +687,7 @@ impl<'a> Parser<'a> {
         if ident.as_str() == "_" {
             return Err(ParseError::expected("identifier").at(loc));
         }
-        if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
+        if self.next_if_kind(&TokenKind::DoubleColon)?.is_some() {
             let (name, l) = self.expect_ident()?;
             let loc = wrap_locations(loc, l);
             let expr = Src::new(Expression::PrefixedName(ident, name), loc);
@@ -701,7 +701,7 @@ impl<'a> Parser<'a> {
     fn parse_continuation(&mut self, lhs: Src<Expression>, bp: u32) -> Result<Src<Expression>> {
         use constants::*;
 
-        let expr = match self.peek_continuation() {
+        let expr = match self.peek_continuation()? {
             None => lhs,
             Some((new_line, kind)) => match (new_line, kind) {
                 (_, TokenKind::Pipe) => {
@@ -834,8 +834,8 @@ impl<'a> Parser<'a> {
                     } else {
                         let t = self.expect_token()?;
 
-                        if let Some(a) = self.next_if_kind(&TokenKind::Assign) {
-                            if let Some(t) = self.next_if_kind(&TokenKind::RightParen) {
+                        if let Some(a) = self.next_if_kind(&TokenKind::Assign)? {
+                            if let Some(t) = self.next_if_kind(&TokenKind::RightParen)? {
                                 let loc = wrap_locations(lhs.loc, t.loc);
                                 let expr = Src::new(
                                     Expression::Call {
@@ -910,14 +910,14 @@ impl<'a> Parser<'a> {
         let l = self.expect_kind(TokenKind::LeftParen)?;
 
         let params = self.parse_inner_list(TokenKind::RightParen, |p| {
-            if let Some(TokenKind::Identifier(name)) = p.peek_kind() {
+            if let Some(TokenKind::Identifier(name)) = p.iter.peek_kind()? {
                 let name = name.clone();
                 let t = p.expect_token()?;
 
                 // XXX Do not allow 'self' with type
                 // XXX Only allow 'self' as first argument
 
-                if p.next_if_kind(&TokenKind::Colon).is_some() {
+                if p.next_if_kind(&TokenKind::Colon)?.is_some() {
                     let type_expr = p.parse_type_expr()?;
                     let param = p.complete_param_expr(Some(name), type_expr)?;
                     Ok(param)
@@ -966,9 +966,9 @@ impl<'a> Parser<'a> {
     }
 
     fn try_parse_type_attr(&mut self) -> Result<Option<Src<AttributeExpression>>> {
-        if let Some(t) = self.next_if_kind(&TokenKind::Alpha) {
+        if let Some(t) = self.next_if_kind(&TokenKind::Alpha)? {
             let (name, _) = self.expect_ident()?;
-            if let Some(l) = self.next_if_kind(&TokenKind::LeftParen) {
+            if let Some(l) = self.next_if_kind(&TokenKind::LeftParen)? {
                 let args = self.parse_inner_args()?;
                 let e = self.expect_kind(TokenKind::RightParen)?;
                 let args = Src::new(args, wrap_locations(l.loc, e.loc));
@@ -1027,7 +1027,7 @@ impl<'a> Parser<'a> {
             }
             TokenKind::DoubleColon => {
                 let (ident, e) = self.expect_ident()?;
-                if let Some(TokenKind::LeftParen) = self.peek_kind() {
+                if let Some(TokenKind::LeftParen) = self.iter.peek_kind()? {
                     let pattern = self.parse_destructuring_pattern(None)?;
                     let loc = wrap_locations(token.loc, pattern.loc);
                     Src::new(MatchPattern::Variant(None, ident, Some(pattern)), loc)
@@ -1049,9 +1049,9 @@ impl<'a> Parser<'a> {
         if ident.as_str() == "_" {
             return Ok(Src::new(MatchPattern::Discard, loc));
         }
-        if self.next_if_kind(&TokenKind::DoubleColon).is_some() {
+        if self.next_if_kind(&TokenKind::DoubleColon)?.is_some() {
             let (name, l) = self.expect_ident()?;
-            let expr = if let Some(TokenKind::LeftParen) = self.peek_kind() {
+            let expr = if let Some(TokenKind::LeftParen) = self.iter.peek_kind()? {
                 let pattern = self.parse_destructuring_pattern(None)?;
                 let loc = wrap_locations(loc, pattern.loc);
                 Src::new(MatchPattern::Variant(Some(ident), name, Some(pattern)), loc)
@@ -1081,12 +1081,12 @@ impl<'a> Parser<'a> {
     fn parse_destructuring_pattern(&mut self, name: Option<Ident>) -> Result<Src<Assignee>> {
         let t = self.expect_kind(TokenKind::LeftParen)?;
         let pattern = self.parse_inner_list(TokenKind::RightParen, |p| {
-            if let Some(TokenKind::LeftParen) = p.peek_kind() {
+            if let Some(TokenKind::LeftParen) = p.iter.peek_kind()? {
                 let assignee = p.parse_destructuring_pattern(None)?;
                 Ok(assignee)
             } else {
                 let (ident, loc) = p.expect_ident()?;
-                if p.next_if_kind(&TokenKind::Colon).is_some() {
+                if p.next_if_kind(&TokenKind::Colon)?.is_some() {
                     let assignee = p.parse_destructuring_pattern(Some(ident))?;
                     Ok(assignee)
                 } else {
@@ -1108,7 +1108,7 @@ impl<'a> Parser<'a> {
         let variants = self.parse_inner_list(TokenKind::RightBrace, |p| {
             let (name, _) = p.expect_ident()?;
 
-            if let Some(TokenKind::LeftParen) = p.peek_kind() {
+            if let Some(TokenKind::LeftParen) = p.iter.peek_kind()? {
                 let params = p.parse_params(false)?;
 
                 Ok(VariantExpression {
@@ -1126,11 +1126,11 @@ impl<'a> Parser<'a> {
 
     fn parse_inner_args(&mut self) -> Result<Vec<ArgumentExpression>> {
         let args = self.parse_inner_list(TokenKind::RightParen, |p| {
-            if let Some(TokenKind::Identifier(name)) = p.peek_kind() {
+            if let Some(TokenKind::Identifier(name)) = p.iter.peek_kind()? {
                 let name = name.clone();
                 let t = p.expect_token()?;
 
-                if p.next_if_kind(&TokenKind::Colon).is_some() {
+                if p.next_if_kind(&TokenKind::Colon)?.is_some() {
                     let value = p.parse_expression(0)?;
                     Ok(ArgumentExpression::named(name, value))
                 } else {
@@ -1148,14 +1148,14 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_expr(&mut self) -> Result<Src<TypeExpression>> {
-        if let Some(l) = self.next_if_kind(&TokenKind::LeftSquare) {
+        if let Some(l) = self.next_if_kind(&TokenKind::LeftSquare)? {
             let inner = self.parse_type_expr()?;
             let r = self.expect_kind(TokenKind::RightSquare)?;
 
             let kind = TypeExpression::List(inner.into());
             let expr = Src::new(kind, wrap_locations(l.loc, r.loc));
             self.parse_type_suffix(expr)
-        } else if let Some(TokenKind::LeftParen) = self.peek_kind() {
+        } else if let Some(TokenKind::LeftParen) = self.iter.peek_kind()? {
             let params = self.parse_params(false)?;
 
             let loc = params.loc;
@@ -1170,11 +1170,11 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_type_suffix(&mut self, expr: Src<TypeExpression>) -> Result<Src<TypeExpression>> {
-        if let Some(t) = self.next_if_kind(&TokenKind::Question) {
+        if let Some(t) = self.next_if_kind(&TokenKind::Question)? {
             let loc = wrap_locations(expr.loc, t.loc);
             let expr = Src::new(TypeExpression::Opt(expr.into()), loc);
             self.parse_type_suffix(expr)
-        } else if self.next_if_kind(&TokenKind::Tilde).is_some() {
+        } else if self.next_if_kind(&TokenKind::Tilde)?.is_some() {
             let err = self.parse_type_expr()?;
             let loc = wrap_locations(expr.loc, err.loc);
             let expr = Src::new(TypeExpression::Fallible(expr.into(), err.into()), loc);
@@ -1191,19 +1191,19 @@ impl<'a> Parser<'a> {
         let mut items = Vec::new();
 
         loop {
-            self.discard_whitespace();
-            if self.peek_kind() == Some(&until) {
+            self.discard_whitespace()?;
+            if self.iter.peek_kind()? == Some(&until) {
                 break;
             }
 
             items.push(item_parser(self)?);
 
-            let kind = self.peek_kind();
+            let kind = self.iter.peek_kind()?;
             match kind {
                 None => break,
                 Some(kind) if *kind == until => break,
                 Some(TokenKind::Comma | TokenKind::NewLine | TokenKind::Comment(_)) => {
-                    self.iter.next();
+                    self.iter.next_token()?;
                     continue;
                 }
                 _ => {
@@ -1216,22 +1216,24 @@ impl<'a> Parser<'a> {
         Ok(items)
     }
 
-    fn discard_whitespace(&mut self) {
+    fn discard_whitespace(&mut self) -> Result<()> {
         loop {
-            match self.peek_kind() {
+            match self.iter.peek_kind()? {
                 None => break,
                 Some(TokenKind::NewLine) => {}
                 Some(TokenKind::Comment(_)) => {}
                 Some(_) => break,
             }
 
-            self.iter.next();
+            self.iter.next_token()?;
         }
+
+        Ok(())
     }
 
     fn expect_end_of_line(&mut self) -> Result<()> {
         loop {
-            match self.iter.next() {
+            match self.iter.next_token()? {
                 None => break,
                 Some(token) => match token.as_ref() {
                     TokenKind::NewLine => break,
@@ -1245,8 +1247,8 @@ impl<'a> Parser<'a> {
     }
 
     fn expect_token(&mut self) -> Result<Token> {
-        self.discard_whitespace();
-        self.iter.next().ok_or_else(|| self.fail_at_end())
+        self.discard_whitespace()?;
+        self.iter.next_token()?.ok_or_else(|| self.fail_at_end())
     }
 
     fn expect_kind(&mut self, kind: TokenKind) -> Result<Token> {
@@ -1266,82 +1268,86 @@ impl<'a> Parser<'a> {
         }
     }
 
-    fn next_if_kind(&mut self, kind: &TokenKind) -> Option<Token> {
-        if self.iter.peek().filter(|t| *t.as_ref() == *kind).is_some() {
-            self.iter.next()
+    fn next_if_kind(&mut self, kind: &TokenKind) -> Result<Option<Token>> {
+        if self
+            .iter
+            .peek_token()?
+            .filter(|t| *t.as_ref() == *kind)
+            .is_some()
+        {
+            self.iter.next_token()
         } else {
-            None
+            Ok(None)
         }
     }
 
     // TODO Reuse this pattern with other assignment cases
-    fn peek_is_assignee_followed_by_in(&mut self) -> bool {
-        if let Some(TokenKind::Identifier(_)) = self.peek_kind()
-            && let Some(TokenKind::In) = self.peek_kind_nth(1)
+    fn peek_is_assignee_followed_by_in(&mut self) -> Result<bool> {
+        if let Some(TokenKind::Identifier(_)) = self.iter.peek_kind()?
+            && let Some(TokenKind::In) = self.iter.peek_nth_kind(1)?
         {
-            return true;
+            return Ok(true);
         }
-        if let Some(TokenKind::LeftParen) = self.peek_kind()
-            && let Some(TokenKind::In) = self.peek_after_paren()
+        if let Some(TokenKind::LeftParen) = self.iter.peek_kind()?
+            && let Some(TokenKind::In) = self.peek_after_paren()?
         {
-            return true;
+            return Ok(true);
         }
 
-        false
-    }
-
-    fn peek_kind(&mut self) -> Option<&TokenKind> {
-        self.iter.peek().map(|t| t.as_ref())
+        Ok(false)
     }
 
     fn peek_kind_or_error(&mut self) -> Result<TokenKind> {
-        self.peek_kind().cloned().ok_or_else(|| self.fail_at_end())
+        self.iter
+            .peek_kind()?
+            .cloned()
+            .ok_or_else(|| self.fail_at_end())
     }
 
     // Skip newlines, and peek at the next "real" token
-    fn discard_and_peek_next(&mut self) -> Option<TokenKind> {
-        self.discard_whitespace();
-        self.peek_kind().cloned()
+    fn discard_and_peek_next(&mut self) -> Result<Option<TokenKind>> {
+        self.discard_whitespace()?;
+        Ok(self.iter.peek_kind()?.cloned())
     }
 
-    fn peek_continuation(&mut self) -> Option<(bool, TokenKind)> {
+    fn peek_continuation(&mut self) -> Result<Option<(bool, TokenKind)>> {
         let mut new_line = false;
         for n in 0.. {
-            match self.peek_kind_nth(n) {
+            match self.iter.peek_nth_kind(n)? {
                 None => break,
                 Some(TokenKind::NewLine) => {
                     new_line = true;
                 }
                 Some(TokenKind::Comment(_)) => {}
-                Some(kind) => return Some((new_line, kind.clone())),
+                Some(kind) => return Ok(Some((new_line, kind.clone()))),
             }
         }
 
-        None
+        Ok(None)
     }
 
-    fn peek_kind_nth(&mut self, n: usize) -> Option<&TokenKind> {
-        self.iter.peek_nth(n).map(|t| t.as_ref())
-    }
-
-    fn peek_after_paren(&mut self) -> Option<&TokenKind> {
+    fn peek_after_paren(&mut self) -> Result<Option<&TokenKind>> {
         let mut d = 0;
         for n in 0.. {
-            let token = self.iter.peek_nth(n)?;
+            let token = self.iter.peek_nth_token(n)?;
 
-            match token.as_ref() {
-                TokenKind::LeftParen => d += 1,
-                TokenKind::RightParen => {
-                    d -= 1;
-                    if d == 0 {
-                        return self.iter.peek_nth(n + 1).map(|t| t.as_ref());
+            if let Some(token) = token {
+                match token.as_ref() {
+                    TokenKind::LeftParen => d += 1,
+                    TokenKind::RightParen => {
+                        d -= 1;
+                        if d == 0 {
+                            return Ok(self.iter.peek_nth_token(n + 1)?.map(|t| t.as_ref()));
+                        }
                     }
+                    _ => {}
                 }
-                _ => {}
+            } else {
+                return Ok(None);
             }
         }
 
-        None
+        Ok(None)
     }
 
     fn fail_at_end(&self) -> ParseError {
@@ -1349,7 +1355,7 @@ impl<'a> Parser<'a> {
         ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(Loc::new(len - 1, len))
     }
 
-    fn parse_string(&self, src: &str, loc: Loc) -> Result<Src<Expression>> {
+    fn parse_string(&mut self, src: &str, loc: Loc) -> Result<Src<Expression>> {
         let parts = interpolation::tokenise_string(src);
 
         if parts.is_empty() {
@@ -1365,13 +1371,9 @@ impl<'a> Parser<'a> {
                     Expression::Literal(Literal::Str(part.src.into())),
                     Loc::new(0, part.src.len()),
                 ),
-                StringTokenKind::Expr => {
-                    let tokens = lexer::tokenize(part.src)
-                        .map_err(|err| err.shift_right(start_offset + part.offset))?;
-                    Parser::new(part.src, tokens)
-                        .parse_single_expression()
-                        .map_err(|err| err.shift_right(start_offset + part.offset))?
-                }
+                StringTokenKind::Expr => Parser::new(part.src)
+                    .parse_single_expression()
+                    .map_err(|err| err.shift_right(start_offset + part.offset))?,
             };
 
             res.push((expr, start_offset + part.offset));

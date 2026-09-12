@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::{fmt, ops, result, sync::Arc};
 
 use crate::{
@@ -140,13 +141,13 @@ pub enum TokenKind {
 
 pub type Token = Src<TokenKind>;
 
-struct Tokenizer<'a> {
+pub struct Tokenizer<'a> {
     src: &'a str,
     loc: Loc,
 }
 
 impl<'a> Tokenizer<'a> {
-    fn new(src: &'a str) -> Self {
+    pub fn new(src: &'a str) -> Self {
         Self {
             src,
             loc: Loc::start(),
@@ -422,23 +423,53 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-impl<'a> Iterator for Tokenizer<'a> {
-    type Item = Result<Token>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        self.next_token().transpose()
-    }
-}
-
-pub fn tokenize(src: &str) -> Result<Vec<Token>> {
-    let mut r = Vec::new();
-    for token in Tokenizer::new(src) {
-        r.push(token?);
-    }
-
-    Ok(r)
-}
-
 pub(crate) fn is_ident_char(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || ch == '_'
+}
+
+/// A wrapper type around the Tokenizer that lets the parser peek at the nth next token.
+pub struct PeekableTokenizer<'a> {
+    iter: Tokenizer<'a>,
+    buf: VecDeque<Token>,
+}
+
+impl<'a> PeekableTokenizer<'a> {
+    pub fn new(iter: Tokenizer<'a>) -> Self {
+        Self {
+            iter,
+            buf: VecDeque::new(),
+        }
+    }
+
+    pub fn next_token(&mut self) -> Result<Option<Token>> {
+        if let Some(token) = self.buf.pop_front() {
+            Ok(Some(token))
+        } else {
+            self.iter.next_token()
+        }
+    }
+
+    pub fn peek_token(&mut self) -> Result<Option<&Token>> {
+        self.peek_nth_token(0)
+    }
+
+    pub fn peek_nth_token(&mut self, n: usize) -> Result<Option<&Token>> {
+        while n >= self.buf.len() {
+            let item = self.iter.next_token()?;
+            if let Some(item) = item {
+                self.buf.push_back(item);
+            } else {
+                return Ok(None);
+            }
+        }
+        Ok(Some(&self.buf[n]))
+    }
+
+    pub fn peek_kind(&mut self) -> Result<Option<&TokenKind>> {
+        self.peek_nth_kind(0)
+    }
+
+    pub fn peek_nth_kind(&mut self, n: usize) -> Result<Option<&TokenKind>> {
+        Ok(self.peek_nth_token(n)?.map(|t| t.as_ref()))
+    }
 }
