@@ -8,7 +8,7 @@ use crate::{
     error::{ScriptError, ScriptResult, TypeResult},
     interpreter::Interpreter,
     native::NativeFunction,
-    script_type::{RecType, ScriptType, TupleItemType, TupleType, UnionType},
+    script_type::{ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs, UnionType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseError},
     type_scope::TypeDefinition,
@@ -56,7 +56,7 @@ pub(crate) fn parse_json(typedef: &TypeDefinition, input: &str) -> Result<Script
     match typedef {
         TypeDefinition::RecDefinition(def) => {
             let json: JsonValue = input.parse().map_err(ParseError::new)?;
-            let casing = Casing::from(def);
+            let casing = Casing::from(&def.attrs);
             let values = parse_typed_tuple(&def.params, &json, &casing)?;
 
             Ok(ScriptValue::Rec {
@@ -105,7 +105,7 @@ pub(crate) fn from_json_value(
             ScriptValue::List(Arc::new(list))
         }
         ScriptType::RecInstance(rec) => {
-            let casing = Casing::from(rec);
+            let casing = Casing::from(&rec.attrs);
             let tuple = parse_typed_tuple(&rec.params, val, &casing)?;
 
             ScriptValue::Rec {
@@ -130,7 +130,7 @@ impl TryFrom<&ScriptValue> for JsonValue {
             ScriptValue::String { content, .. } => JsonValue::String(content.to_string()),
             ScriptValue::Tuple(value) => serialize_tuple_values(value)?,
             ScriptValue::Rec { def, value } => {
-                let casing = Casing::from(def);
+                let casing = Casing::from(&def.attrs);
                 serialize_record_values(&def.params, value, &casing)?
             }
             ScriptValue::List(l) => {
@@ -142,22 +142,23 @@ impl TryFrom<&ScriptValue> for JsonValue {
                 JsonValue::Array(items)
             }
             ScriptValue::Union { def, index, value } => {
+                let casing = Casing::from(&def.attrs);
                 let variant = &def.variants[*index];
                 match UnionRepr::from(def) {
                     UnionRepr::Tagged => match &variant.params {
                         None => JsonValue::String(variant.name.to_string()),
                         Some(params) => {
-                            let mut map: HashMap<String, JsonValue> = HashMap::new();
+                            let mut map = HashMap::new();
                             map.insert(
                                 variant.name.to_string(),
-                                serialize_record_values(params, value, &Casing::default())?,
+                                serialize_record_values(params, value, &casing)?,
                             );
                             JsonValue::Object(map)
                         }
                     },
                     UnionRepr::Untagged => match &variant.params {
                         None => JsonValue::Null,
-                        Some(params) => serialize_record_values(params, value, &Casing::default())?,
+                        Some(params) => serialize_record_values(params, value, &casing)?,
                     },
                 }
             }
@@ -295,7 +296,7 @@ fn parse_array_tuple(params: &TupleType, val: &JsonValue) -> Result<Tuple, Parse
 }
 
 fn parse_union(def: &Arc<UnionType>, val: &JsonValue) -> Result<ScriptValue, ParseError> {
-    let casing = Casing::default(); // TODO from attrs
+    let casing = Casing::from(&def.attrs);
     match UnionRepr::from(def) {
         UnionRepr::Tagged => parse_tagged_union(def, val, &casing),
         UnionRepr::Untagged => parse_untagged_union(def, val, &casing),
@@ -388,52 +389,35 @@ fn parse_tagged_union(
 }
 
 fn get_json_name(expr: &TupleItemType, casing: &Casing) -> ScriptResult<Option<String>> {
-    let default_name = expr.name.as_ref().map(|n| casing.apply(n.as_str()));
-    let json_attr = expr.attrs.iter().find(|it| it.name.as_str() == "json");
+    let name_arg = expr
+        .attrs
+        .find("json")
+        .and_then(|a| a.args.as_ref().and_then(|t| t.iter_args().get("name")));
 
-    if let Some(attr) = json_attr {
-        if let Some(args) = &attr.args {
-            let mut args = args.iter_args();
-            if let Some(f) = args.get("name") {
-                let s = f.as_string()?;
-                Ok(Some(s.to_string()))
-            } else {
-                Ok(default_name)
-            }
-        } else {
-            Ok(default_name)
-        }
+    let name = if let Some(val) = name_arg {
+        Some(val.as_string()?.to_string())
     } else {
-        Ok(default_name)
-    }
+        expr.name.as_ref().map(|n| casing.apply(n.as_str()))
+    };
+
+    Ok(name)
 }
 
 #[derive(Default, Clone)]
 struct Casing<'a>(Option<Case<'a>>);
 
 impl Casing<'_> {
-    fn from(def: &RecType) -> Self {
-        // TODO Need something like ArgsIterator for attributes!
-        let casing = def
-            .attrs
-            .iter()
-            .find(|a| a.name.as_str() == "json")
-            .iter()
-            .find_map(|a| {
-                a.args.clone().and_then(|t| {
-                    t.items()
-                        .iter()
-                        .find(|v| v.name.iter().any(|n| n.as_str() == "casing"))
-                        .cloned()
-                })
-            });
+    fn from(attrs: &TypeAttrs) -> Self {
+        let casing = attrs
+            .find("json")
+            .and_then(|a| a.args.as_ref().and_then(|t| t.get_named("casing")));
 
         if let Some(casing) = casing {
-            match casing.value.as_string().unwrap().as_ref() {
+            match casing.as_string().unwrap().as_ref() {
                 "kebab" => Self(Some(Case::Kebab)),
                 "camel" => Self(Some(Case::Camel)),
                 "pascal" => Self(Some(Case::Pascal)),
-                _ => unimplemented!("error handling"),
+                x => unimplemented!("error handling, casing = {x}"),
             }
         } else {
             Self(None)
@@ -459,22 +443,18 @@ enum UnionRepr {
 
 impl UnionRepr {
     fn from(def: &UnionType) -> Self {
-        // TODO Need something like ArgsIterator for attributes!
-        let untagged = def
-            .attrs
-            .iter()
-            .find(|a| a.name.as_str() == "json")
-            .iter()
-            .any(|a| {
-                a.args.iter().any(|t| {
-                    t.items()
-                        .iter()
-                        .any(|v| v.name.is_none() && v.value == ScriptValue::string("untagged"))
-                })
-            });
+        let union_repr = def.attrs.find("json").and_then(|a| {
+            a.args
+                .as_ref()
+                .and_then(|t| t.iter_args().get("union_repr"))
+        });
 
-        if untagged {
-            Self::Untagged
+        if let Some(repr) = union_repr {
+            match repr.as_string().unwrap().as_ref() {
+                "untagged" => Self::Untagged,
+                "tagged" => Self::Tagged,
+                x => unimplemented!("error handling, repr = {x}"),
+            }
         } else {
             Self::Tagged
         }

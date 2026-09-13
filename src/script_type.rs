@@ -1,4 +1,4 @@
-use std::{fmt, sync::Arc};
+use std::{fmt, slice, sync::Arc};
 
 use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
@@ -362,7 +362,7 @@ impl FunctionType {
 pub struct RecType {
     pub(crate) name: Ident,
     pub(crate) params: TupleType,
-    pub(crate) attrs: Vec<TypeAttribute>,
+    pub(crate) attrs: TypeAttrs,
 }
 
 impl RecType {
@@ -370,19 +370,19 @@ impl RecType {
         Arc::new(Self {
             name: name.into(),
             params: params.into(),
-            attrs: Vec::new(),
+            attrs: TypeAttrs::new(),
         })
     }
 
     pub fn new_with_attrs(
         name: impl Into<Ident>,
         params: impl Into<TupleType>,
-        attrs: Vec<TypeAttribute>,
+        attrs: impl Into<TypeAttrs>,
     ) -> Arc<Self> {
         Arc::new(Self {
             name: name.into(),
             params: params.into(),
-            attrs,
+            attrs: attrs.into(),
         })
     }
 }
@@ -391,7 +391,7 @@ impl RecType {
 pub struct UnionType {
     pub(crate) name: Ident,
     pub(crate) variants: Vec<UnionVariantType>,
-    pub(crate) attrs: Vec<TypeAttribute>,
+    pub(crate) attrs: TypeAttrs,
 }
 
 impl UnionType {
@@ -399,19 +399,19 @@ impl UnionType {
         Arc::new(Self {
             name: name.into(),
             variants: variants.into(),
-            attrs: Vec::new(),
+            attrs: TypeAttrs::new(),
         })
     }
 
     pub fn new_with_attrs(
         name: impl Into<Ident>,
         variants: impl Into<Vec<UnionVariantType>>,
-        attrs: Vec<TypeAttribute>,
+        attrs: impl Into<TypeAttrs>,
     ) -> Arc<Self> {
         Arc::new(Self {
             name: name.into(),
             variants: variants.into(),
-            attrs,
+            attrs: attrs.into(),
         })
     }
 
@@ -442,7 +442,7 @@ impl UnionVariantType {
 pub struct TupleItemType {
     pub name: Option<Ident>,
     pub value: ScriptType,
-    pub attrs: Vec<TypeAttribute>,
+    pub attrs: TypeAttrs,
 }
 
 impl TupleItemType {
@@ -450,16 +450,20 @@ impl TupleItemType {
         Self {
             name,
             value,
-            attrs: Vec::new(),
+            attrs: TypeAttrs::new(),
         }
     }
 
     pub fn new_with_attrs(
         name: Option<Ident>,
         value: ScriptType,
-        attrs: Vec<TypeAttribute>,
+        attrs: impl Into<TypeAttrs>,
     ) -> Self {
-        Self { name, value, attrs }
+        Self {
+            name,
+            value,
+            attrs: attrs.into(),
+        }
     }
 
     pub fn named(name: impl Into<Ident>, value: ScriptType) -> Self {
@@ -486,6 +490,29 @@ pub struct TypeAttribute {
     // Refers to Tuple, which is a *value* (not a type), Because these expressions are
     // evaluated statically, and the result of evaluation (value) becomes part of the type.
     pub(crate) args: Option<Tuple>,
+}
+
+#[derive(Debug, Clone)]
+pub struct TypeAttrs(Vec<TypeAttribute>);
+
+impl TypeAttrs {
+    pub(crate) const fn new() -> Self {
+        Self(Vec::new())
+    }
+
+    pub(crate) fn iter(&self) -> slice::Iter<'_, TypeAttribute> {
+        self.0.iter()
+    }
+
+    pub(crate) fn find(&self, name: &str) -> Option<&TypeAttribute> {
+        self.iter().find(|a| a.name.as_str() == name)
+    }
+}
+
+impl From<Vec<TypeAttribute>> for TypeAttrs {
+    fn from(value: Vec<TypeAttribute>) -> Self {
+        Self(value)
+    }
 }
 
 #[derive(Default, Debug, Clone)]

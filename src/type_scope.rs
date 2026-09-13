@@ -10,8 +10,7 @@ use crate::{
         TypeExpression, UnionExpression,
     },
     script_type::{
-        FunctionType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute, UnionType,
-        UnionVariantType,
+        FunctionType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs, UnionType, UnionVariantType
     },
     script_value::{ScriptValue, Tuple, TupleItem},
 };

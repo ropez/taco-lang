@@ -142,3 +142,64 @@ fun test_json_union_untagged_named() {
     assert parsed == original
 
 }
+
+fun test_kebab_casing() {
+    union Test {
+        None
+        Casing(
+            snake_case: int
+            camelCase: int
+            PascalCase: int
+        )
+    } @json(casing: "kebab")
+
+    test = Test::Casing(1, 2, 3)
+    json = json(test)
+
+    assert json.contains(""""snake-case":1""")
+    assert json.contains(""""camel-case":2""")
+    assert json.contains(""""pascal-case":3""")
+
+    assert Test::parse(json)! == test
+}
+
+fun test_camel_casing() {
+    union Test {
+        None
+        Casing(
+            snake_case: int
+            camelCase: int
+            PascalCase: int
+        )
+    } @json(casing: "camel")
+
+    test = Test::Casing(1, 2, 3)
+    json = json(test)
+
+    assert json.contains(""""snakeCase":1""")
+    assert json.contains(""""camelCase":2""")
+    assert json.contains(""""pascalCase":3""")
+
+    assert Test::parse(json)! == test
+}
+
+fun test_pascal_casing() {
+    union Test {
+        None
+        Casing(
+            snake_case: int
+            camelCase: int
+            PascalCase: int
+        )
+    } @json(casing: "pascal")
+
+    test = Test::Casing(1, 2, 3)
+    json = json(test)
+
+    assert json.contains(""""SnakeCase":1""")
+    assert json.contains(""""CamelCase":2""")
+    assert json.contains(""""PascalCase":3""")
+
+    assert Test::parse(json)! == test
+}
+
