@@ -35,3 +35,18 @@ fun test_variable_names() {
 
     assert "$foo_bar_123" == "ok"
 }
+
+fun test_string_inside_interpolation() {
+    fun wrap(t: str): str {
+        q = '"'
+        return "($t)"
+    }
+
+    assert "[ ${wrap("foo")} ]" == """[ (foo) ]"""
+}
+
+fun test_nested_interpolation() {
+    s = "this ${"is ${"""just"""} very"} silly!"
+
+    assert s == "this is just very silly!"
+}

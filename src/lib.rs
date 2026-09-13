@@ -5,7 +5,7 @@ use crate::{
     ident::Ident,
     interpreter::Interpreter,
     native::{
-        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef, NativeType,
+        NativeFunction, NativeFunctionRef, NativeMethod, NativeMethodRef,
         NativeTypeMethod, NativeTypeMethodRef, NativeTypeRef,
     },
     output_adapter::OutputAdapter,
@@ -33,7 +33,6 @@ pub mod type_scope;
 pub mod validate;
 
 mod fmt;
-mod interpolation;
 mod output_adapter;
 mod stdlib;
 

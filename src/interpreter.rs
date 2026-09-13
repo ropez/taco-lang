@@ -411,7 +411,7 @@ impl Interpreter {
             Expression::String(parts) => {
                 // TODO Lazy evaluation (StringInterpolate ScriptValue variant with scope)
                 let mut builder = String::new();
-                for (expr, _) in parts {
+                for expr in parts {
                     let val = self.eval_expr(expr, scope)?;
                     write!(builder, "{val}").unwrap();
                 }

@@ -7,8 +7,7 @@ use std::{
 use crate::{
     error::{ParseError, ParseErrorKind},
     ident::Ident,
-    interpolation::{self, StringTokenKind},
-    lexer::{self, Loc, PeekableTokenizer, Src, Token, TokenKind},
+    lexer::{self, Loc, PeekableTokenizer, QuotationKind, Src, Token, TokenKind},
 };
 
 type Result<T> = result::Result<T, ParseError>;
@@ -78,7 +77,7 @@ pub enum Expression {
     PrefixedName(Ident, Ident),
     Literal(Literal),
     Arguments,
-    String(Vec<(Src<Expression>, usize)>),
+    String(Vec<Src<Expression>>),
     List(Vec<Src<Expression>>),
     Tuple(Src<Vec<ArgumentExpression>>),
     Pipe(Box<Src<Expression>>, Box<Src<Expression>>),
@@ -538,8 +537,8 @@ impl<'a> Parser<'a> {
                 let loc = wrap_locations(token.loc, expr.loc);
                 Src::new(Expression::LogicNot(expr.into()), loc)
             }
-            TokenKind::String(s) => {
-                let expr = self.parse_string(s, token.loc)?;
+            TokenKind::Quotation(quotation) => {
+                let expr = self.parse_string(quotation, token.loc)?;
                 self.parse_continuation(expr, bp)?
             }
             TokenKind::Char(c) => {
@@ -1010,10 +1009,14 @@ impl<'a> Parser<'a> {
             TokenKind::False => Src::new(MatchPattern::Literal(Literal::False), token.loc),
             TokenKind::Number(n) => Src::new(MatchPattern::Literal(Literal::Int(*n)), token.loc),
             TokenKind::Char(c) => Src::new(MatchPattern::Literal(Literal::Char(*c)), token.loc),
-            TokenKind::String(s) => Src::new(
-                MatchPattern::Literal(Literal::Str(Arc::clone(s))),
-                token.loc,
-            ),
+            TokenKind::Quotation(quotation) => {
+                let s = self.iter.next_string_chars(quotation)?;
+                self.expect_kind(token.cloned())?;
+                Src::new(
+                    MatchPattern::Literal(Literal::Str(s.into_inner().into())),
+                    token.loc,
+                )
+            }
             TokenKind::Identifier(s) => {
                 // XXX Hard-coded parsing of Ok/Err
                 match s.as_str() {
@@ -1340,6 +1343,13 @@ impl<'a> Parser<'a> {
                             return Ok(self.iter.peek_nth_token(n + 1)?.map(|t| t.as_ref()));
                         }
                     }
+
+                    // HACK Prevent peeking into strings. This is a hack because it assumes
+                    // the caller is looking for a destructuring assignment. If we find a literal
+                    // string anywhere, we conclude early that this is not an assignment, because it
+                    // would be invalid.
+                    TokenKind::Quotation(_) => return Ok(None),
+
                     _ => {}
                 }
             } else {
@@ -1355,31 +1365,68 @@ impl<'a> Parser<'a> {
         ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(Loc::new(len - 1, len))
     }
 
-    fn parse_string(&mut self, src: &str, loc: Loc) -> Result<Src<Expression>> {
-        let parts = interpolation::tokenise_string(src);
+    fn parse_string(&mut self, quotation: &QuotationKind, loc: Loc) -> Result<Src<Expression>> {
+        let mut tokens = Vec::new();
 
-        if parts.is_empty() {
-            return Ok(Src::new(Expression::Literal(Literal::Str("".into())), loc));
+        loop {
+            let s = self.iter.next_string_chars(quotation)?;
+            if !s.is_empty() {
+                let src = Src::new(
+                    Expression::Literal(Literal::Str((*s.as_ref()).into())),
+                    s.loc,
+                );
+                tokens.push(src);
+            }
+
+            if let Some(token) = self.iter.next_token()? {
+                match token.as_ref() {
+                    TokenKind::Dollar => {
+                        if let Some(token) = self.iter.next_token()? {
+                            let expr = match token.as_ref() {
+                                TokenKind::LeftBrace => {
+                                    let expr = self.parse_expression(0)?;
+                                    self.expect_kind(TokenKind::RightBrace)?;
+                                    expr
+                                }
+                                TokenKind::Identifier(n) => {
+                                    Src::new(Expression::Ref(Ident::clone(n)), token.loc)
+                                }
+                                TokenKind::Dollar => Src::new(
+                                    Expression::Literal(Literal::Str("$".into())),
+                                    token.loc,
+                                ),
+                                _ => return Err(ParseError::unexpected_token().at(token.loc)),
+                            };
+                            tokens.push(expr);
+                        } else {
+                            todo!("Unexpected end of input");
+                        }
+                    }
+                    TokenKind::Escape(ch) => {
+                        let literal = match ch {
+                            '\\' => Literal::Str("\\".into()),
+                            '\'' => Literal::Str("\'".into()),
+                            '"' => Literal::Str("\"".into()),
+                            'n' => Literal::Str("\n".into()),
+                            'r' => Literal::Str("\r".into()),
+                            '$' => Literal::Str("$".into()),
+
+                            _ => return Err(ParseError::unexpected_token().at(token.loc)),
+                        };
+
+                        tokens.push(Src::new(Expression::Literal(literal), token.loc));
+                    }
+                    TokenKind::Quotation(q) if *q == *quotation => {
+                        let loc = wrap_locations(loc, token.loc);
+
+                        return Ok(Src::new(Expression::String(tokens), loc));
+                    }
+                    t => todo!("unexpected token in string: {t:?}"),
+                }
+            } else {
+                todo!("Unexpected end of input");
+            }
         }
-
-        let mut res = Vec::new();
-
-        let start_offset = loc.start + 1;
-        for part in parts {
-            let expr = match &part.kind {
-                StringTokenKind::Str => Src::new(
-                    Expression::Literal(Literal::Str(part.src.into())),
-                    Loc::new(0, part.src.len()),
-                ),
-                StringTokenKind::Expr => Parser::new(part.src)
-                    .parse_single_expression()
-                    .map_err(|err| err.shift_right(start_offset + part.offset))?,
-            };
-
-            res.push((expr, start_offset + part.offset));
-        }
-
-        Ok(Src::new(Expression::String(res), loc))
     }
 }
 

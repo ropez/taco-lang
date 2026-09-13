@@ -462,26 +462,22 @@ impl Validator {
             },
             Expression::Arguments => Ok(ScriptType::Tuple(scope.arguments.clone())),
             Expression::String(parts) => {
-                for (part, offset) in parts {
-                    let typ = self
-                        .validate_expr(part, scope)
-                        .map_err(|err| err.at_offset(*offset))?;
+                for part in parts {
+                    let typ = self.validate_expr(part, scope)?;
                     match &typ {
                         ScriptType::Opt(t) => {
                             return Err(TypeError::new(TypeErrorKind::InvalidArgumentType {
                                 expected: *t.clone(),
                                 actual: typ,
                             })
-                            .at(part.loc)
-                            .at_offset(*offset));
+                            .at(part.loc));
                         }
                         ScriptType::Native(_) => {
                             return Err(TypeError::new(TypeErrorKind::InvalidArgument {
                                 expected: "printable value".into(),
                                 actual: typ,
                             })
-                            .at(part.loc)
-                            .at_offset(*offset));
+                            .at(part.loc));
                         }
                         _ => (),
                     }
@@ -1420,7 +1416,8 @@ impl Validator {
             },
             Expression::String(s) => {
                 if s.len() == 1
-                    && let Some(Expression::Literal(Literal::Str(f))) = s.first().map(|k| &*k.0)
+                    && let Some(Expression::Literal(Literal::Str(f))) =
+                        s.first().map(|k| k.as_ref())
                 {
                     Some(f.to_string())
                 } else {

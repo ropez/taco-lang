@@ -51,11 +51,6 @@ impl ParseError {
         }
     }
 
-    pub fn shift_right(self, offset: usize) -> Self {
-        let loc = self.loc.unwrap_or(Loc::start()).shift_right(offset);
-        self.at(loc)
-    }
-
     pub(crate) fn into_source_error(self, source: &str) -> Error {
         let msg = match self.kind {
             ParseErrorKind::UnexpectedToken => String::from("Unexpected token"),
@@ -176,13 +171,6 @@ impl TypeError {
     pub fn at(self, loc: impl Into<Option<Loc>>) -> Self {
         Self {
             loc: self.loc.or(loc.into()),
-            ..self
-        }
-    }
-
-    pub fn at_offset(self, offset: usize) -> Self {
-        Self {
-            loc: self.loc.map(|loc| loc.shift_right(offset)),
             ..self
         }
     }

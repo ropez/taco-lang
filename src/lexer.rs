@@ -22,10 +22,6 @@ impl Loc {
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }
-
-    pub fn shift_right(self, offset: usize) -> Self {
-        Self::new(self.start + offset, self.end + offset)
-    }
 }
 
 #[derive(Clone)]
@@ -79,6 +75,12 @@ impl<T> ops::Deref for Src<T> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub enum QuotationKind {
+    DoubleQuote,
+    TripleQuotes,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum TokenKind {
     Assign,
     LeftParen,
@@ -113,7 +115,12 @@ pub enum TokenKind {
     Divide,
     Modulo,
     Identifier(Ident),
-    String(Arc<str>),
+
+    Quotation(QuotationKind),
+
+    Dollar,
+    Escape(char),
+
     Number(i64),
     Char(char),
     NewLine,
@@ -154,7 +161,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn next_token(&mut self) -> Result<Option<Token>> {
+    pub(crate) fn next_token(&mut self) -> Result<Option<Token>> {
         self.skip_blanks();
 
         let token = match self.read_char() {
@@ -249,8 +256,17 @@ impl<'a> Tokenizer<'a> {
                 }
                 '\n' => Some(self.produce(TokenKind::NewLine)),
                 '"' => {
-                    let s = self.find_str()?;
-                    Some(self.produce(TokenKind::String(s)))
+                    if self.remaining().starts_with(r#""""#) {
+                        self.skip(2);
+                        Some(self.produce(TokenKind::Quotation(QuotationKind::TripleQuotes)))
+                    } else {
+                        Some(self.produce(TokenKind::Quotation(QuotationKind::DoubleQuote)))
+                    }
+                }
+                '$' => Some(self.produce(TokenKind::Dollar)),
+                '\\' => {
+                    let ch = self.expect_char()?;
+                    Some(self.produce(TokenKind::Escape(ch)))
                 }
                 '\'' => {
                     let s = self.find_char()?;
@@ -294,6 +310,18 @@ impl<'a> Tokenizer<'a> {
         Ok(token)
     }
 
+    // Return literal string characters until an interpolation or end of string is found.
+    pub(crate) fn next_string_chars(&mut self, quotation: &QuotationKind) -> Result<Src<&'a str>> {
+        let delimiter_str = match quotation {
+            QuotationKind::DoubleQuote => r#"""#,
+            QuotationKind::TripleQuotes => r#"""""#,
+        };
+
+        let s = self.find_inner_str(delimiter_str)?;
+
+        Ok(Src::new(s, self.loc))
+    }
+
     fn skip_blanks(&mut self) {
         let p = self
             .remaining()
@@ -308,6 +336,14 @@ impl<'a> Tokenizer<'a> {
 
     fn peek(&mut self) -> Option<char> {
         self.remaining().chars().next()
+    }
+
+    fn expect_char(&mut self) -> Result<char> {
+        if let Some(ch) = self.read_char() {
+            Ok(ch)
+        } else {
+            Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
+        }
     }
 
     fn read_char(&mut self) -> Option<char> {
@@ -351,32 +387,27 @@ impl<'a> Tokenizer<'a> {
         Token { inner: kind, loc }
     }
 
-    fn find_str(&mut self) -> Result<Arc<str>> {
-        // FIXME Interpolated strings can contain nested strings
-        if self.src[self.loc.start..].starts_with("\"\"\"") {
-            self.find_inner_str("\"\"\"")
-        } else {
-            self.find_inner_str("\"")
-        }
-    }
+    fn find_inner_str(&mut self, delimiter: &str) -> Result<&'a str> {
+        let cur = &self.src[self.loc.start..];
+        let mut e = 0;
+        while e < cur.len() {
+            let r = &cur[e..];
+            if r.starts_with(delimiter) || r.starts_with('$') || r.starts_with('\\') {
+                self.loc.end = self.loc.start + e;
+                return Ok(cur[..e].into());
+            }
 
-    fn find_inner_str(&mut self, delimiter: &str) -> Result<Arc<str>> {
-        // FIXME Interpolated strings can contain nested strings
-        let l = delimiter.len();
-        let cur = &self.src[self.loc.start + l..];
-        if let Some(e) = cur.find(delimiter) {
-            self.loc.end = self.loc.start + l + e + l;
-            Ok(cur[..e].into())
-        } else {
-            Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
+            if let Some(ch) = cur[e..].chars().next() {
+                e += ch.len_utf8();
+            } else {
+                break;
+            }
         }
+        Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc))
     }
 
     fn find_char(&mut self) -> Result<char> {
-        let Some(c) = self.read_char() else {
-            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
-        };
-
+        let c = self.expect_char()?;
         let c = if c == '\\' {
             match self.read_char() {
                 Some('\\') => '\\',
@@ -388,9 +419,7 @@ impl<'a> Tokenizer<'a> {
             c
         };
 
-        let Some(t) = self.read_char() else {
-            return Err(ParseError::new(ParseErrorKind::UnexpectedEndOfInput).at(self.loc));
-        };
+        let t = self.expect_char()?;
         if t != '\'' {
             return Err(ParseError::new(ParseErrorKind::UnexpectedToken).at(self.loc));
         }
@@ -471,5 +500,13 @@ impl<'a> PeekableTokenizer<'a> {
 
     pub fn peek_nth_kind(&mut self, n: usize) -> Result<Option<&TokenKind>> {
         Ok(self.peek_nth_token(n)?.map(|t| t.as_ref()))
+    }
+
+    pub fn next_string_chars(&mut self, quotation: &QuotationKind) -> Result<Src<&'a str>> {
+        if self.buf.is_empty() {
+            self.iter.next_string_chars(quotation)
+        } else {
+            panic!("parser peeked into string");
+        }
     }
 }

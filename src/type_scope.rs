@@ -269,8 +269,8 @@ fn try_static_eval(expr: &Src<Expression>) -> TypeResult<ScriptValue> {
         },
         Expression::String(parts) => {
             let mut builder = String::new();
-            for (expr, offset) in parts {
-                let val = try_static_eval(expr).map_err(|err| err.at_offset(*offset))?;
+            for expr in parts {
+                let val = try_static_eval(expr)?;
                 write!(builder, "{}", val).unwrap();
             }
             ScriptValue::string(builder)
