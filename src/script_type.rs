@@ -427,6 +427,7 @@ impl UnionType {
 pub struct UnionVariantType {
     pub(crate) name: Ident,
     pub(crate) params: Option<TupleType>,
+    pub(crate) attrs: TypeAttrs,
 }
 
 impl UnionVariantType {
@@ -434,6 +435,19 @@ impl UnionVariantType {
         Self {
             name: name.into(),
             params,
+            attrs: TypeAttrs::new(),
+        }
+    }
+
+    pub fn new_with_attrs(
+        name: impl Into<Ident>,
+        params: Option<TupleType>,
+        attrs: impl Into<TypeAttrs>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            params,
+            attrs: attrs.into(),
         }
     }
 }

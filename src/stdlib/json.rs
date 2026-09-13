@@ -8,7 +8,9 @@ use crate::{
     error::{ScriptError, ScriptResult, TypeResult},
     interpreter::Interpreter,
     native::NativeFunction,
-    script_type::{ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs, UnionType},
+    script_type::{
+        ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs, UnionType, UnionVariantType,
+    },
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseError},
     type_scope::TypeDefinition,
@@ -145,17 +147,17 @@ impl TryFrom<&ScriptValue> for JsonValue {
                 let casing = Casing::from(&def.attrs);
                 let variant = &def.variants[*index];
                 match UnionRepr::from(def) {
-                    UnionRepr::Tagged => match &variant.params {
-                        None => JsonValue::String(variant.name.to_string()),
-                        Some(params) => {
-                            let mut map = HashMap::new();
-                            map.insert(
-                                variant.name.to_string(),
-                                serialize_record_values(params, value, &casing)?,
-                            );
-                            JsonValue::Object(map)
+                    UnionRepr::Tagged => {
+                        let name = get_json_variant_name(variant, &Casing::default())?;
+                        match &variant.params {
+                            None => JsonValue::String(name),
+                            Some(params) => {
+                                let mut map = HashMap::new();
+                                map.insert(name, serialize_record_values(params, value, &casing)?);
+                                JsonValue::Object(map)
+                            }
                         }
-                    },
+                    }
                     UnionRepr::Untagged => match &variant.params {
                         None => JsonValue::Null,
                         Some(params) => serialize_record_values(params, value, &casing)?,
@@ -342,8 +344,8 @@ fn parse_tagged_union(
 ) -> Result<ScriptValue, ParseError> {
     match val {
         JsonValue::String(s) => {
-            let Some((i, var)) = def.find_variant(&s.as_str().into()) else {
-                parse_bail!("Variant not found");
+            let Some((i, var)) = lookup_union_variant(def, s) else {
+                parse_bail!("Variant not found: {}", s);
             };
 
             if var.params.is_some() {
@@ -365,7 +367,7 @@ fn parse_tagged_union(
                 parse_bail!("Expected variant name");
             };
 
-            let Some((i, var)) = def.find_variant(&name.as_str().into()) else {
+            let Some((i, var)) = lookup_union_variant(def, name) else {
                 parse_bail!("Variant not found: {}", name);
             };
 
@@ -388,6 +390,16 @@ fn parse_tagged_union(
     }
 }
 
+fn lookup_union_variant<'a>(
+    def: &'a UnionType,
+    name: &str,
+) -> Option<(usize, &'a UnionVariantType)> {
+    def.variants
+        .iter()
+        .enumerate()
+        .find(|(_, v)| get_json_variant_name(v, &Casing::default()).is_ok_and(|n| n == name))
+}
+
 fn get_json_name(expr: &TupleItemType, casing: &Casing) -> ScriptResult<Option<String>> {
     let name_arg = expr
         .attrs
@@ -398,6 +410,21 @@ fn get_json_name(expr: &TupleItemType, casing: &Casing) -> ScriptResult<Option<S
         Some(val.as_string()?.to_string())
     } else {
         expr.name.as_ref().map(|n| casing.apply(n.as_str()))
+    };
+
+    Ok(name)
+}
+
+fn get_json_variant_name(var: &UnionVariantType, casing: &Casing) -> ScriptResult<String> {
+    let name_arg = var
+        .attrs
+        .find("json")
+        .and_then(|a| a.args.as_ref().and_then(|t| t.iter_args().get("name")));
+
+    let name = if let Some(val) = name_arg {
+        val.as_string()?.to_string()
+    } else {
+        casing.apply(var.name.as_str())
     };
 
     Ok(name)

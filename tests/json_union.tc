@@ -91,9 +91,30 @@ fun test_json_union_untagged() {
     ]
 
     json_data = json(original)
-    println(json_data) # Can't assert because unpredictable attribute ordering
 
     assert json_data == """[[192,168,125,100],"fx03....ff"]"""
+
+    # Workaround for not having ::parse on list yet
+    rec Box([IPAddr])
+    (parsed) = Box::parse(json_data)!
+
+    assert parsed == original
+}
+
+fun test_json_union_custom_name() {
+    union IPAddr {
+        IPv4 ( int, int, int, int ) @json("v4")
+        IPv6 ( str ) @json(name: "v6")
+    }
+
+    original = [
+        IPAddr::IPv4 ( 192, 168, 125, 100 )
+        IPAddr::IPv6 ( "fx03....ff" )
+    ]
+
+    json_data = json(original)
+
+    assert json_data == """[{"v4":[192,168,125,100]},{"v6":"fx03....ff"}]"""
 
     # Workaround for not having ::parse on list yet
     rec Box([IPAddr])

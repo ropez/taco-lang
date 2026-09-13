@@ -227,6 +227,7 @@ pub struct UnionExpression {
 pub struct VariantExpression {
     pub(crate) name: Ident,
     pub(crate) params: Option<Src<Vec<ParamExpression>>>,
+    pub(crate) attrs: Vec<Src<AttributeExpression>>,
 }
 
 #[derive(Debug, Clone)]
@@ -1111,16 +1112,23 @@ impl<'a> Parser<'a> {
         let variants = self.parse_inner_list(TokenKind::RightBrace, |p| {
             let (name, _) = p.expect_ident()?;
 
-            if let Some(TokenKind::LeftParen) = p.iter.peek_kind()? {
+            let params = if let Some(TokenKind::LeftParen) = p.iter.peek_kind()? {
                 let params = p.parse_params(false)?;
-
-                Ok(VariantExpression {
-                    name,
-                    params: Some(params),
-                })
+                Some(params)
             } else {
-                Ok(VariantExpression { name, params: None })
+                None
+            };
+
+            let mut attrs = Vec::new();
+            while let Some(attr) = p.try_parse_type_attr()? {
+                attrs.push(attr);
             }
+
+            Ok(VariantExpression {
+                name,
+                params,
+                attrs,
+            })
         })?;
         self.expect_kind(TokenKind::RightBrace)?;
 

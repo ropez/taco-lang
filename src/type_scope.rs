@@ -10,7 +10,8 @@ use crate::{
         TypeExpression, UnionExpression,
     },
     script_type::{
-        FunctionType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs, UnionType, UnionVariantType
+        FunctionType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs,
+        UnionType, UnionVariantType,
     },
     script_value::{ScriptValue, Tuple, TupleItem},
 };
@@ -101,7 +102,11 @@ impl TypeScope {
                         .as_ref()
                         .map(|p| eval_params(p, self))
                         .transpose()?;
-                    Ok(UnionVariantType::new(&v.name, params))
+                    Ok(UnionVariantType::new_with_attrs(
+                        &v.name,
+                        params,
+                        eval_type_attrs(&v.attrs)?,
+                    ))
                 })
                 .collect::<TypeResult<Vec<UnionVariantType>>>()?,
             eval_type_attrs(&def.attrs)?,
