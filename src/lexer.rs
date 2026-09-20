@@ -19,6 +19,11 @@ impl Loc {
         Self { start: 0, end: 0 }
     }
 
+    // XXX Same as start
+    pub const fn void() -> Self {
+        Self { start: 0, end: 0 }
+    }
+
     pub fn new(start: usize, end: usize) -> Self {
         Self { start, end }
     }

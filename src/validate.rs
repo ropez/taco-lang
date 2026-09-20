@@ -14,8 +14,9 @@ use crate::{
     native::{NativeMethodRef, NativeTypeMethodRef},
     parser::{
         ArgumentExpression, Assignee, CallExpression, Expression, Function, Literal, MatchArm,
-        MatchPattern, Statement,
+        MatchPattern, MatchPatternItem, Statement,
     },
+    pattern_matching::{resolve_tuple_patterns, validate_patterns},
     script_type::{FunctionType, ScriptFunction, ScriptType, TupleItemType, TupleType},
     stdlib,
     type_scope::{TypeDefinition, TypeScope, eval_params, eval_type_expr},
@@ -704,7 +705,7 @@ impl Validator {
             Expression::Matches(lhs, pattern) => {
                 let expr_type = self.eval_expr(lhs, scope)?;
 
-                let _ = self.eval_match_pattern(pattern, &expr_type, scope)?;
+                self.eval_match_pattern(pattern, &expr_type, &mut scope.clone())?;
 
                 Ok(ScriptType::Bool)
             }
@@ -782,32 +783,9 @@ impl Validator {
             } => {
                 let expr_type = self.eval_expr(match_expr, scope)?;
 
-                let types = arms
-                    .iter()
-                    .map(|a| self.eval_match_arm(a, &expr_type, scope))
-                    .collect::<TypeResult<Vec<_>>>()?;
-
-                // XXX TODO Check that patterns accept expr type
-
-                // XXX TODO Check exhaustiveness
-
-                let mut is_exhausted = false;
                 let patterns: Vec<_> = arms.iter().map(|a| a.pattern.as_ref()).collect();
-                for (i, pat) in patterns.iter().enumerate() {
-                    // XXX Must check if this specific pattern is exhausted by all previous
-                    // patterns, even if all possible patterns aren't exhausted yet.
-                    // e.g.: (true, a), (true, b)
-                    if is_exhausted {
-                        return Err(TypeError::new(TypeErrorKind::PatternAlreadyExhausted(
-                            pat.cloned(),
-                        ))
-                        .at(pat.loc));
-                    }
-
-                    if expr_type.is_exhausted_by(&patterns[..=i]) {
-                        is_exhausted = true;
-                    }
-                }
+                let is_exhausted = validate_patterns(&expr_type, &patterns)
+                    .map_err(|err| err.at(match_expr.loc))?;
 
                 if !is_exhausted && !is_opt {
                     return Err(TypeError::new(TypeErrorKind::PatternNotExhausted(
@@ -815,6 +793,11 @@ impl Validator {
                     ))
                     .at(match_expr.loc));
                 }
+
+                let types = arms
+                    .iter()
+                    .map(|a| self.eval_match_arm(a, &expr_type, scope))
+                    .collect::<TypeResult<Vec<_>>>()?;
 
                 let arms_type = self.most_specific_type(&types)?;
 
@@ -1226,16 +1209,12 @@ impl Validator {
         other: &TupleType,
         scope: &mut Scope,
     ) -> TypeResult<()> {
-        let mut positional = other.positional();
+        let mut args = other.iter_args();
 
         for assignee in lhs.iter() {
-            let opt_item = if let Some(name) = &assignee.name {
-                other.get_named(name).or_else(|| positional.next())
-            } else {
-                positional.next()
-            };
+            let opt_item = args.resolve(assignee.name.as_ref());
 
-            if let Some(item) = opt_item {
+            if let Some(item) = &opt_item {
                 self.eval_assignment(assignee, item, scope)?;
             } else {
                 return Err(TypeError::new(TypeErrorKind::MissingDestructureArgument {
@@ -1246,13 +1225,28 @@ impl Validator {
             }
         }
 
-        if positional.next().is_some() {
+        if args.next_positional().is_some() {
             return Err(
                 TypeError::new(TypeErrorKind::UnexpectedDestructureArgument {
                     actual: other.clone(),
                 })
                 .at(loc),
             );
+        }
+
+        Ok(())
+    }
+
+    fn eval_tuple_match_pattern(
+        &self,
+        tuple_type: &TupleType,
+        patterns: &[MatchPatternItem],
+        scope: &mut Scope,
+    ) -> TypeResult<()> {
+        let resolved = resolve_tuple_patterns(tuple_type, patterns);
+
+        for (pattern, item) in resolved.iter().zip(tuple_type.items()) {
+            self.eval_match_pattern(pattern, &item.value, scope)?;
         }
 
         Ok(())
@@ -1265,7 +1259,7 @@ impl Validator {
         // way of affecting the scope.
         if let Expression::Matches(lhs, pattern) = cond.as_ref() {
             let expr_type = self.eval_expr(lhs, scope)?;
-            inner_scope = self.eval_match_pattern(pattern, &expr_type, scope)?;
+            self.eval_match_pattern(pattern, &expr_type, &mut inner_scope)?;
         } else {
             let typ = self.validate_expr(cond, scope)?;
             if !ScriptType::Bool.accepts(&typ) {
@@ -1316,76 +1310,57 @@ impl Validator {
         expr_type: &ScriptType,
         scope: &Scope,
     ) -> TypeResult<Src<ScriptType>> {
-        let inner_scope = self.eval_match_pattern(&arm.pattern, expr_type, scope)?;
+        let mut inner_scope = scope.clone();
+        self.eval_match_pattern(&arm.pattern, expr_type, &mut inner_scope)?;
         self.eval_expr(&arm.expr, &inner_scope)
     }
 
     fn eval_match_pattern(
         &self,
-        pattern: &MatchPattern,
+        pattern: &Src<MatchPattern>,
         expr_type: &ScriptType,
-        scope: &Scope,
-    ) -> TypeResult<Scope> {
-        let mut inner_scope = scope.clone();
-
-        match pattern {
+        scope: &mut Scope,
+    ) -> TypeResult<()> {
+        match pattern.as_ref() {
             MatchPattern::Assignee(name) => {
-                inner_scope.set_local(name, expr_type.flatten().clone());
+                scope.set_local(name, expr_type.flatten().clone());
             }
-            MatchPattern::Variant(prefix, name, Some(assignee))
-                if prefix.is_none() && name.as_str() == "Ok" =>
-            {
-                let Some(pattern) = &assignee.pattern else {
-                    todo!("Handle missing args for Ok");
-                };
-                if pattern.len() != 1 {
-                    todo!("Handle wrong args for Ok");
-                }
-                let arg = pattern.first().expect("we just checked");
-                if arg.pattern.is_some() {
-                    unimplemented!("Destructure Ok(): {:?}", assignee)
-                }
-                let (inner_value, _) = expr_type.as_fallible()?;
-                if let Some(name) = &arg.name {
-                    inner_scope.set_local(name, inner_value.clone());
+            MatchPattern::FallibleOk(ok_pattern) => {
+                let (ok_type, _) = expr_type.as_fallible()?;
+                self.eval_match_pattern(ok_pattern, ok_type, scope)?;
+            }
+            MatchPattern::FallibleErr(err_pattern) => {
+                let (_, err_type) = expr_type.as_fallible()?;
+                self.eval_match_pattern(err_pattern, err_type, scope)?;
+            }
+            MatchPattern::Tuple(args_pattern) => {
+                if let Some(tuple) = expr_type.as_tuple() {
+                    self.eval_tuple_match_pattern(tuple, args_pattern, scope)?
+                } else {
+                    todo!("ERROR expected tuple")
                 }
             }
-            MatchPattern::Variant(prefix, name, Some(assignee))
-                if prefix.is_none() && name.as_str() == "Err" =>
-            {
-                let Some(pattern) = &assignee.pattern else {
-                    todo!("Handle missing args for Err");
-                };
-                if pattern.len() != 1 {
-                    todo!("Handle wrong args for Err");
-                }
-                let arg = pattern.first().expect("we just checked");
-                if arg.pattern.is_some() {
-                    unimplemented!("Destructure Err(): {:?}", assignee)
-                }
-                let (_, inner_err) = expr_type.as_fallible()?;
-                if let Some(name) = &arg.name {
-                    inner_scope.set_local(name, inner_err.clone());
-                }
-            }
-            MatchPattern::Variant(_, name, Some(assignee)) => {
-                let var_typ = if let ScriptType::UnionInstance(e) = expr_type.flatten() {
-                    e.find_variant(name)
+            MatchPattern::Variant(_, name, Some(args_pattern)) => {
+                let (_, var_typ) = if let ScriptType::UnionInstance(e) = expr_type.flatten() {
+                    e.find_variant(name).ok_or_else(|| {
+                        TypeError::new(TypeErrorKind::UndefinedVariant {
+                            type_name: e.name.clone(),
+                            variant_name: name.clone(),
+                        })
+                        .at(pattern.loc)
+                    })?
                 } else {
                     todo!("complex error pattern")
                 };
 
-                // Need to "fake" variant type to tuple type
-                let var_params = var_typ.and_then(|(_, t)| t.params.as_ref());
-                if let Some(tuple) = var_params {
-                    let as_type = ScriptType::Tuple(tuple.clone());
-                    self.eval_assignment(assignee, &as_type, &mut inner_scope)?;
+                if let Some(params) = &var_typ.params {
+                    self.eval_tuple_match_pattern(params, args_pattern, scope)?
                 }
             }
             _ => (),
         }
 
-        Ok(inner_scope)
+        Ok(())
     }
 
     fn try_static_assert(&self, expr: &Src<Expression>, scope: &Scope) -> TypeResult<()> {

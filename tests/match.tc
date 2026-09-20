@@ -97,14 +97,125 @@ fun test_pattern_matching_destructure_union() {
     assert test(VacationPlan::TravelTo(Country::France, City::Paris)) == "visiting Paris, France!"
 }
 
+fun test_pattern_matching_nested_union() {
+    union Country {
+        Spain
+        France
+        Italy
+    }
+
+    union City {
+        Paris
+        Lyon
+        Madrid
+    }
+
+    union VacationPlan {
+        StayAtHome
+        TravelTo(Country, City)
+    }
+
+    fun test(plan: VacationPlan): str {
+        match plan {
+            VacationPlan::StayAtHome { "staying home this year" }
+            VacationPlan::TravelTo(Country::France, City::Paris) { "visiting the city of light!" }
+            VacationPlan::TravelTo(Country::France, city) { "visiting $city in the old republic!" }
+            VacationPlan::TravelTo(country, city) { "visiting $city, $country!" }
+        }
+    }
+
+    assert test(VacationPlan::StayAtHome) == "staying home this year"
+    assert test(VacationPlan::TravelTo(Country::France, City::Paris)) == "visiting the city of light!"
+    assert test(VacationPlan::TravelTo(Country::France, City::Lyon)) == "visiting Lyon in the old republic!"
+    assert test(VacationPlan::TravelTo(Country::Spain, City::Madrid)) == "visiting Madrid, Spain!"
+}
+
+fun test_pattern_matching_named_args() {
+    union Country {
+        Spain
+        France
+        Italy
+    }
+
+    union City {
+        Paris
+        Lyon
+        Madrid
+    }
+
+    union VacationPlan {
+        StayAtHome
+        TravelTo(country: Country, city: City)
+    }
+
+    fun test(plan: VacationPlan): str {
+        match plan {
+            VacationPlan::StayAtHome { "staying home this year" }
+
+            # XXX Doesn't work without names because of binding rules.
+            # Maybe the restriction should be "reversed" here, so that the pattern works
+            # like a call to the constructor, instead formal arguments
+            VacationPlan::TravelTo(country: Country::France, city: City::Paris) { "visiting the city of light!" }
+
+            # Maybe if name wasn't required, combinations like this would be somewhat ambiguous:
+            VacationPlan::TravelTo(city, country: Country::France) { "visiting $city in the old republic!" }
+
+            # Note: Binding in opposite order from the variant definition:
+            VacationPlan::TravelTo(country: c) { "visiting somewhere in $c!" }
+        }
+    }
+
+    assert test(VacationPlan::StayAtHome) == "staying home this year"
+    assert test(VacationPlan::TravelTo(Country::France, City::Paris)) == "visiting the city of light!"
+    assert test(VacationPlan::TravelTo(country: Country::France, city: City::Lyon)) == "visiting Lyon in the old republic!"
+    assert test(VacationPlan::TravelTo(city: City::Madrid, country: Country::Spain)) == "visiting somewhere in Spain!"
+}
+
+fun test_named_field_match_patterns() {
+    union Color {
+        RGB(r: int, g: int, b: int)
+        HSV(h: int, s: int, v: int)
+    }
+
+    fun test(color: Color): str {
+        match color {
+            Color::RGB(r: 0, g: 0, b: 0) { "0" }
+            Color::RGB(r: _, g: 0, b: 0) { "r" }
+            Color::RGB(r: 0, g: _, b: 0) { "g" }
+            Color::RGB(r: 0, g: 0, b: _) { "b" }
+
+            Color::HSV(0, 0, 0) { "00" }
+            Color::HSV(0, _, _) { "sv" }
+            Color::HSV(_, 0, _) { "hv" }
+            Color::HSV(_, _, 0) { "hs" }
+
+            Color::RGB(_) { "rgb" }
+            Color::HSV(_) { "hsv" }
+        }
+    }
+
+    assert test(Color::RGB(r: 0, g: 0, b: 0)) == "0"
+    assert test(Color::RGB(r: 1, g: 0, b: 0)) == "r"
+    assert test(Color::RGB(r: 0, g: 1, b: 0)) == "g"
+    assert test(Color::RGB(r: 0, g: 0, b: 1)) == "b"
+
+    assert test(Color::HSV(0, 0, 0)) == "00"
+    assert test(Color::HSV(0, 1, 1)) == "sv"
+    assert test(Color::HSV(1, 0, 1)) == "hv"
+    assert test(Color::HSV(1, 1, 0)) == "hs"
+
+    assert test(Color::RGB(1, 2, 3)) == "rgb"
+    assert test(Color::HSV(1, 2, 3)) == "hsv"
+}
+
 fun test_pattern_matching_operator() {
     assert int::parse("0") ~= Ok(_)
     assert int::parse("x") ~= Err(_)
 }
 
 fun test_pattern_matching_operator_variable() {
-    # this is equivalent to:
-    #   match int::parse(42) {
+    # this roughly is equivalent to:
+    #   match int::parse("42") {
     #       Ok(v) { ... }
     #       _ {}
     #   }
@@ -125,4 +236,18 @@ fun test_pattern_matching_operator_variable_returned() {
 
     assert foo("42") == 42
     assert foo("xx") == -1
+}
+
+fun test_literal_ok() {
+    fun test(s: str): int {
+        match int::parse(s) {
+            Ok(10) { 100 }
+            Ok(v) { v }
+            Err(_) { -1 }
+        }
+    }
+
+    assert test("10") == 100
+    assert test("5") == 5
+    assert test("x") == -1
 }

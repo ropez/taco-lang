@@ -133,6 +133,7 @@ pub enum TypeErrorKind {
     TypeAssertionFailed(String),
     PatternAlreadyExhausted(MatchPattern),
     PatternNotExhausted(ScriptType),
+    InvalidPattern(ScriptType),
     MatchHasNoArms,
 }
 
@@ -166,6 +167,10 @@ impl TypeError {
 
     pub fn expected_bool(actual: ScriptType) -> Self {
         Self::expected_type(ScriptType::Bool, actual)
+    }
+
+    pub fn invalid_pattern(expected: ScriptType) -> Self {
+        Self::new(TypeErrorKind::InvalidPattern(expected))
     }
 
     pub fn at(self, loc: impl Into<Option<Loc>>) -> Self {
@@ -256,6 +261,9 @@ impl TypeError {
             TypeErrorKind::TypeNotInferred => "Type can not be inferred".into(),
             TypeErrorKind::TypeAssertionFailed(msg) => {
                 format!("Assertion failed during static analysis.\n\t{msg}")
+            }
+            TypeErrorKind::InvalidPattern(expected_type) => {
+                format!("Invalid pattern for {expected_type}")
             }
             TypeErrorKind::PatternAlreadyExhausted(pattern) => {
                 let msg = "This pattern is already fully exhausted";

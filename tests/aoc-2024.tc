@@ -11,8 +11,7 @@ fun day1_historian_hysteria() {
 
     rec Input(int, int)
 
-    # XXX Implement something like map_ok that short-circuits errors
-    pairs = sample.trim().lines().map(fun(s) { Input::parse(s)! })
+    pairs = sample.trim().lines().map(Input::parse)!
 
     (left, right) = pairs.unzip()
     (left, right) = (left.sort(), right.sort())

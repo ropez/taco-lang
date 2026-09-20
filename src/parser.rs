@@ -237,7 +237,7 @@ pub struct Assignee {
 }
 
 impl Assignee {
-    fn scalar(name: Ident) -> Self {
+    pub(crate) fn scalar(name: Ident) -> Self {
         Self {
             name: Some(name),
             pattern: None,
@@ -259,24 +259,40 @@ pub struct MatchArm {
 }
 
 #[derive(Debug, Clone)]
-pub enum MatchPattern {
+pub(crate) enum MatchPattern {
     Discard,
     Assignee(Ident),
     Literal(Literal),
 
-    // XXX Nested structures should also be MatchPattern.
-    // E.g. Ok(Some(Point(_, _)))
-    Variant(Option<Ident>, Ident, Option<Src<Assignee>>),
+    FallibleOk(Box<Src<MatchPattern>>),
+    FallibleErr(Box<Src<MatchPattern>>),
+
+    Tuple(Vec<MatchPatternItem>),
+
+    // (prefix, name, assignee)
+    //
+    // XXX Feels like 'Assignee' is really just a subset of MatchPattern. Should reuse code!
+    Variant(Option<Ident>, Ident, Option<Vec<MatchPatternItem>>),
 }
 
-impl MatchPattern {
-    pub(crate) fn matches(&self, other: &MatchPattern) -> bool {
-        match self {
-            Self::Discard => true,
-            Self::Assignee(_) => !matches!(other, Self::Discard),
-            Self::Literal(Literal::True) => matches!(other, Self::Literal(Literal::True)),
-            Self::Literal(Literal::False) => matches!(other, Self::Literal(Literal::False)),
-            _ => unreachable!("comparing patterns, {self:?}"),
+#[derive(Debug, Clone)]
+pub(crate) struct MatchPatternItem {
+    pub(crate) name: Option<Src<Ident>>,
+    pub(crate) pattern: Src<MatchPattern>,
+}
+
+impl MatchPatternItem {
+    pub(crate) fn named(name: Src<Ident>, pattern: Src<MatchPattern>) -> Self {
+        Self {
+            name: Some(name),
+            pattern,
+        }
+    }
+
+    pub(crate) fn unnamed(pattern: Src<MatchPattern>) -> Self {
+        Self {
+            name: None,
+            pattern,
         }
     }
 }
@@ -553,8 +569,13 @@ impl<'a> Parser<'a> {
             TokenKind::Minus => {
                 let expr = self.parse_expression(constants::BP_NEGATE)?;
                 let loc = wrap_locations(token.loc, expr.loc);
-                let expr = Src::new(Expression::Negate(expr.into()), loc);
-                self.parse_continuation(expr, bp)?
+
+                // Handle minus literal number
+                let expr = match expr.as_ref() {
+                    Expression::Literal(Literal::Int(n)) => Expression::Literal(Literal::Int(-n)),
+                    _ => Expression::Negate(expr.into()),
+                };
+                self.parse_continuation(Src::new(expr, loc), bp)?
             }
             TokenKind::True => {
                 let e = Src::new(Expression::Literal(Literal::True), token.loc);
@@ -1010,6 +1031,14 @@ impl<'a> Parser<'a> {
             TokenKind::False => Src::new(MatchPattern::Literal(Literal::False), token.loc),
             TokenKind::Number(n) => Src::new(MatchPattern::Literal(Literal::Int(*n)), token.loc),
             TokenKind::Char(c) => Src::new(MatchPattern::Literal(Literal::Char(*c)), token.loc),
+            TokenKind::Minus => {
+                let next_token = self.expect_token()?;
+                let loc = wrap_locations(token.loc, next_token.loc);
+                match next_token.as_ref() {
+                    TokenKind::Number(n) => Src::new(MatchPattern::Literal(Literal::Int(-n)), loc),
+                    _ => todo!("invalid token after {next_token:?}"),
+                }
+            }
             TokenKind::Quotation(quotation) => {
                 let s = self.iter.next_string_chars(quotation)?;
                 self.expect_kind(token.cloned())?;
@@ -1021,20 +1050,42 @@ impl<'a> Parser<'a> {
             TokenKind::Identifier(s) => {
                 // XXX Hard-coded parsing of Ok/Err
                 match s.as_str() {
-                    "Ok" | "Err" => {
-                        let pattern = self.parse_destructuring_pattern(None)?;
-                        let loc = wrap_locations(token.loc, pattern.loc);
-                        Src::new(MatchPattern::Variant(None, s.clone(), Some(pattern)), loc)
+                    "Ok" => {
+                        let t = self.expect_kind(TokenKind::LeftParen)?;
+                        let pattern = self.parse_match_pattern()?;
+                        let e = self.expect_kind(TokenKind::RightParen)?;
+                        let loc = wrap_locations(t.loc, e.loc);
+
+                        Src::new(MatchPattern::FallibleOk(Box::new(pattern)), loc)
+                    }
+                    "Err" => {
+                        let t = self.expect_kind(TokenKind::LeftParen)?;
+                        let pattern = self.parse_match_pattern()?;
+                        let e = self.expect_kind(TokenKind::RightParen)?;
+                        let loc = wrap_locations(t.loc, e.loc);
+
+                        Src::new(MatchPattern::FallibleErr(Box::new(pattern)), loc)
                     }
                     _ => self.handle_identifier_match_pattern(s.clone(), token.loc)?,
                 }
             }
+            TokenKind::LeftParen => {
+                // XXX Inconsistent. Here the metch consumes the paren, but in parse_expression we only peek.
+                let pattern = self.parse_inner_tuple_match_pattern()?;
+                let e = self.expect_kind(TokenKind::RightParen)?;
+
+                let loc = wrap_locations(token.loc, e.loc);
+                Src::new(MatchPattern::Tuple(pattern), loc)
+            }
             TokenKind::DoubleColon => {
                 let (ident, e) = self.expect_ident()?;
                 if let Some(TokenKind::LeftParen) = self.iter.peek_kind()? {
-                    let pattern = self.parse_destructuring_pattern(None)?;
+                    let pattern = self.parse_tuple_match_pattern()?;
                     let loc = wrap_locations(token.loc, pattern.loc);
-                    Src::new(MatchPattern::Variant(None, ident, Some(pattern)), loc)
+                    Src::new(
+                        MatchPattern::Variant(None, ident, Some(pattern.into_inner())),
+                        loc,
+                    )
                 } else {
                     let loc = wrap_locations(token.loc, e);
                     Src::new(MatchPattern::Variant(None, ident, None), loc)
@@ -1054,20 +1105,54 @@ impl<'a> Parser<'a> {
             return Ok(Src::new(MatchPattern::Discard, loc));
         }
         if self.next_if_kind(&TokenKind::DoubleColon)?.is_some() {
+            let prefix = ident;
             let (name, l) = self.expect_ident()?;
             let expr = if let Some(TokenKind::LeftParen) = self.iter.peek_kind()? {
-                let pattern = self.parse_destructuring_pattern(None)?;
+                let pattern = self.parse_tuple_match_pattern()?;
                 let loc = wrap_locations(loc, pattern.loc);
-                Src::new(MatchPattern::Variant(Some(ident), name, Some(pattern)), loc)
+                Src::new(
+                    MatchPattern::Variant(Some(prefix), name, Some(pattern.into_inner())),
+                    loc,
+                )
             } else {
                 let loc = wrap_locations(loc, l);
-                Src::new(MatchPattern::Variant(Some(ident), name, None), loc)
+                Src::new(MatchPattern::Variant(Some(prefix), name, None), loc)
             };
             Ok(expr)
         } else {
             let expr = Src::new(MatchPattern::Assignee(ident), loc);
             Ok(expr)
         }
+    }
+
+    fn parse_tuple_match_pattern(&mut self) -> Result<Src<Vec<MatchPatternItem>>> {
+        let t = self.expect_kind(TokenKind::LeftParen)?;
+        let pattern = self.parse_inner_tuple_match_pattern()?;
+        let e = self.expect_kind(TokenKind::RightParen)?;
+
+        let loc = wrap_locations(t.loc, e.loc);
+        Ok(Src::new(pattern, loc))
+    }
+
+    fn parse_inner_tuple_match_pattern(&mut self) -> Result<Vec<MatchPatternItem>> {
+        self.parse_inner_list(TokenKind::RightParen, |p| {
+            if let Some(TokenKind::Identifier(name)) = p.iter.peek_kind()? {
+                let name = name.clone();
+                let t = p.expect_token()?;
+
+                if p.next_if_kind(&TokenKind::Colon)?.is_some() {
+                    let pattern = p.parse_match_pattern()?;
+                    Ok(MatchPatternItem::named(Src::new(name, t.loc), pattern))
+                } else {
+                    let pattern = p.handle_identifier_match_pattern(name.clone(), t.loc)?;
+                    // Must we treat plain assignee as named?
+                    Ok(MatchPatternItem::unnamed(pattern))
+                }
+            } else {
+                let pattern = p.parse_match_pattern()?;
+                Ok(MatchPatternItem::unnamed(pattern))
+            }
+        })
     }
 
     fn parse_assignee(&mut self) -> Result<Src<Assignee>> {

@@ -34,6 +34,7 @@ pub mod validate;
 
 mod fmt;
 mod output_adapter;
+mod pattern_matching;
 mod stdlib;
 
 #[cfg(test)]

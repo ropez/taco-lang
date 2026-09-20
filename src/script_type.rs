@@ -145,50 +145,6 @@ impl ScriptType {
         matches!(self, ScriptType::Fallible(_, _))
     }
 
-    pub(crate) fn is_exhausted_by(&self, patterns: &[&Src<MatchPattern>]) -> bool {
-        for pat in patterns {
-            match pat.as_ref() {
-                MatchPattern::Discard => return true,
-                MatchPattern::Assignee(_) if !self.is_optional() => return true,
-                _ => {}
-            }
-        }
-
-        // Finite types
-        match self {
-            Self::Bool => {
-                if [
-                    MatchPattern::Literal(Literal::False),
-                    MatchPattern::Literal(Literal::True),
-                ]
-                .iter()
-                .all(|k| patterns.iter().any(|p| k.matches(p)))
-                {
-                    return true;
-                }
-            }
-            Self::Fallible(_, _) => {
-                // This is obviously not a general solution, but it's sufficient as long as we're
-                // not supporting pattern-matching on inner values, and we're preventing duplicates
-                // and illegal patterns.
-                if patterns.len() == 2 {
-                    return true;
-                }
-            }
-            Self::UnionInstance(def) => {
-                // This is obviously not a general solution, but it's sufficient as long as we're
-                // not supporting pattern-matching on inner values, and we're preventing duplicates
-                // and illegal patterns.
-                if patterns.len() == def.variants.len() {
-                    return true;
-                }
-            }
-            _ => {}
-        }
-
-        false
-    }
-
     pub fn as_optional(&self) -> ScriptType {
         if let ScriptType::Opt(_) = self {
             self.clone()
@@ -578,19 +534,19 @@ impl TupleType {
             .map(|a| &a.value)
     }
 
+    pub fn iter_args(&self) -> ArgsTypeIterator<'_, impl Iterator<Item = &ScriptType>> {
+        ArgsTypeIterator::new(self, self.positional())
+    }
+
     fn accepts(&self, other: &TupleType) -> bool {
         // Exact same algorithm as validate_args, but returning boolean
         // instead of Result with code reference.
 
-        let mut positional = other.positional();
+        let mut args = other.iter_args();
         for par in self.0.iter() {
-            let opt_arg = if let Some(name) = &par.name {
-                other.get_named(name).or_else(|| positional.next())
-            } else {
-                positional.next()
-            };
+            let opt_arg = args.resolve(par.name.as_ref());
 
-            if let Some(arg) = opt_arg {
+            if let Some(arg) = &opt_arg {
                 if !par.value.accepts(arg) {
                     return false;
                 }
@@ -600,13 +556,50 @@ impl TupleType {
         }
 
         // All positional must be consumed
-        positional.next().is_none()
+        args.next_positional().is_none()
     }
 }
 
 impl fmt::Display for TupleType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         fmt_tuple(f, self.0.iter().map(|a| (a.name.clone(), &a.value)))
+    }
+}
+
+pub struct ArgsTypeIterator<'a, I>
+where
+    I: Iterator<Item = &'a ScriptType>,
+{
+    tuple: &'a TupleType,
+    positional: I,
+}
+
+impl<'a, I> ArgsTypeIterator<'a, I>
+where
+    I: Iterator<Item = &'a ScriptType>,
+{
+    pub fn new(tuple: &'a TupleType, positional: I) -> Self {
+        Self { tuple, positional }
+    }
+
+    pub fn get(&mut self, name: impl Into<Ident>) -> Option<ScriptType> {
+        if let Some(arg) = self.tuple.get_named(name) {
+            Some(arg.clone())
+        } else {
+            self.next_positional()
+        }
+    }
+
+    pub fn resolve(&mut self, name: Option<&Ident>) -> Option<ScriptType> {
+        if let Some(name) = name {
+            self.get(name)
+        } else {
+            self.next_positional()
+        }
+    }
+
+    pub fn next_positional(&mut self) -> Option<ScriptType> {
+        self.positional.next().cloned()
     }
 }
 
