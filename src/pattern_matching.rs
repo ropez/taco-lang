@@ -80,6 +80,8 @@ pub(crate) fn resolve_tuple_patterns(
 
 #[derive(Debug, Clone, PartialEq)]
 enum TypeSpace {
+    // Special space used for discard, not implemented as LHS of subtract
+    Anything,
     Empty,
     Bool(BoolSpace),
     Int(CommonSpace<i64>),
@@ -116,14 +118,15 @@ where
 impl TypeSpace {
     fn is_empty(&self) -> bool {
         match self {
+            Self::Anything => false,
             Self::Empty => true,
 
             Self::Fallible(FallibleSpace(val, err)) => val.is_empty() && err.is_empty(),
 
-            Self::Tuple(fields) => fields.iter().any(Self::is_empty),
+            Self::Tuple(fields) => tuple_space_is_empty(fields),
 
             Self::Union(variants) => {
-                variants.is_empty() || variants.values().all(|s| s.iter().any(Self::is_empty))
+                variants.is_empty() || variants.values().all(|s| tuple_space_is_empty(s))
             }
 
             Self::None => false,
@@ -157,13 +160,12 @@ impl TypeSpace {
         // XXX Any pattern must allow Opt
 
         match (pattern.as_ref(), script_type) {
-            (MatchPattern::Discard, _) => Ok(TypeSpace::from_type(script_type)),
+            (MatchPattern::Discard, _) => Ok(TypeSpace::Anything),
+
+            (_, ScriptType::Opt(t)) => Self::from_pattern(pattern, t),
+
             (MatchPattern::Assignee(_), _) => {
-                if let ScriptType::Opt(t) = script_type {
-                    Ok(TypeSpace::from_type(t))
-                } else {
-                    Ok(TypeSpace::from_type(script_type))
-                }
+                Ok(TypeSpace::from_type(script_type))
             }
 
             (MatchPattern::Literal(lit), _) => match (lit, script_type) {
@@ -221,6 +223,10 @@ impl TypeSpace {
     }
 }
 
+fn tuple_space_is_empty(fields: &[TypeSpace]) -> bool {
+    fields.iter().any(TypeSpace::is_empty)
+}
+
 fn full_union_variant_space(def: &UnionType) -> HashMap<Ident, Vec<TypeSpace>> {
     let mut variants = HashMap::new();
 
@@ -261,6 +267,7 @@ fn intersect_space(lhs: &TypeSpace, rhs: &TypeSpace) -> TypeSpace {
 
     match (lhs, rhs) {
         (Empty, _) | (_, Empty) => Empty,
+        (Anything, s) | (s, Anything) => s.clone(),
         (Bool(lhs), Bool(rhs)) => intersect_bool(*lhs, *rhs),
         (Int(lhs), Int(rhs)) => intersect_other(lhs, rhs).map(Int).unwrap_or(Empty),
         (Char(lhs), Char(rhs)) => intersect_other(lhs, rhs).map(Char).unwrap_or(Empty),
@@ -389,6 +396,7 @@ fn subtract_space(lhs: &TypeSpace, rhs: &TypeSpace) -> Vec<TypeSpace> {
     use TypeSpace::*;
 
     match (lhs, rhs) {
+        (_, Anything) => vec![],
         (Empty, _) => vec![],
         (_, Empty) => vec![lhs.clone()],
 

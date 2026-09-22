@@ -1334,7 +1334,7 @@ impl Validator {
                 self.eval_match_pattern(err_pattern, err_type, scope)?;
             }
             MatchPattern::Tuple(args_pattern) => {
-                if let Some(tuple) = expr_type.as_tuple() {
+                if let Some(tuple) = expr_type.flatten().as_tuple() {
                     self.eval_tuple_match_pattern(tuple, args_pattern, scope)?
                 } else {
                     todo!("ERROR expected tuple")

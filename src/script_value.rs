@@ -127,6 +127,13 @@ impl ScriptValue {
         matches!(self, Self::Fallible(_))
     }
 
+    pub fn as_some(&self) -> Option<&ScriptValue> {
+        match self {
+            ScriptValue::Opt(opt) => opt.as_ref().and_then(|v| v.as_some()),
+            _ => Some(self),
+        }
+    }
+
     pub fn as_int(&self) -> ScriptResult<i64> {
         match self {
             Self::Int(num) => Ok(*num),

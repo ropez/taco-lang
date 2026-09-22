@@ -629,7 +629,10 @@ impl Interpreter {
             }
             Expression::Matches(lhs, pattern) => {
                 let value = self.eval_expr(lhs, scope)?;
-                if eval_match_pattern(pattern, &value, &scope.types)?.is_some() {
+                if eval_match_pattern(pattern, &value, &scope.types)
+                    .map_err(|err| err.at(pattern.loc))?
+                    .is_some()
+                {
                     ScriptValue::Boolean(true)
                 } else {
                     ScriptValue::Boolean(false)
@@ -800,7 +803,10 @@ impl Interpreter {
                 .map_err(|err| err.at(expr.loc)),
             Expression::Matches(lhs, pattern) => {
                 let value = self.eval_expr(lhs, scope)?;
-                if eval_match_pattern(pattern, &value, &scope.types)?.is_some() {
+                if eval_match_pattern(pattern, &value, &scope.types)
+                    .map_err(|err| err.at(pattern.loc))?
+                    .is_some()
+                {
                     Ok(())
                 } else {
                     Err(ScriptError::new(ScriptErrorKind::AssertionFailed(format!(
@@ -1027,7 +1033,9 @@ impl Interpreter {
     ) -> ScriptResult<ScriptValue> {
         let value = self.eval_expr(expr, scope)?;
         for arm in arms {
-            if let Some(locals) = eval_match_pattern(&arm.pattern, &value, &scope.types)? {
+            if let Some(locals) = eval_match_pattern(&arm.pattern, &value, &scope.types)
+                .map_err(|err| err.at(arm.pattern.loc))?
+            {
                 let ret = self.eval_expr(&arm.expr, &scope.with_locals(locals))?;
                 return Ok(if is_opt {
                     ScriptValue::opt(Some(ret))
@@ -1124,12 +1132,16 @@ fn eval_match_pattern(
     match pattern {
         MatchPattern::Discard => Ok(Some(HashMap::new())),
         MatchPattern::Literal(lit) => {
+            let Some(v) = val.as_some() else {
+                return Ok(None);
+            };
+
             let is_match = match lit {
-                Literal::True => val.as_boolean()?,
-                Literal::False => !val.as_boolean()?,
-                Literal::Int(n) => *n == val.as_int()?,
-                Literal::Char(n) => *n == val.as_char()?,
-                Literal::Str(s) => *s == val.as_string()?,
+                Literal::True => v.as_boolean()?,
+                Literal::False => !v.as_boolean()?,
+                Literal::Int(n) => *n == v.as_int()?,
+                Literal::Char(n) => *n == v.as_char()?,
+                Literal::Str(s) => *s == v.as_string()?,
             };
             if is_match {
                 Ok(Some(HashMap::new()))
@@ -1138,13 +1150,13 @@ fn eval_match_pattern(
             }
         }
         MatchPattern::Assignee(name) => {
-            if val.is_none() {
-                Ok(None)
-            } else {
-                let mut locals = HashMap::new();
-                locals.insert(name.clone(), val.clone());
-                Ok(Some(locals))
-            }
+            let Some(v) = val.as_some() else {
+                return Ok(None);
+            };
+
+            let mut locals = HashMap::new();
+            locals.insert(name.clone(), v.clone());
+            Ok(Some(locals))
         }
         MatchPattern::FallibleOk(pattern) => match val.as_fallible()? {
             Fallible::Ok(value) => eval_match_pattern(pattern, value, types),
@@ -1155,18 +1167,26 @@ fn eval_match_pattern(
             Fallible::Err(value) => eval_match_pattern(pattern, value, types),
         },
         MatchPattern::Tuple(pattern) => {
-            if let Some(value) = val.as_tuple() {
+            let Some(v) = val.as_some() else {
+                return Ok(None);
+            };
+
+            if let Some(value) = v.as_tuple() {
                 if let Some(locals) = eval_tuple_match_pattern(pattern, &value, types)? {
                     Ok(Some(locals))
                 } else {
                     Ok(None)
                 }
             } else {
-                todo!("ERROR expected tuple");
+                Err(ScriptError::panic(format!("Not a tuple: {val}")))
             }
         }
         MatchPattern::Variant(prefix, name, pattern) => {
-            if let ScriptValue::Union { def, index, value } = val {
+            let Some(v) = val.as_some() else {
+                return Ok(None);
+            };
+
+            if let ScriptValue::Union { def, index, value } = v {
                 let resolved_def = {
                     if let Some(ident) = prefix {
                         match types.get(ident) {
@@ -1199,7 +1219,7 @@ fn eval_match_pattern(
                     )))
                 }
             } else {
-                Err(ScriptError::panic("Not a union"))
+                Err(ScriptError::panic(format!("Not a union: {val}")))
             }
         }
     }

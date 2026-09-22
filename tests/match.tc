@@ -251,3 +251,77 @@ fun test_literal_ok() {
     assert test("5") == 5
     assert test("x") == -1
 }
+
+fun test_match_optional_bool() {
+    fun test(x: bool?): str {
+        match x {
+            true { "A" }
+            false { "B" }
+            _ { "none" }
+        }
+    }
+
+    fun make(v: int): bool? {
+        match v {
+            0 { false }
+            1 { true }
+            _ { None }
+        }
+    }
+
+    assert test(false) == "B"
+    assert test(true) == "A"
+    assert test(None) == "none"
+    assert test(make(0)) == "B"
+    assert test(make(1)) == "A"
+    assert test(make(9)) == "none"
+}
+
+fun test_match_optional_tuple() {
+    fun test(x: (int, int)?): str {
+        match x {
+            (0, _) { "A" }
+            (_, 0) { "B" }
+            (_, _) { "other" }
+            _ { "none" }
+        }
+    }
+
+    fun make(v: int): (int, int)? {
+        match v {
+            0 { (1, 0) }
+            1 { (1, 1) }
+            _ { None }
+        }
+    }
+
+    assert test((0, 1)) == "A"
+    assert test((1, 1)) == "other"
+    assert test(None) == "none"
+    assert test(make(0)) == "B"
+    assert test(make(1)) == "other"
+    assert test(make(9)) == "none"
+}
+
+fun test_match_optional_union() {
+    union P { A, B }
+
+    fun make(b: bool): P? {
+        if b {
+            return P::B
+        }
+    }
+
+    fun test(x: P?): str {
+        match x {
+            P::A { "A" }
+            P::B { "B" }
+            _ { "none" }
+        }
+    }
+
+    assert test(make(true)) == "B"
+    assert test(make(false)) == "none"
+    assert test(P::B) == "B"
+    assert test(None) == "none"
+}
