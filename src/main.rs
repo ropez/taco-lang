@@ -20,16 +20,20 @@ use taco::{TestError, TestStats, check_call, run_tests};
 
 fn main() -> io::Result<()> {
     let mut args = args().peekable();
-    let _ = args.next().expect("script name");
+    args.next().expect("taco executable name");
 
     let result = if args.next_if_eq("test").is_some() {
         testing_main(args.next())?;
 
         Ok(())
     } else {
-        let script = args.next().expect("one argument");
-        let src = fs::read_to_string(script).unwrap();
+        let script = if let Some(script) = args.next() {
+            script
+        } else {
+            "main.tc".to_string()
+        };
 
+        let src = fs::read_to_string(script)?;
         check_call(&src, stdout())
     };
 
