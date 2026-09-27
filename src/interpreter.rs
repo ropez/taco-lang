@@ -1240,7 +1240,7 @@ fn eval_tuple_match_pattern(
 
     let mut locals = HashMap::new();
 
-    let resolved = resolve_tuple_patterns(&tuple_type, patterns);
+    let resolved = resolve_tuple_patterns(&tuple_type, patterns).map_err(ScriptError::panic)?;
 
     for (pattern, item) in resolved.iter().zip(val.items()) {
         if let Some(vars) = eval_match_pattern(pattern, &item.value, types)? {

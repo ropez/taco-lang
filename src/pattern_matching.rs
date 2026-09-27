@@ -54,9 +54,10 @@ pub(crate) fn validate_patterns(
 pub(crate) fn resolve_tuple_patterns(
     tuple_type: &TupleType,
     patterns: &[MatchPatternItem],
-) -> Vec<Src<MatchPattern>> {
+) -> TypeResult<Vec<Src<MatchPattern>>> {
     let mut resolved = Vec::new();
     let mut positional = patterns.iter().filter(|arg| arg.name.is_none());
+
     for item in tuple_type.items() {
         let opt_item = if let Some(name) = &item.name {
             patterns
@@ -75,7 +76,33 @@ pub(crate) fn resolve_tuple_patterns(
             resolved.push(Src::new(MatchPattern::Discard, Loc::void()));
         }
     }
-    resolved
+
+    // Check for extra named patterns
+    for arg in patterns.iter().filter_map(|arg| arg.name.as_ref()) {
+        if !tuple_type
+            .items()
+            .iter()
+            .filter_map(|f| f.name.as_ref())
+            .any(|n| n == arg.as_ref())
+        {
+            return Err(
+                TypeError::invalid_pattern(ScriptType::Tuple(tuple_type.clone())).at(arg.loc),
+            );
+        }
+    }
+
+    // Check for extra positional patterns
+    if let Some(arg) = positional.next() {
+        return Err(
+            TypeError::invalid_pattern(ScriptType::Tuple(tuple_type.clone())).at(arg
+                .name
+                .as_ref()
+                .map(|n| n.loc)
+                .unwrap_or(arg.pattern.loc)),
+        );
+    }
+
+    Ok(resolved)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -164,9 +191,7 @@ impl TypeSpace {
 
             (_, ScriptType::Opt(t)) => Self::from_pattern(pattern, t),
 
-            (MatchPattern::Assignee(_), _) => {
-                Ok(TypeSpace::from_type(script_type))
-            }
+            (MatchPattern::Assignee(_), _) => Ok(TypeSpace::from_type(script_type)),
 
             (MatchPattern::Literal(lit), _) => match (lit, script_type) {
                 (Literal::True, ScriptType::Bool) => Ok(Self::Bool(BoolSpace::OnlyTrue)),
@@ -254,7 +279,7 @@ fn tuple_pattern_space(
     pattern_fields: &[MatchPatternItem],
 ) -> TypeResult<Vec<TypeSpace>> {
     let mut fields = Vec::with_capacity(pattern_fields.len());
-    let resolved = resolve_tuple_patterns(tuple_type, pattern_fields);
+    let resolved = resolve_tuple_patterns(tuple_type, pattern_fields)?;
     for (pattern, item) in resolved.iter().zip(tuple_type.items().iter()) {
         fields.push(TypeSpace::from_pattern(pattern, &item.value)?);
     }

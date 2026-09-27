@@ -1097,7 +1097,7 @@ impl Validator {
             let opt_arg = if let Some(name) = &par.name {
                 arguments
                     .iter()
-                    .find(|a| a.name.as_ref() == Some(name))
+                    .find(|a| a.name.as_ref().map(|n| n.as_ref()) == Some(name))
                     .or_else(|| positional.next())
             } else {
                 positional.next()
@@ -1116,12 +1116,29 @@ impl Validator {
             }
         }
 
-        if positional.next().is_some() {
+        // Check for extra named args
+        for arg in arguments.iter().filter_map(|arg| arg.name.as_ref()) {
+            if !formal
+                .items()
+                .iter()
+                .filter_map(|f| f.name.as_ref())
+                .any(|n| n == arg.as_ref())
+            {
+                return Err(TypeError::new(TypeErrorKind::UnexpectedArgument {
+                    expected: formal.clone(),
+                    actual: self.eval_tuple(arguments, scope)?,
+                })
+                .at(arg.loc));
+            }
+        }
+
+        // Check for extra positional args
+        if let Some(arg) = positional.next() {
             return Err(TypeError::new(TypeErrorKind::UnexpectedArgument {
                 expected: formal.clone(),
                 actual: self.eval_tuple(arguments, scope)?,
             })
-            .at(arguments.loc));
+            .at(arg.name.as_ref().map(|n| n.loc).unwrap_or(arg.expr.loc)));
         }
 
         Ok(found_types)
@@ -1243,7 +1260,7 @@ impl Validator {
         patterns: &[MatchPatternItem],
         scope: &mut Scope,
     ) -> TypeResult<()> {
-        let resolved = resolve_tuple_patterns(tuple_type, patterns);
+        let resolved = resolve_tuple_patterns(tuple_type, patterns)?;
 
         for (pattern, item) in resolved.iter().zip(tuple_type.items()) {
             self.eval_match_pattern(pattern, &item.value, scope)?;

@@ -135,16 +135,16 @@ pub enum Literal {
 
 #[derive(Debug)]
 pub struct ArgumentExpression {
-    pub(crate) name: Option<Ident>,
+    pub(crate) name: Option<Src<Ident>>,
     pub(crate) expr: Src<Expression>, // Src outside?
 }
 
 impl ArgumentExpression {
-    pub fn new(name: Option<Ident>, expr: Src<Expression>) -> Self {
+    pub fn new(name: Option<Src<Ident>>, expr: Src<Expression>) -> Self {
         Self { name, expr }
     }
 
-    pub fn named(name: Ident, expr: Src<Expression>) -> Self {
+    pub fn named(name: Src<Ident>, expr: Src<Expression>) -> Self {
         Self::new(Some(name), expr)
     }
 
@@ -1228,7 +1228,7 @@ impl<'a> Parser<'a> {
 
                 if p.next_if_kind(&TokenKind::Colon)?.is_some() {
                     let value = p.parse_expression(0)?;
-                    Ok(ArgumentExpression::named(name, value))
+                    Ok(ArgumentExpression::named(Src::new(name, t.loc), value))
                 } else {
                     let expr = p.handle_identifier_expr(name.clone(), t.loc, 0)?;
 

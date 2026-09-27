@@ -173,7 +173,10 @@ impl NativeFunction for ParseIntFunc {
     }
 
     fn arguments_type(&self, _: &TupleType) -> TypeResult<TupleType> {
-        Ok(TupleType::from_single(ScriptType::Str))
+        Ok(TupleType::new(vec![
+            TupleItemType::unnamed(ScriptType::Str),
+            TupleItemType::optional("base", ScriptType::Int),
+        ]))
     }
 
     fn return_type(&self, _: &TupleType) -> TypeResult<ScriptType> {

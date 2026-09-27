@@ -363,9 +363,9 @@ pub struct TupleItem {
 }
 
 impl TupleItem {
-    pub fn new(name: Option<Ident>, value: impl Into<ScriptValue>) -> Self {
+    pub fn new(name: Option<impl Into<Ident>>, value: impl Into<ScriptValue>) -> Self {
         Self {
-            name,
+            name: name.map(Into::into),
             value: value.into(),
         }
     }
@@ -375,7 +375,7 @@ impl TupleItem {
     }
 
     pub fn unnamed(value: impl Into<ScriptValue>) -> Self {
-        Self::new(None, value)
+        Self::new(None::<Ident>, value)
     }
 }
 

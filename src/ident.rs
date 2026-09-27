@@ -1,5 +1,7 @@
 use std::{fmt::Display, sync::Arc};
 
+use crate::lexer::Src;
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Ident(Arc<str>);
 
@@ -18,6 +20,13 @@ impl From<String> for Ident {
 impl From<&Ident> for Ident {
     fn from(value: &Ident) -> Self {
         value.clone()
+    }
+}
+
+// Tried to implement this for any Src<T>, but failed
+impl From<Src<Ident>> for Ident {
+    fn from(value: Src<Ident>) -> Self {
+        value.into_inner()
     }
 }
 

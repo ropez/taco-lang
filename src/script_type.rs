@@ -416,9 +416,9 @@ pub struct TupleItemType {
 }
 
 impl TupleItemType {
-    pub fn new(name: Option<Ident>, value: ScriptType) -> Self {
+    pub fn new(name: Option<impl Into<Ident>>, value: ScriptType) -> Self {
         Self {
-            name,
+            name: name.map(Into::into),
             value,
             attrs: TypeAttrs::new(),
         }
@@ -441,7 +441,7 @@ impl TupleItemType {
     }
 
     pub fn unnamed(value: ScriptType) -> Self {
-        Self::new(None, value)
+        Self::new(None::<Ident>, value)
     }
 
     pub fn optional(name: impl Into<Ident>, value: ScriptType) -> Self {
@@ -550,7 +550,7 @@ impl TupleType {
                 if !par.value.accepts(arg) {
                     return false;
                 }
-            } else {
+            } else if !par.is_optional() {
                 return false;
             }
         }
