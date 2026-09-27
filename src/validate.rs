@@ -536,31 +536,29 @@ impl Validator {
                             m.clone(),
                             TypeDefinition::clone(typedef),
                         ))
-                    } else {
-                        if let TypeDefinition::UnionDefinition(def) = typedef {
-                            if let Some((_, var)) = def.find_variant(name) {
-                                if let Some(params) = &var.params {
-                                    Ok(ScriptType::UnionVariant {
-                                        def: Arc::clone(def),
-                                        params: params.clone(),
-                                    })
-                                } else {
-                                    Ok(ScriptType::UnionInstance(Arc::clone(def)))
-                                }
-                            } else {
-                                Err(TypeError::new(TypeErrorKind::UndefinedVariant {
-                                    type_name: def.name.clone(),
-                                    variant_name: name.clone(),
+                    } else if let TypeDefinition::UnionDefinition(def) = typedef {
+                        if let Some((_, var)) = def.find_variant(name) {
+                            if let Some(params) = &var.params {
+                                Ok(ScriptType::UnionVariant {
+                                    def: Arc::clone(def),
+                                    params: params.clone(),
                                 })
-                                .at(expr.loc))
+                            } else {
+                                Ok(ScriptType::UnionInstance(Arc::clone(def)))
                             }
                         } else {
-                            Err(TypeError::new(TypeErrorKind::UndefinedMethod {
-                                type_name: prefix.clone(),
-                                method_name: name.clone(),
+                            Err(TypeError::new(TypeErrorKind::UndefinedVariant {
+                                type_name: def.name.clone(),
+                                variant_name: name.clone(),
                             })
                             .at(expr.loc))
                         }
+                    } else {
+                        Err(TypeError::new(TypeErrorKind::UndefinedMethod {
+                            type_name: prefix.clone(),
+                            method_name: name.clone(),
+                        })
+                        .at(expr.loc))
                     }
                 }
                 None => {
@@ -950,7 +948,7 @@ impl Validator {
             self.eval_function_body(f)?;
         }
 
-        if let ScriptType::NativeFunction(f) = subject.as_ref() {
+        if let ScriptType::NativeFunction(_) = subject.as_ref() {
             let args = match arguments {
                 CallExpression::Inline(inline) => self.eval_tuple(inline, scope)?,
                 CallExpression::Destructure(src) => {
@@ -967,8 +965,8 @@ impl Validator {
                 CallExpression::DestructureImplicit(_) => scope.arguments.clone(),
             };
 
-            // XXX Native functions don't support pointing out specifically with argument failed.
-            // We don't pass "Loc" to NativeFunction trait.
+            // XXX Native functions don't support pointing out specifically which
+            // argument failed validation. We don't pass "Loc" to NativeFunction trait.
 
             let params = subject.as_callable_params(&args)?;
 
@@ -1293,7 +1291,7 @@ impl Validator {
 
     fn eval_conditional_body(
         &self,
-        body: &Vec<Statement>,
+        body: &[Statement],
         else_body: &Option<Vec<Statement>>,
         body_scope: Scope,
         else_scope: Scope,

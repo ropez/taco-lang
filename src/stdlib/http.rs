@@ -96,7 +96,7 @@ impl FetchFunc {
     }
 
     fn fail(&self, variant: impl Into<Ident>) -> ScriptError {
-        let err = ScriptValue::variant(&self.http_error, &variant.into());
+        let err = ScriptValue::union_variant(&self.http_error, &variant.into());
         match err {
             Ok(err) => ScriptError::error(err),
             Err(err) => err,
@@ -159,7 +159,7 @@ impl NativeFunction for FetchFunc {
         let extra_headers = args.get("headers").map(|val| val.as_iterable());
         let params = args.get("params").map(|val| val.as_iterable());
 
-        let mut url = Url::parse(&url).map_err(|err| self.fail("UrlError"))?;
+        let mut url = Url::parse(&url).map_err(|_| self.fail("UrlError"))?;
 
         // Add query params
         if let Some(params) = params {
@@ -217,14 +217,14 @@ impl NativeFunction for FetchFunc {
 
         let sock_addr = (hostname, port)
             .to_socket_addrs()
-            .map_err(|err| self.fail("UrlError"))?
+            .map_err(|_| self.fail("UrlError"))?
             .next()
             .ok_or_else(|| self.fail("UrlError"))?;
 
-        let server_name: ServerName = hostname.try_into().map_err(|err| self.fail("TlsError"))?;
+        let server_name: ServerName = hostname.try_into().map_err(|_| self.fail("TlsError"))?;
 
         let connection = ClientConnection::new(config.clone(), server_name.to_owned())
-            .map_err(|err| self.fail("TlsError"))?;
+            .map_err(|_| self.fail("TlsError"))?;
 
         let buf = smol::block_on(async move {
             // Connect to server

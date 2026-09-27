@@ -35,30 +35,22 @@ fun division_with_truncation() {
 }
 
 fun division_by_zero() {
-    # TODO This behavior should be configurable, something like "--checked"
-
     a = 0
     assert "${100 / a}" == "NaN"
 }
 
 fun adding_overflow() {
-    # TODO This behavior should be configurable, something like "--checked"
-
     a = 9000000000000000000
     b = 9000000000000000000
     assert "${a + b}" == "NaN"
 }
 
 fun subtracting_overflow() {
-    # TODO This behavior should be configurable, something like "--checked"
-
     a = 9000000000000000000
     assert "${0 - a - a}" == "NaN"
 }
 
 fun multiplication_overflow() {
-    # TODO This behavior should be configurable, something like "--checked"
-
     a = 9000000000
     b = 9000000000
     assert "${a * b}" == "NaN"

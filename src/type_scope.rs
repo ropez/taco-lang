@@ -4,14 +4,13 @@ use crate::{
     error::{TypeError, TypeErrorKind, TypeResult},
     ident::Ident,
     lexer::Src,
-    native::{NativeType, NativeTypeRef},
+    native::NativeTypeRef,
     parser::{
         AttributeExpression, Expression, Function, Literal, ParamExpression, Record,
         TypeExpression, UnionExpression,
     },
     script_type::{
-        FunctionType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs,
-        UnionType, UnionVariantType,
+        FunctionType, RecType, ScriptType, TupleItemType, TupleType, TypeAttribute, UnionType, UnionVariantType,
     },
     script_value::{ScriptValue, Tuple, TupleItem},
 };

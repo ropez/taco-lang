@@ -259,7 +259,7 @@ pub struct MatchArm {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) enum MatchPattern {
+pub enum MatchPattern {
     Discard,
     Assignee(Ident),
     Literal(Literal),
@@ -276,7 +276,7 @@ pub(crate) enum MatchPattern {
 }
 
 #[derive(Debug, Clone)]
-pub(crate) struct MatchPatternItem {
+pub struct MatchPatternItem {
     pub(crate) name: Option<Src<Ident>>,
     pub(crate) pattern: Src<MatchPattern>,
 }

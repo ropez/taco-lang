@@ -8,9 +8,7 @@ use crate::{
     error::{ScriptError, ScriptResult, TypeResult},
     interpreter::Interpreter,
     native::NativeFunction,
-    script_type::{
-        ScriptType, TupleItemType, TupleType, TypeAttribute, TypeAttrs, UnionType, UnionVariantType,
-    },
+    script_type::{ScriptType, TupleItemType, TupleType, TypeAttrs, UnionType, UnionVariantType},
     script_value::{ContentType, ScriptValue, Tuple, TupleItem},
     stdlib::{list::List, parse::ParseError},
     type_scope::TypeDefinition,

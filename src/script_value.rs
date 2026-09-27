@@ -99,8 +99,8 @@ impl ScriptValue {
         Self::Opt(val.map(Box::new))
     }
 
-    pub fn variant(def: &Arc<UnionType>, name: &Ident) -> ScriptResult<Self> {
-        let (index, var) = def
+    pub fn union_variant(def: &Arc<UnionType>, name: &Ident) -> ScriptResult<Self> {
+        let (index, _) = def
             .find_variant(name)
             .ok_or_else(|| ScriptError::panic("Variant not found"))?;
 

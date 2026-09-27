@@ -65,7 +65,7 @@ impl ParseError {
 
 #[derive(Clone, Debug)]
 pub struct TypeError {
-    pub kind: TypeErrorKind,
+    pub kind: Box<TypeErrorKind>,
     pub hint: Option<String>,
     pub(crate) loc: Option<Loc>,
 }
@@ -148,7 +148,7 @@ impl fmt::Display for TypeError {
 impl TypeError {
     pub fn new(kind: TypeErrorKind) -> Self {
         Self {
-            kind,
+            kind: kind.into(),
             hint: None,
             loc: None,
         }
@@ -192,7 +192,7 @@ impl TypeError {
     }
 
     pub(crate) fn into_source_error(self, source: &str) -> Error {
-        let msg = match self.kind {
+        let msg = match self.kind.as_ref() {
             TypeErrorKind::UndefinedReference(ident) => format!("Undefined reference: {ident}"),
             TypeErrorKind::TypeNotFound(ident) => format!("Type not found: {ident}"),
             TypeErrorKind::UndefinedMethod {

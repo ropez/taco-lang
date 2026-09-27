@@ -464,29 +464,27 @@ impl Interpreter {
                             v.clone()
                         } else if let Some(method) = self.type_methods.get(name) {
                             ScriptValue::NativeTypeMethodBound(method.clone(), typedef.clone())
-                        } else {
-                            if let TypeDefinition::UnionDefinition(v) = typedef {
-                                if let Some((index, variant)) =
-                                    v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
-                                {
-                                    if variant.params.is_none() {
-                                        ScriptValue::Union {
-                                            def: Arc::clone(v),
-                                            index,
-                                            value: Arc::new(Tuple::identity()),
-                                        }
-                                    } else {
-                                        ScriptValue::UnionVariant {
-                                            def: Arc::clone(v),
-                                            index,
-                                        }
+                        } else if let TypeDefinition::UnionDefinition(v) = typedef {
+                            if let Some((index, variant)) =
+                                v.variants.iter().enumerate().find(|(_, v)| v.name == *name)
+                            {
+                                if variant.params.is_none() {
+                                    ScriptValue::Union {
+                                        def: Arc::clone(v),
+                                        index,
+                                        value: Arc::new(Tuple::identity()),
                                     }
                                 } else {
-                                    panic!("Union variant not found: {name} in {prefix}");
+                                    ScriptValue::UnionVariant {
+                                        def: Arc::clone(v),
+                                        index,
+                                    }
                                 }
                             } else {
-                                panic!("Unexpected expression {qualified_name}")
+                                panic!("Union variant not found: {name} in {prefix}");
                             }
+                        } else {
+                            panic!("Unexpected expression {qualified_name}")
                         }
                     }
                     _ => {
