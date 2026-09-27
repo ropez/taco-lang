@@ -437,8 +437,6 @@ impl Validator {
                 if !matches!(typ, ScriptType::Bool) {
                     return Err(TypeError::expected_bool(typ).at(expr.loc));
                 }
-
-                self.try_static_assert(expr, &scope)?;
             }
             Statement::Break => {}    // XXX Not allowed outside loop
             Statement::Continue => {} // XXX Not allowed outside loop
@@ -1376,66 +1374,6 @@ impl Validator {
         }
 
         Ok(())
-    }
-
-    fn try_static_assert(&self, expr: &Src<Expression>, scope: &Scope) -> TypeResult<()> {
-        if let Expression::Equal(lhs, rhs) = expr.as_ref() {
-            let rhs = self.try_static_eval(rhs.as_ref(), scope)?;
-            let lhs = self.try_static_eval(lhs.as_ref(), scope)?;
-
-            if let Some(lhs) = lhs
-                && let Some(rhs) = rhs
-                && lhs != rhs
-            {
-                return Err(TypeError::new(TypeErrorKind::TypeAssertionFailed(format!(
-                    "{lhs} == {rhs}"
-                )))
-                .at(expr.loc));
-            }
-        }
-
-        Ok(())
-    }
-
-    // XXX For general purpose, this should return ScriptValue instead of String
-    fn try_static_eval(&self, expr: &Expression, scope: &Scope) -> TypeResult<Option<String>> {
-        let opt = match expr {
-            Expression::Literal(literal) => match literal {
-                Literal::Str(s) => Some(s.to_string()),
-                _ => None,
-            },
-            Expression::String(s) => {
-                if s.len() == 1
-                    && let Some(Expression::Literal(Literal::Str(f))) =
-                        s.first().map(|k| k.as_ref())
-                {
-                    Some(f.to_string())
-                } else {
-                    None
-                }
-            }
-            Expression::Call { subject, arguments } => {
-                if let Expression::Ref(f) = subject.as_ref().as_ref()
-                    && f.as_str() == "typeof"
-                {
-                    let CallExpression::Inline(arguments) = arguments.as_ref() else {
-                        return Ok(None);
-                    };
-                    let inline = self.eval_tuple(arguments, scope)?;
-                    let actual = inline.items().first();
-                    let Some(actual) = actual else {
-                        return Ok(None);
-                    };
-
-                    Some(actual.value.to_string())
-                } else {
-                    None
-                }
-            }
-            _ => None,
-        };
-
-        Ok(opt)
     }
 }
 
