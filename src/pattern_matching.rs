@@ -37,10 +37,14 @@ pub(crate) fn validate_patterns(
 
         // XXX spaces might be equivalent but not equal by direct comparison
         if next_remaining == remaining {
-            return Err(
-                TypeError::new(TypeErrorKind::PatternAlreadyExhausted(pattern.cloned()))
-                    .at(pattern.loc),
-            );
+            let err = TypeError::new(TypeErrorKind::PatternAlreadyExhausted)
+                .at(pattern.loc);
+            return Err(match pattern.as_ref() {
+                MatchPattern::Assignee(n) => {
+                    err.with_hint(format!("'{n}' is treated as a variable name here"))
+                }
+                _ => err,
+            });
         }
 
         remaining = next_remaining;

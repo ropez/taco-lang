@@ -7,7 +7,6 @@ use std::{
 use crate::{
     ident::Ident,
     lexer::{Loc, TokenKind},
-    parser::MatchPattern,
     script_type::{ScriptType, TupleType},
     script_value::ScriptValue,
 };
@@ -60,13 +59,14 @@ impl ParseError {
             ParseErrorKind::InvalidNumber => String::from("Invalid numeric literal"),
         };
 
-        Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
+        Error::new(msg, None, source, self.loc.unwrap_or(Loc::start()))
     }
 }
 
 #[derive(Clone, Debug)]
 pub struct TypeError {
     pub kind: TypeErrorKind,
+    pub hint: Option<String>,
     pub(crate) loc: Option<Loc>,
 }
 
@@ -131,7 +131,7 @@ pub enum TypeErrorKind {
     MissingReturnStatement,
     EmptyList,
     TypeAssertionFailed(String),
-    PatternAlreadyExhausted(MatchPattern),
+    PatternAlreadyExhausted,
     PatternNotExhausted(ScriptType),
     InvalidPattern(ScriptType),
     MatchHasNoArms,
@@ -147,7 +147,11 @@ impl fmt::Display for TypeError {
 
 impl TypeError {
     pub fn new(kind: TypeErrorKind) -> Self {
-        Self { kind, loc: None }
+        Self {
+            kind,
+            hint: None,
+            loc: None,
+        }
     }
 
     pub fn invalid_argument(expected: impl Into<String>, actual: ScriptType) -> Self {
@@ -171,6 +175,13 @@ impl TypeError {
 
     pub fn invalid_pattern(expected: ScriptType) -> Self {
         Self::new(TypeErrorKind::InvalidPattern(expected))
+    }
+
+    pub fn with_hint(self, hint: impl Into<String>) -> Self {
+        Self {
+            hint: Some(hint.into()),
+            ..self
+        }
     }
 
     pub fn at(self, loc: impl Into<Option<Loc>>) -> Self {
@@ -265,13 +276,8 @@ impl TypeError {
             TypeErrorKind::InvalidPattern(expected_type) => {
                 format!("Invalid pattern for {expected_type}")
             }
-            TypeErrorKind::PatternAlreadyExhausted(pattern) => {
-                let msg = "This pattern is already fully exhausted";
-                if let MatchPattern::Assignee(a) = pattern {
-                    format!("{msg} Note: '{a}' is treated as a variable name.")
-                } else {
-                    msg.into()
-                }
+            TypeErrorKind::PatternAlreadyExhausted => {
+                "This pattern is already fully exhausted".into()
             }
             TypeErrorKind::PatternNotExhausted(actual) => {
                 format!("Type not fully exhausted by patterns. Found {actual}")
@@ -279,7 +285,7 @@ impl TypeError {
             TypeErrorKind::MatchHasNoArms => "Match expression has no arms".into(),
         };
 
-        Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
+        Error::new(msg, self.hint, source, self.loc.unwrap_or(Loc::start()))
     }
 }
 
@@ -334,7 +340,7 @@ impl ScriptError {
             ScriptErrorKind::AssertionFailed(msg) => format!("Assertion failed: {msg}"),
         };
 
-        Error::new(msg, source, self.loc.unwrap_or(Loc::start()))
+        Error::new(msg, None, source, self.loc.unwrap_or(Loc::start()))
     }
 }
 
@@ -353,15 +359,17 @@ pub type ScriptResult<T> = result::Result<T, ScriptError>;
 #[derive(Debug, Clone)]
 pub struct Error {
     pub message: String,
+    pub hint: Option<String>,
     pub loc: Loc,
     details: Vec<String>,
 }
 
 impl Error {
-    pub fn new(message: String, source: &str, loc: Loc) -> Self {
+    pub fn new(message: String, hint: Option<String>, source: &str, loc: Loc) -> Self {
         let details = format_error_details(source, loc).unwrap_or_default();
         Self {
             message,
+            hint,
             loc,
             details,
         }
@@ -373,6 +381,12 @@ impl fmt::Display for Error {
         writeln!(f)?;
         writeln!(f, "\x1b[31m     {}\x1b[0m", self.message)?;
         writeln!(f)?;
+
+        if let Some(hint) = &self.hint {
+            writeln!(f, "\x1b[36m     Hint: {}\x1b[0m", hint)?;
+            writeln!(f)?;
+        }
+
         for line in &self.details {
             write!(f, "{}", line)?;
         }
